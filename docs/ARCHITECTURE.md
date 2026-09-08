@@ -115,14 +115,17 @@ The supervisor uses deterministic labels rather than asking a separate LLM to cl
 Default risk routes:
 
 - `risk:mechanical` -> GPT-5.6 Luna / low reasoning;
-- `risk:normal` -> GPT-5.6 Terra / medium reasoning;
+- `risk:normal` -> GPT-5.6 Luna / medium reasoning;
+- `risk:investigative` -> GPT-5.6 Terra / medium reasoning;
 - `risk:architecture` -> GPT-5.6 Sol / high reasoning;
 - `risk:end-to-end` -> GPT-6 Astra / medium reasoning;
-- no risk/model label -> GPT-5.6 Terra / medium reasoning.
+- no risk/model label -> GPT-5.6 Luna / medium reasoning.
 
 Explicit `model:*` labels override risk routing, and explicit `effort:*` labels override reasoning effort. Conflicting labels fail closed.
 
-Astra is intentionally a fourth tier rather than a replacement for Sol. It is reserved for the hardest end-to-end tasks where stronger implementation/tool-use/verification behavior can plausibly save iterations. Sol remains the architecture-sensitive default when the job is primarily reasoning over code and contracts.
+Luna is the default workhorse for bounded implementation. Terra is an explicit upgrade for ambiguous debugging, multi-layer investigation, or substantial implementation where a cheaper first attempt is likely to waste iterations. Sol remains the architecture-sensitive default when the job is primarily reasoning over code and contracts. Astra is intentionally a fourth tier rather than a replacement for Sol and is reserved for the hardest end-to-end tasks where stronger implementation/tool-use/verification behavior can plausibly save iterations.
+
+This split is evidence-driven: the #93 Luna mechanical benchmark completed in one turn with no visible allowance movement, while the #95 Terra investigative benchmark also completed in one turn but consumed 8 percentage points of the five-hour allowance and 2 points of the weekly allowance. The Terra session still cached about 93% of input, so the higher cost was not a cache-failure signal.
 
 ## Context budget
 
@@ -131,7 +134,8 @@ RPG Kingdom's own `AGENTS.md` always wins. The supervisor does not skip reposito
 Within those requirements, workers are told to scale exploration to the task:
 
 - mechanical work should not inventory unrelated systems;
-- normal work should stay within affected system implementation/tests and required docs;
+- normal work should stay within affected system implementation/tests and required docs and prefer a focused implementation path;
+- investigative work may expand across the affected runtime/test/system layers only far enough to distinguish plausible root causes;
 - architecture work may expand to affected cross-system contracts;
 - end-to-end work may build broader context when necessary for actual verification.
 
@@ -172,7 +176,7 @@ Proved one low-risk RPG Kingdom issue can travel from `symphony:ready` to an ins
 
 ### Phase 2 — budgeted model/risk routing — CURRENT
 
-Route Luna/Terra/Sol/Astra with explicit overrides, reduce turn budget, scale context, and prevent automatic fresh-session redispatch. Benchmark a second trivial task against #91 before increasing workload.
+Route Luna/Terra/Sol/Astra with explicit overrides, reduce turn budget, scale context, and prevent automatic fresh-session redispatch. The Luna mechanical and Terra investigative lanes are now measured; Sol/Astra should be validated on genuine work when those classes naturally occur rather than through synthetic allowance spend.
 
 ### Phase 3 — Unity-aware scheduling
 

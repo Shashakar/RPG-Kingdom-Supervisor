@@ -24,9 +24,10 @@ assert_fails() {
   fi
 }
 
-assert_route $'gpt-5.6-terra\tmedium\tterra' ""
+assert_route $'gpt-5.6-luna\tmedium\tluna' ""
 assert_route $'gpt-5.6-luna\tlow\tluna' "risk:mechanical"
-assert_route $'gpt-5.6-terra\tmedium\tterra' "risk:normal"
+assert_route $'gpt-5.6-luna\tmedium\tluna' "risk:normal"
+assert_route $'gpt-5.6-terra\tmedium\tterra' "risk:investigative"
 assert_route $'gpt-5.6-sol\thigh\tsol' "risk:architecture"
 assert_route $'gpt-6-astra\tmedium\tastra' "risk:end-to-end"
 
@@ -34,8 +35,10 @@ assert_route $'gpt-6-astra\tmedium\tastra' "risk:end-to-end"
 assert_route $'gpt-5.6-terra\tmedium\tterra' $'risk:architecture\nmodel:terra'
 assert_route $'gpt-6-astra\thigh\tastra' $'risk:normal\nmodel:astra\neffort:high'
 assert_route $'gpt-5.6-luna\tmedium\tluna' $'model:luna\neffort:medium'
+assert_route $'gpt-5.6-terra\tlow\tterra' $'risk:normal\nmodel:terra\neffort:low'
 
 assert_fails $'model:luna\nmodel:terra'
+assert_fails $'risk:normal\nrisk:investigative'
 assert_fails $'risk:mechanical\nrisk:architecture'
 assert_fails $'effort:low\neffort:high'
 
