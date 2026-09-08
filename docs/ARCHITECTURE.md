@@ -2,7 +2,7 @@
 
 ## Purpose
 
-RPG Kingdom Supervisor removes manual Codex session management from RPG Kingdom development while preserving human architectural control and independent review.
+RPG Kingdom Supervisor removes manual Codex session management from RPG Kingdom development while preserving human architectural control, usage discipline, and independent review.
 
 The supervisor is an orchestration system, not a gameplay system. It consumes approved GitHub issues, prepares isolated workspaces, runs Codex through Symphony, and hands completed work back as pull requests.
 
@@ -10,17 +10,17 @@ The supervisor is an orchestration system, not a gameplay system. It consumes ap
 
 ### ChatGPT / human planning
 
-Architecture, prioritization, research, issue definition, and independent PR review remain outside the autonomous execution loop.
+Architecture, prioritization, research, issue definition, risk classification, model overrides, and independent PR review remain outside the autonomous execution loop.
 
-The supervisor does not decide the RPG Kingdom roadmap in Phase 1.
+The supervisor does not decide the RPG Kingdom roadmap.
 
 ### GitHub
 
 `Shashakar/RPG-Kingdom` is the system of record for work and code.
 
-GitHub Issues carry implementation scope. A `symphony:ready` label explicitly opts an issue into autonomous execution.
+GitHub Issues carry implementation scope. A `symphony:ready` label explicitly opts an issue into autonomous execution. Phase 2 risk/model/effort labels communicate execution policy without changing game architecture.
 
-GitHub pull requests are the handoff boundary back to human review. Phase 1 never auto-merges.
+GitHub pull requests are the handoff boundary back to human review. The supervisor never auto-merges.
 
 ### Symphony
 
@@ -34,7 +34,7 @@ Official `openai/symphony` provides:
 - tracker-native tools exposed to Codex while keeping tracker credentials host-side;
 - runtime observability.
 
-This repository provides the RPG Kingdom-specific workflow configuration and operator policy.
+This repository provides RPG Kingdom-specific workflow configuration plus narrow host-side adapters for model routing and fail-closed execution budgeting.
 
 ### Codex
 
@@ -42,18 +42,20 @@ Codex operates only inside the workspace created for the current issue. Once the
 
 Codex is responsible for implementation, relevant tests, required documentation updates, branch publication, and PR creation when the RPG Kingdom repository instructions require them.
 
+Phase 2 starts Codex App Server through `scripts/codex-app-server-router.sh`, which selects an explicit model/reasoning profile from GitHub labels before the thread starts.
+
 ### Unity
 
-Unity is not a Phase 1 orchestration resource.
+Unity is not yet an orchestrated exclusive resource.
 
-The initial supervisor may dispatch code-only work or work that can safely stop with explicit Unity validation remaining. Automated exclusive Unity scheduling and editor integration are separate later phases.
+The supervisor may dispatch code-only work or work that can safely stop with explicit Unity validation remaining. Automated exclusive Unity scheduling and editor integration remain separate later phases.
 
-## Phase 1 flow
+## Current flow
 
 ```text
 Human + ChatGPT
       |
-      | define/review issue
+      | define issue + risk/model override when useful
       v
 GitHub issue + symphony:ready
       |
@@ -65,60 +67,112 @@ Official Symphony
 clone Shashakar/RPG-Kingdom
       |
       v
+Codex router
+      |
+      | labels -> Luna / Terra / Sol / Astra + effort
+      v
 Codex App Server
       |
       | read RPG Kingdom instructions
       | create codex/* branch
-      | implement + test + document
+      | implement + validate
       | push + open PR
+      | remove symphony:ready
       v
 GitHub PR
       |
       v
 Human + ChatGPT review
+
+If worker attempt ends while symphony:ready remains:
+      |
+      v
+host after-run budget guard
+      |
+      | remove symphony:ready
+      | add symphony:halted
+      v
+human/ChatGPT inspection before any retry
 ```
 
 ## Dispatch contract
 
-Phase 1 uses a deliberately small contract:
+The current contract is deliberately small:
 
 - issue must be open;
 - issue must have `symphony:ready`;
 - maximum concurrent agents is `1`;
-- the worker keeps `symphony:ready` while implementation is active;
-- when a PR is ready for human review, the worker removes `symphony:ready` as its final orchestration-label mutation so the issue is no longer dispatchable;
+- maximum turns per worker attempt is `4`;
+- the worker keeps `symphony:ready` while implementation is genuinely active;
+- when a PR is ready for human review, the worker removes `symphony:ready` as its final orchestration-label mutation;
+- if the worker attempt ends with that lease still present, the host guard removes it and adds `symphony:halted` so another fresh Codex thread cannot start automatically;
 - the issue remains open until the normal RPG Kingdom review/merge process decides its final outcome.
 
-Later phases may introduce explicit `running`, `review`, `blocked`, and `failed` labels if they provide real operator value. They are not required for the first smoke path.
+## Model/risk routing
+
+The supervisor uses deterministic labels rather than asking a separate LLM to classify every issue. This avoids spending Codex allowance merely to decide which Codex model should run.
+
+Default risk routes:
+
+- `risk:mechanical` -> GPT-5.6 Luna / low reasoning;
+- `risk:normal` -> GPT-5.6 Terra / medium reasoning;
+- `risk:architecture` -> GPT-5.6 Sol / high reasoning;
+- `risk:end-to-end` -> GPT-6 Astra / medium reasoning;
+- no risk/model label -> GPT-5.6 Terra / medium reasoning.
+
+Explicit `model:*` labels override risk routing, and explicit `effort:*` labels override reasoning effort. Conflicting labels fail closed.
+
+Astra is intentionally a fourth tier rather than a replacement for Sol. It is reserved for the hardest end-to-end tasks where stronger implementation/tool-use/verification behavior can plausibly save iterations. Sol remains the architecture-sensitive default when the job is primarily reasoning over code and contracts.
+
+## Context budget
+
+RPG Kingdom's own `AGENTS.md` always wins. The supervisor does not skip repository-required architecture/system documentation to save tokens.
+
+Within those requirements, workers are told to scale exploration to the task:
+
+- mechanical work should not inventory unrelated systems;
+- normal work should stay within affected system implementation/tests and required docs;
+- architecture work may expand to affected cross-system contracts;
+- end-to-end work may build broader context when necessary for actual verification.
+
+This is meant to reduce repeated context processing, not weaken architecture discipline.
+
+## Execution budget boundary
+
+Phase 1 demonstrated that upstream Symphony's `agent.max_turns` is a per-worker-lifetime ceiling, not a total issue budget. If an issue remains open and routable after that ceiling, the orchestrator can dispatch a new worker lifetime.
+
+Phase 2 therefore treats `symphony:ready` as both dispatch authorization and the hard redispatch lease. The `after_run` guard revokes that lease when an attempt ends without a clean handoff.
+
+The guard is intentionally host-side and uses the narrow Symphony tracker credential. Codex does not receive that secret.
 
 ## Authentication boundary
 
-Symphony owns tracker authentication on the host side and exposes its provider-native `github_api` tool to Codex. Tracker token environment aliases are intentionally removed from the Codex child environment by the evaluated upstream revision.
+Symphony owns tracker authentication on the host side and exposes its provider-native `github_api` tool to Codex. The tracker token is stored in `SYMPHONY_GITHUB_TOKEN` and is scrubbed from the Codex child environment by the evaluated upstream revision.
 
-Repository Git operations are a separate concern. The operator host must already be able to clone and push `Shashakar/RPG-Kingdom` using its normal Git authentication mechanism. Do not reuse or expose the Symphony tracker token merely to make `git push` work.
+Repository Git operations are separate. The operator host must already be able to clone and push `Shashakar/RPG-Kingdom` using normal Git/GitHub CLI authentication. Do not reuse or expose the narrow Symphony tracker token merely to make `git push` work.
+
+The model router runs as the Codex launch command after the tracker secret is scrubbed. It reads issue routing labels using the operator's normal `gh` authentication, not the tracker PAT.
 
 ## Upstream strategy
 
-The default is configuration over forking.
+The default remains configuration over forking.
 
-A local Symphony code change is justified only when a required behavior cannot be expressed safely through:
+Phase 2 does **not** patch official Symphony. The two required behaviors that upstream does not directly expose—per-issue model selection and total-issue fail-closed redispatch—are implemented as narrow shell adapters at existing command/hook seams:
 
-1. `WORKFLOW.md` front matter;
-2. the workflow prompt;
-3. existing Symphony hooks;
-4. documented Symphony extension/tool boundaries.
+1. `codex.command` -> model router;
+2. `hooks.after_run` -> redispatch guard.
 
-Any fork or adapter must have a bounded reason and automated tests.
+A future local Symphony patch is justified only when a required behavior cannot be expressed safely through workflow configuration, prompts, hooks, or command adapters.
 
 ## Planned phases
 
-### Phase 1 — smoke path
+### Phase 1 — smoke path — COMPLETE
 
-Prove one low-risk RPG Kingdom issue can travel from `symphony:ready` to an inspectable PR through Codex App Server.
+Proved one low-risk RPG Kingdom issue can travel from `symphony:ready` to an inspectable PR through Codex App Server.
 
-### Phase 2 — model/risk routing
+### Phase 2 — budgeted model/risk routing — CURRENT
 
-Classify work and select Sol, Terra, or Luna plus reasoning effort. Explicit issue overrides take precedence over automatic routing.
+Route Luna/Terra/Sol/Astra with explicit overrides, reduce turn budget, scale context, and prevent automatic fresh-session redispatch. Benchmark a second trivial task against #91 before increasing workload.
 
 ### Phase 3 — Unity-aware scheduling
 
@@ -142,7 +196,8 @@ The supervisor does not:
 
 - own RPG Kingdom architecture;
 - replace GitHub Issues or PRs;
-- merge autonomous changes in Phase 1;
+- merge autonomous changes;
 - author the Unity production scene merely because an agent can access it;
 - maximize agent count or token consumption;
-- hide failed validation or unresolved blockers.
+- silently escalate work to Astra/Sol;
+- hide failed validation, exhausted budgets, or unresolved blockers.
