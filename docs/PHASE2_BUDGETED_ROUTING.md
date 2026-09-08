@@ -11,11 +11,11 @@ Smoke issue `Shashakar/RPG-Kingdom#91` was a documentation-only change that ulti
 - 27 percentage points of the operator's five-hour Codex allowance;
 - 4 percentage points of the weekly allowance.
 
-Those numbers are the Phase 2 baseline. The purpose of this phase is not merely to choose cheaper models; it is to prevent routine work from buying unnecessary turns and unnecessary context.
+Those numbers are the Phase 2 baseline. The purpose of this phase is not merely to choose cheaper models; it is to prevent routine work from buying unnecessary turns, contexts, and fresh worker lifetimes.
 
 ## Runtime design
 
-Phase 2 keeps one official Symphony process and uses two narrow host-side adapters:
+Phase 2 keeps official Symphony unmodified and uses narrow host-side adapters at its documented command/hook seams:
 
 1. `scripts/codex-app-server-router.sh`
    - derives the GitHub issue number from the Symphony workspace name;
@@ -23,21 +23,26 @@ Phase 2 keeps one official Symphony process and uses two narrow host-side adapte
    - selects model and reasoning effort through `scripts/routing-policy.sh`;
    - execs `codex ... app-server` with explicit model configuration.
 
-2. `scripts/after-run-guard.sh`
-   - runs after a complete Symphony worker attempt;
-   - does nothing when the worker successfully removed `symphony:ready`;
-   - if the attempt ends with the dispatch lease still present, removes `symphony:ready`, adds `symphony:halted`, and comments on the issue;
+2. `scripts/before-run-guard.sh`
+   - runs before each Symphony worker lifetime;
+   - refuses to launch Codex when the workspace already contains `.symphony-attempt-complete`;
+   - gives Phase 2 a local hard execution gate even if a GitHub label mutation is temporarily unavailable.
+
+3. `scripts/after-run-guard.sh`
+   - writes `.symphony-attempt-complete` before any network-dependent cleanup;
+   - does no tracker mutation when the worker already removed `symphony:ready` successfully;
+   - otherwise removes `symphony:ready`, adds `symphony:halted`, and comments on the issue;
    - prevents the Phase 1 failure mode where reaching `agent.max_turns` caused a brand-new Codex thread to be dispatched automatically.
 
-The official Symphony source remains unmodified.
+The local marker is deliberately persistent because Symphony preserves per-issue workspaces. A later retry must therefore be an explicit operator action rather than merely re-adding a GitHub label.
 
 ## Default turn budget
 
 `agent.max_turns` is reduced from 20 to **4**.
 
-Upstream Symphony exposes this as a workflow-level value, not a per-issue value. Four turns is therefore a deliberately conservative global ceiling for Phase 2. A single Codex turn can perform many tool calls and is expected to make substantial repository progress.
+Upstream Symphony exposes this as a workflow-level value rather than a per-issue value. Four turns is therefore a deliberately conservative global ceiling for Phase 2. A single Codex turn can perform many tool calls and is expected to make substantial repository progress.
 
-If four turns are insufficient, the issue halts instead of silently purchasing another worker lifetime. Human/ChatGPT review decides whether another bounded run is justified.
+If four turns are insufficient, the completed-attempt marker prevents another Codex worker lifetime. Human/ChatGPT review decides whether another bounded run is justified.
 
 This is intentionally biased toward preserving allowance rather than maximizing unattended completion at any cost.
 
@@ -100,18 +105,21 @@ The supervisor never overrides a read required by RPG Kingdom's authoritative re
 
 ## Fail-closed redispatch
 
-`symphony:ready` remains the only dispatch lease.
+`symphony:ready` remains the GitHub dispatch lease, but it is no longer the only execution gate.
 
-If an attempt finishes while that label remains, `after-run-guard.sh` removes it first, then adds `symphony:halted`. This makes the issue ineligible before Symphony can poll it again.
+At the end of every worker lifetime, the workspace receives `.symphony-attempt-complete` before the guard makes any GitHub request. A subsequent Symphony worker lifetime reaches `before_run` and is rejected before Codex App Server starts. This remains true even if GitHub is temporarily unavailable when the first attempt ends.
 
-To approve a retry:
+When the GitHub API is available, the after-run guard also removes `symphony:ready` first and then adds `symphony:halted` for operator visibility.
 
-1. inspect the PR/workspace/logs and determine why the previous run did not hand off cleanly;
-2. remove `symphony:halted`;
-3. adjust risk/model/effort labels if warranted;
-4. re-add `symphony:ready`.
+To approve a retry, use the checked-in helper:
 
-Do not build an automatic retry loop around `symphony:halted`.
+```bash
+bash scripts/rearm-issue.sh <issue-number>
+```
+
+The helper removes `symphony:halted` when present, deletes the local completed-attempt marker, and re-adds `symphony:ready`. Adjust risk/model/effort labels before rearming when the prior route was inappropriate.
+
+Do not build an automatic retry loop around `symphony:halted` or the rearm helper.
 
 ## Phase 2 acceptance test
 
@@ -122,7 +130,7 @@ Desired signal, not a hard promise:
 - 1–2 Codex turns for a trivial task;
 - dramatically less than the 1.55M-input baseline;
 - materially less than the 27% five-hour allowance consumed by #91;
-- no fresh worker session after the configured turn ceiling;
+- no fresh Codex worker lifetime after the configured turn ceiling;
 - correct PR handoff and human review boundary preserved.
 
 If a comparable task still consumes double-digit percentage points of the five-hour allowance, inspect Codex session context/tool/plugin overhead before increasing concurrency or dispatching important backlog work.
