@@ -135,6 +135,7 @@ Risk labels:
 ```text
 risk:mechanical
 risk:normal
+risk:investigative
 risk:architecture
 risk:end-to-end
 ```
@@ -200,12 +201,15 @@ Default routes:
 | Issue policy | Model | Effort |
 |---|---|---|
 | `risk:mechanical` | GPT-5.6 Luna | low |
-| `risk:normal` | GPT-5.6 Terra | medium |
+| `risk:normal` | GPT-5.6 Luna | medium |
+| `risk:investigative` | GPT-5.6 Terra | medium |
 | `risk:architecture` | GPT-5.6 Sol | high |
 | `risk:end-to-end` | GPT-6 Astra | medium |
-| no risk/model label | GPT-5.6 Terra | medium |
+| no risk/model label | GPT-5.6 Luna | medium |
 
 `model:*` labels override the model. `effort:*` labels override reasoning effort.
+
+Use `risk:normal` for bounded implementation, straightforward bug fixes, focused refactors, and similar work where a strong first attempt does not require broad root-cause exploration. Use `risk:investigative` when there are multiple plausible causes, several affected runtime/test layers, or enough ambiguity that a weaker first attempt is likely to waste more allowance than Terra saves.
 
 Astra is deliberately reserved for difficult end-to-end work. Do not use `risk:end-to-end` as a synonym for "important"; importance alone does not justify the allowance cost.
 
@@ -280,17 +284,17 @@ Do not automate this retry loop.
 
 ## 11. Phase 2 benchmark
 
-Issue #91 is the baseline documented in `PHASE2_BUDGETED_ROUTING.md`.
+Issue #91 is the Phase 1 baseline. Issues #93 and #95 provide the Phase 2 measured routes documented in `PHASE2_BUDGETED_ROUTING.md`.
 
-Before dispatching serious backlog work, run one comparable documentation/mechanical issue through `risk:mechanical` and compare:
+The important operator signals are:
 
-- Codex turns;
-- Symphony reported input/output;
+- Codex/Symphony turn count and worker lifetime count;
+- session input split into cached and uncached tokens rather than raw cumulative Symphony totals alone;
 - five-hour allowance movement;
 - weekly allowance movement;
-- whether a second worker lifetime was avoided.
+- whether the selected model materially improved the result enough to justify its cost.
 
-If a trivial Luna-routed task still consumes a large fraction of the five-hour allowance, investigate Codex session/plugin/tool context before increasing concurrency.
+Use real work to validate Sol and Astra when those task classes naturally occur rather than spending allowance on synthetic benchmarks.
 
 ## 12. Still deferred
 
