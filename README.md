@@ -20,14 +20,16 @@ Phase 1 proved the end-to-end path:
 Phase 2 makes that path usage-aware:
 
 - risk/model labels route work among GPT-5.6 Luna, Terra, Sol, and GPT-6 Astra;
-- unclassified work defaults to Terra rather than silently using the most expensive model;
+- Luna / medium is the default for normal and unclassified bounded work;
+- `risk:investigative` promotes ambiguous debugging and multi-layer investigation to Terra / medium;
+- Sol remains the architecture-sensitive tier and Astra remains the hardest end-to-end tier;
 - model and reasoning labels allow explicit human/ChatGPT overrides;
 - worker turns are capped at four for the current phase;
 - a persistent workspace marker prevents a second Codex worker lifetime from starting accidentally;
 - the host also removes `symphony:ready` and adds `symphony:halted` when an attempt ends without a clean PR handoff;
 - worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads.
 
-See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the routing table, the #91 baseline, and the Phase 2 benchmark plan.
+The routing policy was adjusted after real #93/#95 benchmarks showed that Luna mechanical work had negligible visible allowance impact while one successful Terra investigative turn consumed 8 percentage points of the five-hour allowance. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
 ## Repositories
 
