@@ -18,6 +18,8 @@ workspace:
 hooks:
   after_create: |
     git clone https://github.com/Shashakar/RPG-Kingdom.git .
+  before_run: |
+    bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/before-run-guard.sh"
   after_run: |
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/after-run-guard.sh"
 agent:
@@ -107,7 +109,7 @@ The `symphony:ready` label is the dispatch lease.
 - Confirm the PR exists and the remote branch is current before changing the dispatch label.
 - As the final orchestration mutation after the PR is ready for human review, use the injected `github_api` tool to remove `symphony:ready` from the issue. Do not close the issue and do not merge the PR.
 
-Removing `symphony:ready` is intentionally last. If the worker attempt ends while that label is still present, the host-side Phase 2 budget guard removes the lease and adds `symphony:halted` so Symphony cannot silently start another fresh Codex session.
+Removing `symphony:ready` is intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present, the host also removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub mutation is temporarily unavailable.
 
 ## Completion criteria
 
