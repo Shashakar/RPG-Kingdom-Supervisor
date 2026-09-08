@@ -76,12 +76,14 @@ The issue labels communicate expected task risk and therefore how much context i
 
 {% if issue.labels contains "risk:mechanical" %}
 This is mechanical work. Prefer the issue, `AGENTS.md`, the directly affected files, and only repository-mandated supporting docs. Do not inventory unrelated systems.
+{% elsif issue.labels contains "risk:investigative" %}
+This is investigative work. Build enough context to distinguish plausible root causes across the affected runtime/test/system layers, but stop once evidence selects the correct boundary. Do not turn debugging into a repository-wide audit.
 {% elsif issue.labels contains "risk:architecture" %}
 This is architecture-sensitive work. Read `AGENTS.md`, `docs/ARCHITECTURE.md`, the relevant system contracts, and cross-system/save/event docs only where the proposed boundary actually touches them.
 {% elsif issue.labels contains "risk:end-to-end" %}
 This is a difficult end-to-end task. Build enough context to reason across the affected systems and tooling, but still avoid unrelated repository sweeps. Validate behavior through the strongest safely available path.
 {% else %}
-This is normal implementation work. Read `AGENTS.md`, required architecture/system docs, and the affected implementation/tests. Avoid unrelated documentation or repository-wide exploration.
+This is normal bounded implementation work. Read `AGENTS.md`, repository-required architecture/system docs, and the affected implementation/tests. Prefer a focused implementation path over broad investigation; use `risk:investigative` when ambiguity genuinely requires the Terra tier.
 {% endif %}
 
 ## Routing policy
@@ -89,13 +91,14 @@ This is normal implementation work. Read `AGENTS.md`, required architecture/syst
 The App Server launcher chooses the model before this thread starts:
 
 - `risk:mechanical` -> GPT-5.6 Luna / low reasoning;
-- `risk:normal` or no risk label -> GPT-5.6 Terra / medium reasoning;
+- `risk:normal` or no risk label -> GPT-5.6 Luna / medium reasoning;
+- `risk:investigative` -> GPT-5.6 Terra / medium reasoning;
 - `risk:architecture` -> GPT-5.6 Sol / high reasoning;
 - `risk:end-to-end` -> GPT-6 Astra / medium reasoning.
 
 `model:luna`, `model:terra`, `model:sol`, or `model:astra` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
 
-Astra is reserved for work where stronger end-to-end execution is likely to reduce iteration cost. Do not promote routine work to Astra merely because it is available.
+Luna is the default workhorse for bounded implementation. Terra is reserved for ambiguous debugging, multi-layer investigation, substantial implementation where the cheaper route is likely to waste iterations, or explicit escalation. Astra is reserved for work where stronger end-to-end execution is likely to reduce iteration cost. Do not promote routine work merely because a higher-cost model is available.
 
 ## GitHub issue handling
 
