@@ -25,14 +25,17 @@ export SYMPHONY_GITHUB_TOKEN="test-token"
 cd "$TMP/GH-123"
 
 RPGK_GUARD_DRY_RUN=1 bash "$ROOT/scripts/after-run-guard.sh"
+test -f .symphony-attempt-complete
 if grep -Fq '/labels/symphony%3Aready' "$RPGK_TEST_CURL_LOG"; then
   echo "Dry run unexpectedly mutated labels" >&2
   exit 1
 fi
 
+rm -f .symphony-attempt-complete
 : > "$RPGK_TEST_CURL_LOG"
 bash "$ROOT/scripts/after-run-guard.sh"
 
+test -f .symphony-attempt-complete
 grep -Fq '/issues/123/labels?per_page=100' "$RPGK_TEST_CURL_LOG"
 grep -Fq '/issues/123/labels/symphony%3Aready' "$RPGK_TEST_CURL_LOG"
 grep -Fq '/issues/123/labels' "$RPGK_TEST_CURL_LOG"
