@@ -37,8 +37,13 @@ api() {
   curl "${args[@]}" "$API_ROOT/repos/$RPGK_REPO_OWNER/$RPGK_REPO_NAME$path"
 }
 
-labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
-if ! jq -e '.[] | select((.name | ascii_downcase) == "symphony:ready")' >/dev/null <<<"$labels_json"; then
+ready_present() {
+  local labels_json
+  labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
+  jq -e '.[] | select((.name | ascii_downcase) == "symphony:ready")' >/dev/null <<<"$labels_json"
+}
+
+if ! ready_present; then
   # Successful workers remove the dispatch lease before the attempt ends.
   exit 0
 fi
@@ -47,6 +52,14 @@ if [[ "${RPGK_GUARD_DRY_RUN:-0}" == "1" ]]; then
   echo "RPG Kingdom budget guard: would halt GH-$issue_number because symphony:ready remains after the worker attempt" >&2
   exit 0
 fi
+
+# Give the agent's final GitHub mutation a short consistency window before revoking the lease.
+for _ in 1 2; do
+  sleep 1
+  if ! ready_present; then
+    exit 0
+  fi
+done
 
 # Remove the lease first so a subsequent polling tick cannot dispatch another fresh Codex session.
 api DELETE "/issues/$issue_number/labels/symphony%3Aready" >/dev/null
