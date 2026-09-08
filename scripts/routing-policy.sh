@@ -28,7 +28,7 @@ rpgk_select_route() {
   local labels="${1:-}"
 
   local model_labels=(model:luna model:terra model:sol model:astra)
-  local risk_labels=(risk:mechanical risk:normal risk:architecture risk:end-to-end)
+  local risk_labels=(risk:mechanical risk:normal risk:investigative risk:architecture risk:end-to-end)
   local effort_labels=(effort:low effort:medium effort:high)
 
   local model_count
@@ -79,14 +79,19 @@ rpgk_select_route() {
     model="gpt-5.6-sol"
     route="sol"
     default_effort="high"
+  elif rpgk_has_label risk:investigative "$labels"; then
+    model="gpt-5.6-terra"
+    route="terra"
+    default_effort="medium"
   elif rpgk_has_label risk:mechanical "$labels"; then
     model="gpt-5.6-luna"
     route="luna"
     default_effort="low"
   else
-    # Unclassified work defaults to Terra rather than silently spending Sol/Astra allowance.
-    model="gpt-5.6-terra"
-    route="terra"
+    # Normal and unclassified work use Luna / medium. Terra is an explicit
+    # investigative/debugging tier rather than the default cost for C# work.
+    model="gpt-5.6-luna"
+    route="luna"
     default_effort="medium"
   fi
 
