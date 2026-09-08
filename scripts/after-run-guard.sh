@@ -5,6 +5,7 @@ RPGK_REPO_OWNER="${RPGK_REPO_OWNER:-Shashakar}"
 RPGK_REPO_NAME="${RPGK_REPO_NAME:-RPG-Kingdom}"
 API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
+MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -13,8 +14,13 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 
+# Persist the local execution boundary before making any network-dependent tracker mutation.
+# Upstream Symphony preserves the issue workspace across worker lifetimes, so before_run can use
+# this marker to reject any accidental fresh Codex session even if GitHub is temporarily unavailable.
+printf 'completed worker lifetime for GH-%s at %s\n' "$issue_number" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
+
 if [[ -z "$TOKEN" ]]; then
-  echo "RPG Kingdom budget guard: SYMPHONY_GITHUB_TOKEN is missing; cannot fail closed" >&2
+  echo "RPG Kingdom budget guard: SYMPHONY_GITHUB_TOKEN is missing; local redispatch marker is active but tracker cleanup could not run" >&2
   exit 70
 fi
 
@@ -44,7 +50,8 @@ ready_present() {
 }
 
 if ! ready_present; then
-  # Successful workers remove the dispatch lease before the attempt ends.
+  # Successful workers remove the dispatch lease before the attempt ends. Keep the local marker so
+  # any later re-dispatch of this same issue must be an explicit rearm rather than an accidental one.
   exit 0
 fi
 
@@ -61,16 +68,16 @@ for _ in 1 2; do
   fi
 done
 
-# Remove the lease first so a subsequent polling tick cannot dispatch another fresh Codex session.
+# Remove the lease first so a subsequent polling tick cannot dispatch another routable issue.
 api DELETE "/issues/$issue_number/labels/symphony%3Aready" >/dev/null
 
-# The halted label is informational. The dispatch lease is the actual execution gate.
+# The halted label is informational. The local marker plus absence of the ready lease are the actual gates.
 api POST "/issues/$issue_number/labels" '{"labels":["symphony:halted"]}' >/dev/null
 
 comment=$(cat <<'EOF'
 Symphony's Phase 2 budget guard stopped automatic redispatch because this worker attempt ended while `symphony:ready` was still present.
 
-This usually means the task exhausted the configured turn budget or the worker failed before completing the PR handoff. No new worker will start automatically. Review the Symphony/Codex logs and current workspace/PR state before retrying. To authorize another bounded run, remove `symphony:halted` and re-add `symphony:ready`.
+This usually means the task exhausted the configured turn budget or the worker failed before completing the PR handoff. The workspace is also locally marked as having consumed its worker-lifetime budget, so another Codex App Server session will not start even if the GitHub lease cleanup is delayed. Review the Symphony/Codex logs and current workspace/PR state before retrying. Explicitly rearm the issue only after deciding another bounded run is justified.
 EOF
 )
 comment_json="$(jq -n --arg body "$comment" '{body:$body}')"
