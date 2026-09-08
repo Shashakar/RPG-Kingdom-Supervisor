@@ -160,19 +160,21 @@ The only label required to make an issue dispatchable is `symphony:ready`. Risk/
 
 Avoid applying more than one risk label, more than one model label, or more than one effort label. Conflicting routing labels intentionally cause the App Server router to fail closed.
 
-## 6. Validate the routing policy locally
+## 6. Validate Phase 2 locally
 
 Before starting Symphony after a supervisor update:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
-bash tests/routing-policy-test.sh
+bash tests/run.sh
 ```
 
 Expected:
 
 ```text
 routing-policy-test: PASS
+after-run-guard-test: PASS
+supervisor-tests: PASS
 ```
 
 You can also inspect how an existing issue would route without starting Codex by entering its workspace and using the router dry-run mode:
