@@ -158,6 +158,13 @@ effort:high
 
 The only label required to make an issue dispatchable is `symphony:ready`. Risk/model/effort labels affect the Codex route but do not authorize execution by themselves.
 
+Install or update the full label set with:
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/install-labels.sh
+```
+
 Avoid applying more than one risk label, more than one model label, or more than one effort label. Conflicting routing labels intentionally cause the App Server router to fail closed.
 
 ## 6. Validate Phase 2 locally
@@ -176,6 +183,8 @@ routing-policy-test: PASS
 after-run-guard-test: PASS
 supervisor-tests: PASS
 ```
+
+The aggregate runner also executes the Codex-router and local worker-lifetime guard tests; their individual PASS lines are intentionally suppressed to keep routine operator output concise.
 
 You can also inspect how an existing issue would route without starting Codex by entering its workspace and using the router dry-run mode:
 
@@ -212,7 +221,7 @@ mise exec -- ./bin/symphony \
   ~/src/RPG-Kingdom-Supervisor/WORKFLOW.md
 ```
 
-The workflow currently allows one concurrent worker and a maximum of four Codex turns per worker attempt.
+The workflow currently allows one concurrent worker and a maximum of four Codex turns per worker lifetime.
 
 The observability HTTP dashboard remains optional. If you intentionally enable it, keep it loopback-only and review the currently pinned dependency/security posture first.
 
@@ -238,36 +247,34 @@ Expected success path:
 
 1. Symphony sees the open issue with `symphony:ready`.
 2. It creates/reuses the isolated workspace.
-3. The `after_create` hook clones RPG Kingdom using the operator Git credential.
-4. `codex-app-server-router.sh` reads route labels and launches the selected model/effort.
-5. Codex follows RPG Kingdom's checked-in instructions, creates a `codex/` branch, implements, validates, pushes, and opens/updates a PR.
-6. After the reviewable PR exists, Codex removes `symphony:ready`.
-7. The issue remains open and the PR waits for human/ChatGPT review.
+3. `before-run-guard.sh` verifies that this dispatch has not already consumed a worker lifetime.
+4. The `after_create` hook clones RPG Kingdom using the operator Git credential when the workspace is new.
+5. `codex-app-server-router.sh` reads route labels and launches the selected model/effort.
+6. Codex follows RPG Kingdom's checked-in instructions, creates a `codex/` branch, implements, validates, pushes, and opens/updates a PR.
+7. After the reviewable PR exists, Codex removes `symphony:ready`.
+8. `after-run-guard.sh` records the completed worker lifetime locally; successful PR handoff requires no further tracker mutation.
+9. The issue remains open and the PR waits for human/ChatGPT review.
 
 ## 10. Budget exhaustion / failed handoff
 
-Phase 2 deliberately does not allow a still-routable issue to roll directly into another fresh Codex worker lifetime.
+Phase 2 does not allow a still-routable issue to roll directly into another fresh Codex worker lifetime.
 
-If the worker attempt ends and `symphony:ready` is still present, `scripts/after-run-guard.sh`:
+At the end of every worker lifetime, `scripts/after-run-guard.sh` writes `.symphony-attempt-complete` inside that issue's persistent workspace before it makes any GitHub request. A subsequent worker reaches `scripts/before-run-guard.sh` and stops before Codex App Server launches.
+
+If `symphony:ready` is still present, the after-run guard also:
 
 1. removes `symphony:ready` first;
 2. adds `symphony:halted`;
 3. leaves an issue comment explaining that automatic redispatch was stopped.
 
-Before retrying:
+Before retrying, inspect the PR/workspace/Symphony and Codex logs and decide whether another bounded run is justified. Then explicitly rearm it:
 
 ```bash
-gh issue view <number> --repo Shashakar/RPG-Kingdom
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/rearm-issue.sh <number>
 ```
 
-Inspect the PR/workspace/Symphony and Codex logs. If another run is justified:
-
-```bash
-gh issue edit <number> \
-  --repo Shashakar/RPG-Kingdom \
-  --remove-label "symphony:halted" \
-  --add-label "symphony:ready"
-```
+The helper removes `symphony:halted` when present, clears the local completed-attempt marker, and re-adds `symphony:ready`. Change risk/model/effort labels before rearming when the prior route was inappropriate.
 
 Do not automate this retry loop.
 
