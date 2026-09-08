@@ -15,6 +15,7 @@ This repository owns orchestration for autonomous Codex work against `Shashakar/
 - Do not grant workers broader credentials than required.
 - Keep tracker credentials host-side. Do not commit tokens or intentionally inject tracker secrets into Codex child environments.
 - New orchestration behavior must be testable without running the Unity production scene.
+- Treat Codex allowance as a bounded execution budget. Do not optimize for unattended completion by silently adding turns, sessions, concurrency, or higher-cost models.
 
 ## Upstream policy
 
@@ -24,6 +25,7 @@ The baseline runtime is the official `openai/symphony` reference implementation 
 - Review upstream changes before changing the pin.
 - Prefer configuration-only adoption first.
 - Add local code only when a required RPG Kingdom behavior cannot be expressed through the upstream workflow/configuration contract.
+- Prefer narrow command/hook adapters before patching or forking Symphony.
 - If a local patch to Symphony becomes necessary, document why the upstream seam is insufficient before implementing it.
 
 ## Phase discipline
@@ -31,7 +33,7 @@ The baseline runtime is the official `openai/symphony` reference implementation 
 The planned sequence is:
 
 1. GitHub issue -> isolated workspace -> Codex App Server -> PR smoke path.
-2. Automatic model/risk routing with manual overrides.
+2. Budgeted model/risk routing across Luna, Terra, Sol, and Astra with explicit overrides and fail-closed redispatch.
 3. Unity-aware resource scheduling.
 4. Unity worker integration.
 5. Carefully increased concurrency.
