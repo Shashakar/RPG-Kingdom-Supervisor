@@ -1,6 +1,6 @@
 # Supervisor Setup
 
-This document covers the Phase 1 operator setup for running official OpenAI Symphony against `Shashakar/RPG-Kingdom` using this repository's `WORKFLOW.md`.
+This document covers the operator setup for running official OpenAI Symphony against `Shashakar/RPG-Kingdom` using this repository's `WORKFLOW.md`.
 
 ## 1. Host environment
 
@@ -12,6 +12,7 @@ The Symphony host needs:
 - GitHub CLI (`gh`) or another Git authentication path that can push to `Shashakar/RPG-Kingdom`
 - Codex CLI with App Server support
 - `mise`
+- `curl` and `jq`
 - network access to GitHub and OpenAI
 
 Verify from the same shell that will run Symphony:
@@ -21,6 +22,8 @@ git --version
 gh --version
 codex --version
 mise --version
+curl --version
+jq --version
 ```
 
 Also verify that normal repository operations work from that shell before involving Symphony:
@@ -51,6 +54,14 @@ mise exec -- mix setup
 mise exec -- mix build
 ```
 
+On Ubuntu 26.04, if `mise` attempts to compile Erlang and fails on native build dependencies, the precompiled OTP route used during the evaluated setup is:
+
+```bash
+export MISE_ERLANG_COMPILE=false
+export MISE_ERLANG_PRECOMPILED_OS=ubuntu-26.04
+mise install
+```
+
 Do not silently replace the pinned revision with current upstream `main`. Review and deliberately update the pin first.
 
 ## 3. Configure GitHub tracker authentication
@@ -61,9 +72,9 @@ Symphony's GitHub tracker adapter reads the repository configured in `WORKFLOW.m
 SYMPHONY_GITHUB_TOKEN
 ```
 
-Do **not** use `GITHUB_TOKEN` or `GH_TOKEN` for the Symphony tracker credential. GitHub CLI treats those names as authentication overrides, which can replace the operator's stored `gh auth` credential during `git clone`, `git push`, or PR operations. The Symphony tracker PAT is intentionally narrower than the operator Git credential, so conflating the two can cause private-repository clone/push failures.
+Do **not** use `GITHUB_TOKEN` or `GH_TOKEN` for the Symphony tracker credential. GitHub CLI treats those names as authentication overrides, which can replace the operator's stored `gh auth` credential during clone/push/PR operations.
 
-Set a host-side fine-grained PAT with only the repository permissions needed for the GitHub Issues operations used by the workflow. Do not commit it to either repository.
+Set a host-side fine-grained PAT with the minimum GitHub Issues permissions required by the workflow. Do not commit it to either repository.
 
 For an interactive shell session without writing the token to shell history:
 
@@ -75,15 +86,13 @@ unset GITHUB_TOKEN
 unset GH_TOKEN
 ```
 
-The evaluated Symphony revision includes environment-variable references from provider configuration in its secret-scrubbing boundary. Because `WORKFLOW.md` references `$SYMPHONY_GITHUB_TOKEN`, that secret remains host-side and is not inherited by the Codex child.
+The evaluated Symphony revision scrubs the provider secret environment reference before it execs the Codex App Server command. The Phase 2 model router therefore does not receive the narrow tracker PAT.
 
 ### Separate Git push/PR authentication
 
 The tracker token is not the worker's Git credential.
 
-Codex and workspace hooks need the normal operator environment to support clone, branch push, and PR creation. Configure Git/GitHub CLI authentication independently with `gh auth login` and `gh auth setup-git`, then verify it in the same WSL/Linux environment used by Symphony.
-
-With `SYMPHONY_GITHUB_TOKEN` set and `GITHUB_TOKEN`/`GH_TOKEN` unset, verify both paths independently:
+Configure Git/GitHub CLI authentication independently with `gh auth login` and `gh auth setup-git`, then verify it in the same WSL/Linux environment used by Symphony.
 
 ```bash
 gh auth status
@@ -91,101 +100,196 @@ git clone https://github.com/Shashakar/RPG-Kingdom.git /tmp/rpg-kingdom-supervis
 rm -rf /tmp/rpg-kingdom-supervisor-auth-check
 ```
 
-Do not weaken the tracker credential boundary just to make Git operations easier.
+The Phase 2 model router uses this normal `gh` authentication only to read routing labels for the issue being launched.
 
-## 4. Create the dispatch label
-
-Create this label once in `Shashakar/RPG-Kingdom`:
-
-```text
-symphony:ready
-```
-
-Phase 1 uses this single label as an explicit opt-in lease. An open issue is dispatchable only while it has this label.
-
-Do not add it to important implementation issues until the smoke path is ready to run.
-
-## 5. Clone this supervisor repository
+## 4. Clone/update this supervisor repository
 
 ```bash
 git clone https://github.com/Shashakar/RPG-Kingdom-Supervisor.git ~/src/RPG-Kingdom-Supervisor
 cd ~/src/RPG-Kingdom-Supervisor
+git switch main
+git pull --ff-only
 ```
 
-Use the merged `main` version of `WORKFLOW.md` for the smoke test.
+The runtime expects this default path. If you intentionally keep it elsewhere, set:
 
-## 6. Start Symphony
+```bash
+export RPGK_SUPERVISOR_ROOT=/absolute/path/to/RPG-Kingdom-Supervisor
+```
+
+before starting Symphony and update the workflow command/hook path if necessary.
+
+## 5. Create Phase 2 labels
+
+The RPG Kingdom repository needs the following labels.
+
+Dispatch/runtime labels:
+
+```text
+symphony:ready
+symphony:halted
+```
+
+Risk labels:
+
+```text
+risk:mechanical
+risk:normal
+risk:architecture
+risk:end-to-end
+```
+
+Explicit model overrides:
+
+```text
+model:luna
+model:terra
+model:sol
+model:astra
+```
+
+Reasoning overrides:
+
+```text
+effort:low
+effort:medium
+effort:high
+```
+
+The only label required to make an issue dispatchable is `symphony:ready`. Risk/model/effort labels affect the Codex route but do not authorize execution by themselves.
+
+Avoid applying more than one risk label, more than one model label, or more than one effort label. Conflicting routing labels intentionally cause the App Server router to fail closed.
+
+## 6. Validate the routing policy locally
+
+Before starting Symphony after a supervisor update:
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+bash tests/routing-policy-test.sh
+```
+
+Expected:
+
+```text
+routing-policy-test: PASS
+```
+
+You can also inspect how an existing issue would route without starting Codex by entering its workspace and using the router dry-run mode:
+
+```bash
+cd ~/code/rpg-kingdom-symphony-workspaces/GH-<number>
+RPGK_ROUTER_DRY_RUN=1 bash ~/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh
+```
+
+## 7. Phase 2 routing policy
+
+Default routes:
+
+| Issue policy | Model | Effort |
+|---|---|---|
+| `risk:mechanical` | GPT-5.6 Luna | low |
+| `risk:normal` | GPT-5.6 Terra | medium |
+| `risk:architecture` | GPT-5.6 Sol | high |
+| `risk:end-to-end` | GPT-6 Astra | medium |
+| no risk/model label | GPT-5.6 Terra | medium |
+
+`model:*` labels override the model. `effort:*` labels override reasoning effort.
+
+Astra is deliberately reserved for difficult end-to-end work. Do not use `risk:end-to-end` as a synonym for "important"; importance alone does not justify the allowance cost.
+
+## 8. Start Symphony
 
 From the installed Symphony `elixir` directory:
 
 ```bash
+cd ~/src/openai-symphony/elixir
+
 mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   ~/src/RPG-Kingdom-Supervisor/WORKFLOW.md
 ```
 
-Optionally enable the observability service with a port:
+The workflow currently allows one concurrent worker and a maximum of four Codex turns per worker attempt.
+
+The observability HTTP dashboard remains optional. If you intentionally enable it, keep it loopback-only and review the currently pinned dependency/security posture first.
+
+## 9. Dispatch an issue
+
+Before dispatch:
+
+1. make the issue complete enough for unattended implementation;
+2. assign one risk label when the classification is known;
+3. add model/effort overrides only when there is a concrete reason;
+4. then add `symphony:ready`.
+
+Example mechanical dispatch:
 
 ```bash
-mise exec -- ./bin/symphony \
-  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  --port 4000 \
-  ~/src/RPG-Kingdom-Supervisor/WORKFLOW.md
+gh issue edit <number> \
+  --repo Shashakar/RPG-Kingdom \
+  --add-label "risk:mechanical" \
+  --add-label "symphony:ready"
 ```
 
-The workflow currently allows exactly one concurrent Codex worker.
+Expected success path:
 
-## 7. Phase 1 smoke test
+1. Symphony sees the open issue with `symphony:ready`.
+2. It creates/reuses the isolated workspace.
+3. The `after_create` hook clones RPG Kingdom using the operator Git credential.
+4. `codex-app-server-router.sh` reads route labels and launches the selected model/effort.
+5. Codex follows RPG Kingdom's checked-in instructions, creates a `codex/` branch, implements, validates, pushes, and opens/updates a PR.
+6. After the reviewable PR exists, Codex removes `symphony:ready`.
+7. The issue remains open and the PR waits for human/ChatGPT review.
 
-Choose or create a deliberately low-risk RPG Kingdom issue. Good smoke-test work is:
+## 10. Budget exhaustion / failed handoff
 
-- small;
-- code/documentation only;
-- easy to validate;
-- not architecturally sensitive;
-- not dependent on production-scene authoring;
-- safe to close or discard if orchestration fails.
+Phase 2 deliberately does not allow a still-routable issue to roll directly into another fresh Codex worker lifetime.
 
-Before dispatch, make sure the issue itself is complete enough that a competent engineer could implement it without a conversation.
+If the worker attempt ends and `symphony:ready` is still present, `scripts/after-run-guard.sh`:
 
-Then add:
+1. removes `symphony:ready` first;
+2. adds `symphony:halted`;
+3. leaves an issue comment explaining that automatic redispatch was stopped.
 
-```text
-symphony:ready
+Before retrying:
+
+```bash
+gh issue view <number> --repo Shashakar/RPG-Kingdom
 ```
 
-Expected flow:
+Inspect the PR/workspace/Symphony and Codex logs. If another run is justified:
 
-1. Symphony sees the open labeled issue.
-2. It creates an isolated workspace.
-3. The `after_create` hook clones RPG Kingdom into that workspace using the operator Git credential.
-4. Symphony launches Codex through App Server.
-5. Codex reads RPG Kingdom's checked-in instructions.
-6. Codex creates a `codex/` branch, implements, validates, pushes, and opens a PR.
-7. Only after the PR exists, Codex removes `symphony:ready` from the issue.
-8. The issue remains open and the PR waits for human/ChatGPT review.
+```bash
+gh issue edit <number> \
+  --repo Shashakar/RPG-Kingdom \
+  --remove-label "symphony:halted" \
+  --add-label "symphony:ready"
+```
 
-## 8. Failure behavior
+Do not automate this retry loop.
 
-For the first smoke test, do not hide or aggressively auto-recover failures.
+## 11. Phase 2 benchmark
 
-If execution fails:
+Issue #91 is the baseline documented in `PHASE2_BUDGETED_ROUTING.md`.
 
-- retain the relevant Symphony logs and workspace long enough to inspect them;
-- do not manually patch the workspace before understanding the failure;
-- record whether the problem belongs to authentication, workspace creation, Codex/App Server, RPG Kingdom instructions, Git/PR publication, or the workflow contract;
-- fix the supervisor layer only when the failure is genuinely orchestration-related.
+Before dispatching serious backlog work, run one comparable documentation/mechanical issue through `risk:mechanical` and compare:
 
-A gameplay/test failure discovered by Codex is not automatically a supervisor bug.
+- Codex turns;
+- Symphony reported input/output;
+- five-hour allowance movement;
+- weekly allowance movement;
+- whether a second worker lifetime was avoided.
 
-## 9. What Phase 1 intentionally does not configure
+If a trivial Luna-routed task still consumes a large fraction of the five-hour allowance, investigate Codex session/plugin/tool context before increasing concurrency.
 
-The following are deferred until the smoke path is reliable:
+## 12. Still deferred
 
-- Sol/Terra/Luna routing;
-- risk classification;
+Phase 2 does not add:
+
 - more than one concurrent worker;
 - Unity Editor resource locks;
 - automatic Unity execution;
 - automatic merge;
-- automatic PR feedback re-dispatch.
+- automatic PR feedback re-dispatch;
+- automatic retries after `symphony:halted`.
