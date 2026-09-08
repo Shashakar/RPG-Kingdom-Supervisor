@@ -55,25 +55,43 @@ Do not silently replace the pinned revision with current upstream `main`. Review
 
 ## 3. Configure GitHub tracker authentication
 
-Symphony's GitHub tracker adapter reads the repository configured in `WORKFLOW.md` and uses `GITHUB_TOKEN` by default.
+Symphony's GitHub tracker adapter reads the repository configured in `WORKFLOW.md`. This supervisor intentionally uses a dedicated environment variable:
 
-Set a host-side token with the minimum repository permissions needed for GitHub Issues operations used by the workflow. Do not commit it to either repository.
-
-For a shell session:
-
-```bash
-export GITHUB_TOKEN='...'
+```text
+SYMPHONY_GITHUB_TOKEN
 ```
 
-The evaluated Symphony revision intentionally scrubs known GitHub tracker-token aliases from the Codex child environment. The worker receives the provider-native `github_api` tool instead of direct access to the tracker credential.
+Do **not** use `GITHUB_TOKEN` or `GH_TOKEN` for the Symphony tracker credential. GitHub CLI treats those names as authentication overrides, which can replace the operator's stored `gh auth` credential during `git clone`, `git push`, or PR operations. The Symphony tracker PAT is intentionally narrower than the operator Git credential, so conflating the two can cause private-repository clone/push failures.
+
+Set a host-side fine-grained PAT with only the repository permissions needed for the GitHub Issues operations used by the workflow. Do not commit it to either repository.
+
+For an interactive shell session without writing the token to shell history:
+
+```bash
+read -s -p "Symphony GitHub token: " SYMPHONY_GITHUB_TOKEN
+echo
+export SYMPHONY_GITHUB_TOKEN
+unset GITHUB_TOKEN
+unset GH_TOKEN
+```
+
+The evaluated Symphony revision includes environment-variable references from provider configuration in its secret-scrubbing boundary. Because `WORKFLOW.md` references `$SYMPHONY_GITHUB_TOKEN`, that secret remains host-side and is not inherited by the Codex child.
 
 ### Separate Git push/PR authentication
 
 The tracker token is not the worker's Git credential.
 
-Codex still needs the normal operator environment to support branch push and PR creation. Configure Git/GitHub CLI authentication independently and verify it in the same WSL/Linux environment used by Symphony.
+Codex and workspace hooks need the normal operator environment to support clone, branch push, and PR creation. Configure Git/GitHub CLI authentication independently with `gh auth login` and `gh auth setup-git`, then verify it in the same WSL/Linux environment used by Symphony.
 
-Do not weaken the tracker credential boundary just to make `git push` easier.
+With `SYMPHONY_GITHUB_TOKEN` set and `GITHUB_TOKEN`/`GH_TOKEN` unset, verify both paths independently:
+
+```bash
+gh auth status
+git clone https://github.com/Shashakar/RPG-Kingdom.git /tmp/rpg-kingdom-supervisor-auth-check
+rm -rf /tmp/rpg-kingdom-supervisor-auth-check
+```
+
+Do not weaken the tracker credential boundary just to make Git operations easier.
 
 ## 4. Create the dispatch label
 
@@ -140,7 +158,7 @@ Expected flow:
 
 1. Symphony sees the open labeled issue.
 2. It creates an isolated workspace.
-3. The `after_create` hook clones RPG Kingdom into that workspace.
+3. The `after_create` hook clones RPG Kingdom into that workspace using the operator Git credential.
 4. Symphony launches Codex through App Server.
 5. Codex reads RPG Kingdom's checked-in instructions.
 6. Codex creates a `codex/` branch, implements, validates, pushes, and opens a PR.
