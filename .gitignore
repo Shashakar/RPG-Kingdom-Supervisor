@@ -1,0 +1,15 @@
+# Runtime secrets
+.env
+.env.*
+!.env.example
+
+# Symphony runtime output if launched from this repo
+log/
+.tmp/
+workspaces/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
