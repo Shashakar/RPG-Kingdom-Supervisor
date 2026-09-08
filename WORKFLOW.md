@@ -3,7 +3,7 @@ tracker:
   kind: github
   provider:
     repo: Shashakar/RPG-Kingdom
-    token: $GITHUB_TOKEN
+    token: $SYMPHONY_GITHUB_TOKEN
     api_url: https://api.github.com
   required_labels:
     - symphony:ready
