@@ -18,10 +18,11 @@ create_label() {
 create_label "symphony:ready" "0E8A16" "Dispatch lease for unattended Symphony implementation"
 create_label "symphony:halted" "D93F0B" "Automatic redispatch stopped; human/ChatGPT review required"
 
-create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to Luna"
-create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to Terra"
-create_label "risk:architecture" "D4C5F9" "Architecture-sensitive/cross-system work; defaults to Sol"
-create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults to Astra"
+create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to Luna / low"
+create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to Luna / medium"
+create_label "risk:investigative" "1D76DB" "Ambiguous debugging or multi-layer investigation; defaults to Terra / medium"
+create_label "risk:architecture" "D4C5F9" "Architecture-sensitive/cross-system work; defaults to Sol / high"
+create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults to Astra / medium"
 
 create_label "model:luna" "EDEDED" "Explicitly route this Symphony task to GPT-5.6 Luna"
 create_label "model:terra" "DDEEFF" "Explicitly route this Symphony task to GPT-5.6 Terra"
