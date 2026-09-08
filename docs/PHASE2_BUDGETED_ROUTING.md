@@ -55,11 +55,14 @@ Use exactly zero or one of:
 | Label | Default route | Default effort | Intended work |
 |---|---|---|---|
 | `risk:mechanical` | GPT-5.6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
-| `risk:normal` | GPT-5.6 Terra | medium | normal bounded production implementation and bug fixes |
+| `risk:normal` | GPT-5.6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
+| `risk:investigative` | GPT-5.6 Terra | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation, substantial implementation where Luna is likely to waste iterations |
 | `risk:architecture` | GPT-5.6 Sol | high | architecture-sensitive or cross-system boundary work |
 | `risk:end-to-end` | GPT-6 Astra | medium | hardest end-to-end work where stronger execution/tool use is expected to reduce iteration |
 
-If no risk or model label exists, the router defaults to **Terra / medium**. Unclassified work never silently promotes itself to Sol or Astra.
+If no risk or model label exists, the router defaults to **Luna / medium**. Unclassified work never silently promotes itself to Terra, Sol, or Astra.
+
+The practical rule is: **Luna is the workhorse; Terra is the investigative/debugging upgrade; Sol is the architecture tier; Astra is the hardest engine/tool-heavy end-to-end tier.**
 
 ### Explicit model override
 
@@ -82,6 +85,41 @@ Use exactly zero or one of:
 
 The router fails closed if multiple model, risk, or effort labels conflict.
 
+## Post-benchmark routing adjustment
+
+Phase 2 produced two useful real measurements after the #91 baseline.
+
+### #93 — Luna mechanical benchmark
+
+`Shashakar/RPG-Kingdom#93` ran as `risk:mechanical` -> Luna / low and completed in one Symphony turn and one worker lifetime.
+
+Codex session totals:
+
+- 359,460 input tokens;
+- 323,072 cached input tokens;
+- 36,388 uncached input tokens;
+- 3,411 output tokens;
+- about 89.9% of input cached;
+- no visible movement in either the five-hour or weekly allowance meter.
+
+This validated Luna as a very cheap mechanical lane.
+
+### #95 — Terra investigative benchmark
+
+`Shashakar/RPG-Kingdom#95` ran as Terra / medium and also completed in one Symphony turn and one worker lifetime. It correctly diagnosed a stale production-test assumption rather than changing the production scene/runtime to satisfy the test.
+
+Codex session totals:
+
+- 1,758,565 input tokens;
+- 1,641,728 cached input tokens;
+- 116,837 uncached input tokens;
+- 10,021 output tokens;
+- about 93.4% of input cached;
+- five-hour allowance usage increased by 8 percentage points;
+- weekly allowance usage increased by 2 percentage points.
+
+The cache was already working well. The material allowance difference therefore justified making Terra an explicit investigative tier instead of the default for every normal C# task.
+
 ## Astra policy
 
 Astra is part of the routing pool, but it is not the default senior model.
@@ -97,7 +135,8 @@ Astra may also be selected explicitly with `model:astra` when the human/ChatGPT 
 Model choice is only one part of efficiency. Worker prompts are also instructed to scale repository exploration to the risk class while still obeying RPG Kingdom's own `AGENTS.md` requirements.
 
 - Mechanical: repository-mandated reads plus directly affected files; no unrelated system inventory.
-- Normal: repository-mandated architecture/system docs plus affected implementation/tests.
+- Normal: repository-mandated architecture/system docs plus affected implementation/tests, with a focused implementation path rather than broad debugging.
+- Investigative: enough affected runtime/test/system context to distinguish plausible root causes, stopping when evidence selects the correct boundary.
 - Architecture: affected system contracts and only the cross-system/save/event docs that the boundary actually touches.
 - End-to-end: enough cross-system/tool context to validate the whole task, without unrelated repository sweeps.
 
@@ -121,16 +160,13 @@ The helper removes `symphony:halted` when present, deletes the local completed-a
 
 Do not build an automatic retry loop around `symphony:halted` or the rearm helper.
 
-## Phase 2 acceptance test
+## Phase 2 acceptance status
 
-After this configuration is merged, run a new documentation/mechanical task comparable to #91 with `risk:mechanical`.
+The routing/execution-budget core is validated by #93 and #95:
 
-Desired signal, not a hard promise:
+- trivial mechanical work can complete in one Luna turn with negligible visible allowance movement;
+- genuine investigation can complete in one Terra turn without redispatch;
+- the worker-lifetime guard prevents the Phase 1 runaway-session failure mode;
+- model cost differences are large enough that higher tiers must remain deliberate rather than default.
 
-- 1–2 Codex turns for a trivial task;
-- dramatically less than the 1.55M-input baseline;
-- materially less than the 27% five-hour allowance consumed by #91;
-- no fresh Codex worker lifetime after the configured turn ceiling;
-- correct PR handoff and human review boundary preserved.
-
-If a comparable task still consumes double-digit percentage points of the five-hour allowance, inspect Codex session context/tool/plugin overhead before increasing concurrency or dispatching important backlog work.
+Continue to measure real tasks rather than spending allowance on synthetic Sol/Astra benchmarks. Use the next genuine architecture and end-to-end tasks to validate those lanes when they naturally occur.
