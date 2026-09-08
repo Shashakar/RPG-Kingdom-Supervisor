@@ -22,6 +22,14 @@ export RPGK_TEST_LABELS="risk:mechanical"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
 [[ "$actual" == $'gpt-5.6-luna\tlow\tluna' ]]
 
+export RPGK_TEST_LABELS="risk:normal"
+actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
+[[ "$actual" == $'gpt-5.6-luna\tmedium\tluna' ]]
+
+export RPGK_TEST_LABELS="risk:investigative"
+actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
+[[ "$actual" == $'gpt-5.6-terra\tmedium\tterra' ]]
+
 export RPGK_TEST_LABELS=$'risk:architecture\nmodel:astra\neffort:high'
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
 [[ "$actual" == $'gpt-6-astra\thigh\tastra' ]]
