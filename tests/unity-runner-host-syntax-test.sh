@@ -9,6 +9,21 @@ if ! grep -Fq 'Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait
   exit 1
 fi
 
+if ! grep -Fq 'Get-Process -Name "Unity"' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: host health must reject existing Unity.exe processes" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'resource:unity-editor requires exclusive host access' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: busy-host error must explain exclusive Unity ownership" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Unity\\Editor\\Editor.log' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: early startup failures must preserve the global Editor.log when available" >&2
+  exit 1
+fi
+
 if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v wslpath >/dev/null 2>&1; then
   echo "unity-runner-host-syntax-test: SKIP (Windows PowerShell bridge unavailable)"
   exit 0
