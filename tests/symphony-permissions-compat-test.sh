@@ -40,6 +40,16 @@ grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$PATCH" || {
   exit 1
 }
 
+grep -Fq 'apply --recount --check "$PATCH_FILE"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must validate edited patch hunk counts with --recount before switching branches" >&2
+  exit 1
+}
+
+grep -Fq 'branch_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must recover a prior failed install branch when it still points at the evaluated pin" >&2
+  exit 1
+}
+
 grep -Fq 'verify-symphony-permissions-patch.sh' "$RUNNER" || {
   echo "symphony-permissions-compat-test: run-symphony must fail closed when the compatibility patch is absent" >&2
   exit 1
