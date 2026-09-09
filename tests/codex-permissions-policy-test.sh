@@ -20,7 +20,12 @@ grep -q 'codex-permission-profile.sh' "$ROOT/scripts/codex-app-server-router.sh"
 grep -q 'RPGK_CODEX_PERMISSION_ARGS' "$ROOT/scripts/codex-app-server-router.sh"
 grep -q 'codex-git-write-probe.sh' "$ROOT/scripts/run-symphony.sh"
 grep -qE '^[[:space:]]*sandbox[[:space:]]*\\?$' "$ROOT/scripts/codex-git-write-probe.sh"
-if grep -qE 'sandbox[[:space:]]+\$?"?sandbox_subcommand|sandbox[[:space:]]+(linux|macos)([[:space:]]|$)' "$ROOT/scripts/codex-git-write-probe.sh"; then
+
+# Only inspect executable shell lines. The probe intentionally documents the
+# obsolete `codex sandbox linux ...` CLI form in comments; comments must not
+# make this policy test fail.
+probe_code="$(grep -vE '^[[:space:]]*#' "$ROOT/scripts/codex-git-write-probe.sh")"
+if grep -qE 'sandbox[[:space:]]+\$?"?sandbox_subcommand|sandbox[[:space:]]+(linux|macos)([[:space:]]|$)' <<<"$probe_code"; then
   echo "Codex Git-write probe uses an obsolete host sandbox subcommand" >&2
   exit 1
 fi
