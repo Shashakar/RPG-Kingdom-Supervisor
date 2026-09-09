@@ -24,6 +24,11 @@ if ! grep -Fq 'Unity\\Editor\\Editor.log' "$PS_SCRIPT"; then
   exit 1
 fi
 
+if ! grep -Fq 'Get-Content -LiteralPath $defaultEditorLog -Tail 4000' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: fallback Editor.log evidence must stay bounded for Codex context" >&2
+  exit 1
+fi
+
 if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v wslpath >/dev/null 2>&1; then
   echo "unity-runner-host-syntax-test: SKIP (Windows PowerShell bridge unavailable)"
   exit 0
