@@ -3,12 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT/WORKFLOW.md"
-PATCH="$ROOT/patches/symphony-named-permissions.patch"
+TRANSFORM="$ROOT/scripts/patch-symphony-named-permissions.py"
 RUNNER="$ROOT/scripts/run-symphony.sh"
 APPLY="$ROOT/scripts/apply-symphony-permissions-patch.sh"
 VERIFY="$ROOT/scripts/verify-symphony-permissions-patch.sh"
 
-for file in "$WORKFLOW" "$PATCH" "$RUNNER" "$APPLY" "$VERIFY"; do
+for file in "$WORKFLOW" "$TRANSFORM" "$RUNNER" "$APPLY" "$VERIFY"; do
   [[ -f "$file" ]] || {
     echo "symphony-permissions-compat-test: missing $file" >&2
     exit 1
@@ -20,32 +20,32 @@ grep -Fq 'permissions: rpgk_supervisor_workspace' "$WORKFLOW" || {
   exit 1
 }
 
-grep -Fq 'field(:permissions, :string)' "$PATCH" || {
-  echo "symphony-permissions-compat-test: patch must add the Symphony codex.permissions schema field" >&2
+grep -Fq 'field(:permissions, :string)' "$TRANSFORM" || {
+  echo "symphony-permissions-compat-test: transform must add the Symphony codex.permissions schema field" >&2
   exit 1
 }
 
-grep -Fq 'Map.put(params, "permissions", permissions)' "$PATCH" || {
-  echo "symphony-permissions-compat-test: patch must send named permissions to Codex App Server" >&2
+grep -Fq 'Map.put(params, "permissions", permissions)' "$TRANSFORM" || {
+  echo "symphony-permissions-compat-test: transform must send named permissions to Codex App Server" >&2
   exit 1
 }
 
-grep -Fq 'Map.put(params, "sandbox", thread_sandbox)' "$PATCH" || {
-  echo "symphony-permissions-compat-test: patch must preserve legacy thread sandbox fallback" >&2
+grep -Fq 'Map.put(params, "sandbox", thread_sandbox)' "$TRANSFORM" || {
+  echo "symphony-permissions-compat-test: transform must preserve legacy thread-sandbox fallback" >&2
   exit 1
 }
 
-grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$PATCH" || {
-  echo "symphony-permissions-compat-test: patch must preserve legacy turn sandbox fallback" >&2
+grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$TRANSFORM" || {
+  echo "symphony-permissions-compat-test: transform must preserve legacy turn-sandbox fallback" >&2
   exit 1
 }
 
-grep -Fq 'apply --recount --check "$PATCH_FILE"' "$APPLY" || {
-  echo "symphony-permissions-compat-test: installer must validate edited patch hunk counts with --recount before switching branches" >&2
+grep -Fq 'python3 "$TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must use the deterministic pinned-source transform" >&2
   exit 1
 }
 
-grep -Fq 'branch_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"' "$APPLY" || {
+grep -Fq 'local_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"' "$APPLY" || {
   echo "symphony-permissions-compat-test: installer must recover a prior failed install branch when it still points at the evaluated pin" >&2
   exit 1
 }
@@ -60,6 +60,7 @@ grep -Fq 'apply-symphony-permissions-patch.sh' "$RUNNER" || {
   exit 1
 }
 
+python3 -m py_compile "$TRANSFORM"
 bash -n "$APPLY"
 bash -n "$VERIFY"
 bash -n "$RUNNER"
