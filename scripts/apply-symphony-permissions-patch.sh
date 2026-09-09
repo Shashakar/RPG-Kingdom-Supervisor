@@ -33,15 +33,30 @@ if [[ "$current" != "$PIN" ]]; then
   exit 1
 fi
 
+# The compatibility patch is intentionally small and human-reviewable. Because it may be
+# edited directly, do not trust the hunk line counts; --recount derives them from the patch
+# body. Validate the patch before changing branches so a malformed patch cannot strand the
+# checkout on a newly-created local branch.
+git -C "$SYMPHONY_REPO_ROOT" apply --recount --check "$PATCH_FILE"
+
 if git -C "$SYMPHONY_REPO_ROOT" show-ref --verify --quiet "refs/heads/$LOCAL_BRANCH"; then
-  echo "ERROR: local Symphony branch '$LOCAL_BRANCH' already exists but the patch is not active." >&2
-  echo "Inspect that branch before retrying; this script will not overwrite it." >&2
-  exit 1
+  branch_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"
+  if [[ "$branch_head" != "$PIN" ]]; then
+    echo "ERROR: local Symphony branch '$LOCAL_BRANCH' already exists at an unexpected commit." >&2
+    echo "Expected: $PIN" >&2
+    echo "Current:  $branch_head" >&2
+    echo "Inspect that branch before retrying; this script will not overwrite it." >&2
+    exit 1
+  fi
+
+  if [[ "$(git -C "$SYMPHONY_REPO_ROOT" branch --show-current)" != "$LOCAL_BRANCH" ]]; then
+    git -C "$SYMPHONY_REPO_ROOT" switch "$LOCAL_BRANCH"
+  fi
+else
+  git -C "$SYMPHONY_REPO_ROOT" switch -c "$LOCAL_BRANCH"
 fi
 
-git -C "$SYMPHONY_REPO_ROOT" switch -c "$LOCAL_BRANCH"
-git -C "$SYMPHONY_REPO_ROOT" apply --check "$PATCH_FILE"
-git -C "$SYMPHONY_REPO_ROOT" apply "$PATCH_FILE"
+git -C "$SYMPHONY_REPO_ROOT" apply --recount "$PATCH_FILE"
 
 cd "$SYMPHONY_ROOT"
 mise exec -- mix format \
