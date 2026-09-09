@@ -1,6 +1,8 @@
 # Phase 3: Unity-Aware Resource Scheduling
 
-Phase 3 adds a host-owned scheduling contract for Unity-dependent RPG Kingdom work without yet adding a Windows Unity test runner. The goal is to make Unity dependence explicit and fail closed before Codex spends allowance when required editor access is unavailable.
+Phase 3 adds a host-owned scheduling contract for Unity-dependent RPG Kingdom work. Its purpose is to make Unity dependence explicit and fail closed before Codex spends allowance when required editor access is unavailable.
+
+Phase 3 is now complete. Phase 4 supplies the Windows runner described in `PHASE4_UNITY_RUNNER.md`; the scheduling contract here remains the authority for when that runner may be used.
 
 ## Scope
 
@@ -13,16 +15,7 @@ Phase 3 owns:
 - fail-closed tracker handoff when required Unity access is unavailable or policy labels conflict;
 - worker instructions that forbid invented Unity results and ad hoc editor launching.
 
-Phase 3 does **not** own:
-
-- invoking Unity on Windows;
-- selecting a Unity project path for Windows execution;
-- EditMode or PlayMode command construction;
-- parsing Unity XML/log results;
-- increasing worker concurrency;
-- automatic merge or automatic retry.
-
-Those execution concerns belong to Phase 4.
+Phase 4 owns Windows staging, editor invocation, EditMode/PlayMode command construction, and result parsing.
 
 ## Labels
 
@@ -30,15 +23,13 @@ Those execution concerns belong to Phase 4.
 
 The issue needs exclusive ownership of the host's Unity Editor resource during the worker lifetime.
 
-This label is a scheduling/resource declaration, not permission to edit the RPG Kingdom production scene. Repository `AGENTS.md` and scene-ownership rules remain authoritative.
+This is a scheduling/resource declaration, not permission to edit the RPG Kingdom production scene. Repository `AGENTS.md` and scene-ownership rules remain authoritative.
 
 ### `validation:unity-required`
 
 The issue cannot begin an unattended Codex worker unless the supported Unity runner is healthy and `resource:unity-editor` is also present.
 
-If the resource label is missing, the policy is invalid and the dispatch halts before Codex starts.
-
-If the runner is not marked ready, the dispatch also halts before Codex starts.
+If the resource label is missing, the policy is invalid and the dispatch halts before Codex starts. Once Codex starts, actual relevant Unity runner evidence is required before a clean PR handoff.
 
 ### `validation:unity-optional`
 
@@ -51,10 +42,10 @@ The issue may proceed without Unity. The worker must explicitly report any missi
 For each dispatch, `WORKFLOW.md` executes:
 
 1. `before-run-guard.sh` — enforces the one-worker-lifetime allowance boundary;
-2. `unity-resource-guard.sh` — reads Unity labels, validates policy, checks runner readiness, and acquires the Unity lock when requested;
+2. `unity-resource-guard.sh` — reads Unity labels, validates policy, runs the supported Unity runner health check when the editor resource is requested, and acquires the lock;
 3. Codex App Server — only if both guards succeed.
 
-A Unity preflight failure removes `symphony:ready`, adds `symphony:halted`, and leaves a concise issue comment before exiting. This avoids repeatedly buying Codex attempts for a host capability that is known to be unavailable.
+A Unity preflight failure removes `symphony:ready`, adds `symphony:halted`, and leaves a concise issue comment before exiting. This avoids repeatedly buying Codex attempts for a host capability known to be unavailable.
 
 ## Exclusive resource lock
 
@@ -64,29 +55,29 @@ The lock lives outside the RPG Kingdom workspace:
 ~/.local/state/rpg-kingdom-supervisor/locks/unity-editor.lock/
 ```
 
-It records:
+It records the owning `GH-<number>` issue, workspace path, and acquisition timestamp. Atomic directory creation prevents a second owner from sharing the editor.
 
-- owning `GH-<number>` issue;
-- owning workspace path;
-- acquisition timestamp.
+`release-unity-resource.sh` runs before the normal after-run guard and removes the lock only when the current issue owns it.
 
-The lock uses atomic directory creation. If another owner already holds it, the new dispatch fails closed instead of sharing the editor.
-
-`release-unity-resource.sh` runs before the normal Phase 2 after-run guard and removes the lock only when the current issue owns it.
-
-With `max_concurrent_agents: 1`, this lock is primarily a correctness contract. It becomes a real concurrency boundary when Phase 5 later allows multiple code-only workers.
+With `max_concurrent_agents: 1`, the lock is primarily a correctness contract. It becomes an active concurrency boundary when code-only concurrency increases later.
 
 ## Runner readiness
 
-Phase 3 uses this host-side readiness assertion:
+The original Phase 3 implementation used a temporary host assertion:
 
 ```text
 RPGK_UNITY_RUNNER_READY=1
 ```
 
-Do **not** set it merely to bypass the guard. Phase 4 will define the actual Windows Unity bridge and its health check. Until that exists and passes, the variable should remain unset/zero.
+Phase 4 removes that placeholder. Do not set or depend on it.
 
-A worker is explicitly forbidden from setting or inferring this value itself.
+`unity-resource-guard.sh` now calls:
+
+```bash
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh health --project "$PWD"
+```
+
+for any dispatch requesting `resource:unity-editor`. Readiness therefore comes from the real project-declared Unity version, installed Windows editor, PowerShell/robocopy bridge, and writable staging root.
 
 ## Dispatch examples
 
@@ -97,9 +88,7 @@ risk:normal
 symphony:ready
 ```
 
-Implementation may proceed; no Unity promise is made.
-
-Code issue where Unity validation would be useful but is not required to create a reviewable PR:
+Unity validation useful but not required:
 
 ```text
 risk:normal
@@ -107,9 +96,9 @@ validation:unity-optional
 symphony:ready
 ```
 
-Implementation may proceed. Missing Unity validation must be called out in the PR.
+Implementation may proceed without Unity and must disclose missing editor evidence.
 
-Issue that must prove behavior in Unity before Codex should run:
+Issue that requires Unity evidence:
 
 ```text
 risk:investigative
@@ -118,23 +107,19 @@ validation:unity-required
 symphony:ready
 ```
 
-Until Phase 4 marks the runner healthy, this intentionally halts before Codex starts.
+The host must pass the live Phase 4 health check and acquire the editor lock before Codex starts.
 
-## Why the resource and validation labels are separate
-
-The concepts are related but not identical:
+## Why resource and validation labels are separate
 
 - `resource:*` says what scarce host capability the worker needs;
-- `validation:*` says whether absence of that capability blocks the dispatch.
+- `validation:*` says whether absence of that capability blocks work/completion.
 
-Keeping them separate avoids making every Unity-adjacent code change editor-blocking while still allowing strict validation for tasks where a PR without Unity evidence would be misleading.
+Keeping them separate avoids making every Unity-adjacent code change editor-blocking while preserving strict validation where a PR without Unity evidence would be misleading.
 
 ## Safety properties
 
-Phase 3 is designed so that:
-
 - required Unity work cannot silently degrade to unvalidated work;
-- conflicting validation policy cannot silently pick the cheaper path;
+- conflicting validation policy cannot silently choose a path;
 - workers cannot invent Unity results;
 - Unity access remains exclusive and host-owned;
 - resource ownership does not broaden production-scene authority;
