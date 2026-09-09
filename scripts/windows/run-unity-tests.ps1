@@ -200,7 +200,8 @@ $summary = [ordered]@{
 }
 
 $summaryJson = $summary | ConvertTo-Json -Compress
-Set-Content -LiteralPath $SummaryPath -Value $summaryJson -Encoding UTF8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($SummaryPath, $summaryJson, $utf8NoBom)
 Copy-Item -LiteralPath $SummaryPath -Destination (Join-Path $SourceOutput "summary.json") -Force
 $summaryJson | Write-Output
 
