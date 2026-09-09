@@ -10,7 +10,7 @@ The supervisor is an orchestration system, not a gameplay system. It consumes ap
 
 ### ChatGPT / human planning
 
-Architecture, prioritization, research, issue definition, risk classification, model overrides, and independent PR review remain outside the autonomous execution loop.
+Architecture, prioritization, research, issue definition, risk classification, model overrides, Unity validation requirements, and independent PR review remain outside the autonomous execution loop.
 
 The supervisor does not decide the RPG Kingdom roadmap.
 
@@ -18,7 +18,7 @@ The supervisor does not decide the RPG Kingdom roadmap.
 
 `Shashakar/RPG-Kingdom` is the system of record for work and code.
 
-GitHub Issues carry implementation scope. A `symphony:ready` label explicitly opts an issue into autonomous execution. Phase 2 risk/model/effort labels communicate execution policy without changing game architecture.
+GitHub Issues carry implementation scope. A `symphony:ready` label explicitly opts an issue into autonomous execution. Risk/model/effort labels communicate execution policy. Phase 3 resource/validation labels communicate whether a dispatch requires exclusive Unity access and whether missing Unity validation blocks execution.
 
 GitHub pull requests are the handoff boundary back to human review. The supervisor never auto-merges.
 
@@ -34,7 +34,7 @@ Official `openai/symphony` provides:
 - tracker-native tools exposed to Codex while keeping tracker credentials host-side;
 - runtime observability.
 
-This repository provides RPG Kingdom-specific workflow configuration plus narrow host-side adapters for model routing and fail-closed execution budgeting.
+This repository provides RPG Kingdom-specific workflow configuration plus narrow host-side adapters for model routing, fail-closed execution budgeting, and Unity resource scheduling.
 
 ### Codex
 
@@ -46,16 +46,23 @@ Phase 2 starts Codex App Server through `scripts/codex-app-server-router.sh`, wh
 
 ### Unity
 
-Unity is not yet an orchestrated exclusive resource.
+Unity is now an explicitly scheduled host resource, but it is not yet an integrated worker.
 
-The supervisor may dispatch code-only work or work that can safely stop with explicit Unity validation remaining. Automated exclusive Unity scheduling and editor integration remain separate later phases.
+Phase 3 defines:
+
+- `resource:unity-editor` for exclusive editor ownership;
+- `validation:unity-required` for work that must not start unless the supported Unity runner is healthy;
+- `validation:unity-optional` for work that may proceed while explicitly reporting missing editor validation;
+- a host-side exclusive lock held for the worker lifetime.
+
+Phase 3 does **not** invoke the Windows Unity Editor. `RPGK_UNITY_RUNNER_READY=1` remains a host-side health assertion that should stay unset until Phase 4 provides and validates the real Windows runner bridge.
 
 ## Current flow
 
 ```text
 Human + ChatGPT
       |
-      | define issue + risk/model override when useful
+      | define issue + risk/model + Unity policy when useful
       v
 GitHub issue + symphony:ready
       |
@@ -67,6 +74,15 @@ Official Symphony
 clone Shashakar/RPG-Kingdom
       |
       v
+worker-lifetime budget guard
+      |
+      v
+Unity resource preflight
+      |
+      | no Unity resource -> continue
+      | Unity required but unavailable -> halt before Codex
+      | Unity resource available -> acquire exclusive lock
+      v
 Codex router
       |
       | labels -> Luna / Terra / Sol / Astra + effort
@@ -75,9 +91,15 @@ Codex App Server
       |
       | read RPG Kingdom instructions
       | create codex/* branch
-      | implement + validate
+      | implement + validate available paths
       | push + open PR
       | remove symphony:ready
+      v
+release Unity lock if owned
+      |
+      v
+host after-run budget guard
+      |
       v
 GitHub PR
       |
@@ -103,6 +125,8 @@ The current contract is deliberately small:
 - issue must have `symphony:ready`;
 - maximum concurrent agents is `1`;
 - maximum turns per worker attempt is `4`;
+- Unity validation/resource labels must be internally consistent;
+- required Unity work cannot enter Codex unless the host Unity runner is healthy and the exclusive resource is acquired;
 - the worker keeps `symphony:ready` while implementation is genuinely active;
 - when a PR is ready for human review, the worker removes `symphony:ready` as its final orchestration-label mutation;
 - if the worker attempt ends with that lease still present, the host guard removes it and adds `symphony:halted` so another fresh Codex thread cannot start automatically;
@@ -127,6 +151,20 @@ Luna is the default workhorse for bounded implementation. Terra is an explicit u
 
 This split is evidence-driven: the #93 Luna mechanical benchmark completed in one turn with no visible allowance movement, while the #95 Terra investigative benchmark also completed in one turn but consumed 8 percentage points of the five-hour allowance and 2 points of the weekly allowance. The Terra session still cached about 93% of input, so the higher cost was not a cache-failure signal.
 
+## Unity resource/validation policy
+
+Unity scheduling uses separate resource and validation concepts:
+
+- `resource:unity-editor` reserves a scarce host capability;
+- `validation:unity-required` says absence of that capability blocks execution;
+- `validation:unity-optional` says implementation may proceed but missing Unity evidence must be explicit.
+
+`validation:unity-required` requires `resource:unity-editor`. Required and optional validation labels are mutually exclusive. Invalid combinations halt before Codex.
+
+The exclusive lock is stored outside the game workspace under the supervisor operator state directory. It records its owning issue/workspace and is released only by the owning issue's after-run hook. With one concurrent agent this mainly proves the ownership contract. Later code-only concurrency can increase without allowing multiple workers to share Unity.
+
+Phase 3 deliberately separates scheduling from execution. Workers may not launch Unity through arbitrary WSL/Windows commands or mark the runner healthy themselves. Phase 4 will provide the one supported Unity runner interface and health check.
+
 ## Context budget
 
 RPG Kingdom's own `AGENTS.md` always wins. The supervisor does not skip repository-required architecture/system documentation to save tokens.
@@ -147,7 +185,9 @@ Phase 1 demonstrated that upstream Symphony's `agent.max_turns` is a per-worker-
 
 Phase 2 therefore treats `symphony:ready` as both dispatch authorization and the hard redispatch lease. The `after_run` guard revokes that lease when an attempt ends without a clean handoff.
 
-The guard is intentionally host-side and uses the narrow Symphony tracker credential. Codex does not receive that secret.
+Phase 3 adds a second fail-closed gate before Codex for known host-resource problems. Required Unity work that cannot be validated does not get to consume a worker turn merely to discover that the host runner is unavailable.
+
+The guards are intentionally host-side and use the narrow Symphony tracker credential where tracker mutation is required. Codex does not receive that secret.
 
 ## Authentication boundary
 
@@ -161,10 +201,11 @@ The model router runs as the Codex launch command after the tracker secret is sc
 
 The default remains configuration over forking.
 
-Phase 2 does **not** patch official Symphony. The two required behaviors that upstream does not directly expose—per-issue model selection and total-issue fail-closed redispatch—are implemented as narrow shell adapters at existing command/hook seams:
+Phases 2 and 3 do **not** patch official Symphony. Required RPG Kingdom-specific behavior is implemented through narrow adapters at existing seams:
 
 1. `codex.command` -> model router;
-2. `hooks.after_run` -> redispatch guard.
+2. `hooks.before_run` -> worker-lifetime and Unity resource guards;
+3. `hooks.after_run` -> Unity release and redispatch guard.
 
 A future local Symphony patch is justified only when a required behavior cannot be expressed safely through workflow configuration, prompts, hooks, or command adapters.
 
@@ -174,21 +215,21 @@ A future local Symphony patch is justified only when a required behavior cannot 
 
 Proved one low-risk RPG Kingdom issue can travel from `symphony:ready` to an inspectable PR through Codex App Server.
 
-### Phase 2 — budgeted model/risk routing — CURRENT
+### Phase 2 — budgeted model/risk routing — COMPLETE
 
-Route Luna/Terra/Sol/Astra with explicit overrides, reduce turn budget, scale context, and prevent automatic fresh-session redispatch. The Luna mechanical and Terra investigative lanes are now measured; Sol/Astra should be validated on genuine work when those classes naturally occur rather than through synthetic allowance spend.
+Route Luna/Terra/Sol/Astra with explicit overrides, reduce turn budget, scale context, and prevent automatic fresh-session redispatch. The Luna mechanical and Terra investigative lanes are measured; Sol/Astra should be validated on genuine work when those classes naturally occur rather than through synthetic allowance spend.
 
-### Phase 3 — Unity-aware scheduling
+### Phase 3 — Unity-aware scheduling — CURRENT
 
-Introduce an exclusive `unity-editor` resource and prevent concurrent Unity-dependent work.
+Define explicit Unity resource/validation labels, fail closed before Codex when required Unity access is unavailable, and reserve an exclusive host-owned `unity-editor` resource for the worker lifetime.
 
 ### Phase 4 — Unity worker integration
 
-Connect the exclusive worker path to the Unity Editor/integration and make engine-facing validation observable.
+Connect the exclusive worker path to a supported Windows Unity runner and make EditMode/PlayMode validation observable to Codex and the PR handoff.
 
 ### Phase 5 — controlled concurrency
 
-Increase code-only concurrency after measuring workspace, Git, CI, and usage behavior.
+Increase code-only concurrency after measuring workspace, Git, CI, and usage behavior. The Phase 3 Unity lock remains exclusive.
 
 ### Phase 6 — review/rework automation
 
@@ -204,4 +245,4 @@ The supervisor does not:
 - author the Unity production scene merely because an agent can access it;
 - maximize agent count or token consumption;
 - silently escalate work to Astra/Sol;
-- hide failed validation, exhausted budgets, or unresolved blockers.
+- hide failed validation, exhausted budgets, missing Unity infrastructure, or unresolved blockers.

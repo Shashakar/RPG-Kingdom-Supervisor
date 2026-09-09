@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=unity-resource-policy.sh
+source "$ROOT/scripts/unity-resource-policy.sh"
+
+RPGK_REPO_OWNER="${RPGK_REPO_OWNER:-Shashakar}"
+RPGK_REPO_NAME="${RPGK_REPO_NAME:-RPG-Kingdom}"
+API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
+TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
+STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
+RUNNER_READY="${RPGK_UNITY_RUNNER_READY:-0}"
+DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
+
+workspace_name="$(basename "$PWD")"
+if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
+  echo "RPG Kingdom Unity guard: workspace '$workspace_name' is not a GH issue workspace; refusing Unity policy evaluation" >&2
+  exit 74
+fi
+issue_number="${BASH_REMATCH[1]}"
+issue_identifier="GH-$issue_number"
+
+if [[ -z "$TOKEN" ]]; then
+  echo "RPG Kingdom Unity guard: SYMPHONY_GITHUB_TOKEN is missing; cannot inspect issue labels safely" >&2
+  exit 70
+fi
+
+api() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local args=(
+    -fsS
+    --retry 3
+    --retry-all-errors
+    -X "$method"
+    -H "Authorization: Bearer $TOKEN"
+    -H "Accept: application/vnd.github+json"
+    -H "X-GitHub-Api-Version: 2022-11-28"
+  )
+  if [[ -n "$body" ]]; then
+    args+=( -H "Content-Type: application/json" -d "$body" )
+  fi
+  curl "${args[@]}" "$API_ROOT/repos/$RPGK_REPO_OWNER/$RPGK_REPO_NAME$path"
+}
+
+halt_issue() {
+  local reason="$1"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "RPG Kingdom Unity guard: would halt $issue_identifier: $reason" >&2
+    return 0
+  fi
+
+  # Revoke the dispatch lease first so the next tracker poll cannot start Codex.
+  api DELETE "/issues/$issue_number/labels/symphony%3Aready" >/dev/null 2>&1 || true
+  api POST "/issues/$issue_number/labels" '{"labels":["symphony:halted"]}' >/dev/null
+
+  local body
+  body=$(cat <<EOF
+Symphony halted this dispatch during the Phase 3 Unity preflight before launching Codex.
+
+Reason: $reason
+
+No Unity result was invented and no additional Codex worker lifetime was intentionally consumed. Resolve the Unity scheduling/preflight condition, then explicitly rearm the issue when another bounded attempt is justified.
+EOF
+)
+  api POST "/issues/$issue_number/comments" "$(jq -n --arg body "$body" '{body:$body}')" >/dev/null
+  echo "RPG Kingdom Unity guard: halted $issue_identifier: $reason" >&2
+}
+
+labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
+labels="$(jq -r '.[].name' <<<"$labels_json")"
+
+set +e
+policy="$(rpgk_select_unity_policy "$labels" 2> >(cat >&2))"
+policy_status=$?
+set -e
+
+if (( policy_status != 0 )); then
+  halt_issue "invalid Unity scheduling labels (policy exit $policy_status)"
+  exit 75
+fi
+
+IFS=$'\t' read -r resource_mode validation_mode <<<"$policy"
+
+if [[ "$resource_mode" == "none" ]]; then
+  echo "RPG Kingdom Unity guard: $issue_identifier does not request the Unity editor resource (validation=$validation_mode)"
+  exit 0
+fi
+
+# Phase 3 defines the contract but does not pretend the Phase 4 Windows Unity bridge exists.
+# Keep this unset until the actual runner integration has passed its health check.
+if [[ "$RUNNER_READY" != "1" ]]; then
+  halt_issue "resource:unity-editor was requested, but the Unity runner is not marked ready (RPGK_UNITY_RUNNER_READY=1 is absent)"
+  exit 76
+fi
+
+mkdir -p "$STATE_ROOT/locks"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  owner="unknown"
+  [[ -f "$LOCK_DIR/owner" ]] && owner="$(cat "$LOCK_DIR/owner")"
+  halt_issue "the exclusive Unity editor resource is already locked by $owner"
+  exit 77
+fi
+
+printf '%s\n' "$issue_identifier" > "$LOCK_DIR/owner"
+printf '%s\n' "$PWD" > "$LOCK_DIR/workspace"
+printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/acquired-at"
+
+echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"

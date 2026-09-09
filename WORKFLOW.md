@@ -20,7 +20,9 @@ hooks:
     git clone https://github.com/Shashakar/RPG-Kingdom.git .
   before_run: |
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/before-run-guard.sh"
+    bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-resource-guard.sh"
   after_run: |
+    bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/release-unity-resource.sh"
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/after-run-guard.sh"
 agent:
   max_concurrent_agents: 1
@@ -69,6 +71,20 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
 - If the task requires Unity Editor validation that is not safely available in this worker, do not invent a result. Report the remaining validation explicitly in the pull request.
 - Do not merge the pull request.
+
+## Phase 3 Unity scheduling contract
+
+Unity access is an explicit host-owned resource, not something a worker may assume from the repository contents.
+
+- `resource:unity-editor` requests exclusive ownership of the Unity editor resource for this dispatch.
+- `validation:unity-required` means the dispatch must have `resource:unity-editor` and a healthy Unity runner before Codex starts. If either condition is missing, the host halts the issue before spending a worker turn.
+- `validation:unity-optional` means implementation may proceed without Unity. If Unity validation is unavailable, state that clearly in the PR rather than treating it as passed.
+- `validation:unity-required` and `validation:unity-optional` are mutually exclusive. Conflicting labels fail closed.
+- Do not launch Unity yourself through ad hoc Windows/WSL commands. Phase 3 owns scheduling only; the supported Windows Unity runner arrives in Phase 4.
+- Do not set or infer `RPGK_UNITY_RUNNER_READY=1` from inside a worker. That is a host-side health assertion controlled by the supervisor operator.
+- If the host grants the Unity resource in a later phase, use only the supported runner interface provided by the supervisor. Resource ownership does not relax production-scene restrictions.
+
+The host holds the Unity resource lock for the worker lifetime and releases it during `after_run`. With the current single-worker limit this is mostly a correctness contract; it becomes an actual concurrency boundary when code-only concurrency increases later.
 
 ## Context budget
 

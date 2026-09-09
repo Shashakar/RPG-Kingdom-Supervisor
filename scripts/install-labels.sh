@@ -32,3 +32,7 @@ create_label "model:astra" "8B5CF6" "Explicitly route this Symphony task to GPT-
 create_label "effort:low" "EDEDED" "Explicit Codex reasoning effort: low"
 create_label "effort:medium" "FBCA04" "Explicit Codex reasoning effort: medium"
 create_label "effort:high" "B60205" "Explicit Codex reasoning effort: high"
+
+create_label "resource:unity-editor" "0B6E99" "Requires exclusive host-owned Unity editor access"
+create_label "validation:unity-required" "B60205" "Unity validation must be available before Codex starts"
+create_label "validation:unity-optional" "FBCA04" "Work may proceed without Unity; missing validation must be reported"

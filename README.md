@@ -31,6 +31,17 @@ Phase 2 makes that path usage-aware:
 
 The routing policy was adjusted after real #93/#95 benchmarks showed that Luna mechanical work had negligible visible allowance impact while one successful Terra investigative turn consumed 8 percentage points of the five-hour allowance. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
+Phase 3 makes Unity dependence explicit without yet pretending a Windows Unity runner exists:
+
+- `resource:unity-editor` declares exclusive host-owned Unity Editor access;
+- `validation:unity-required` blocks before Codex if the Unity resource/runner is unavailable;
+- `validation:unity-optional` permits implementation while requiring missing Unity validation to be reported in the PR;
+- conflicting Unity validation labels fail closed;
+- a host-side lock prevents multiple future workers from sharing the editor;
+- Unity execution itself remains deferred to Phase 4.
+
+See [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) for the scheduling contract.
+
 ## Repositories
 
 - Game repository: `Shashakar/RPG-Kingdom`
@@ -42,19 +53,24 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret and uses an alternate terminal screen when available.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes before Codex starts.
+- [`scripts/unity-resource-policy.sh`](scripts/unity-resource-policy.sh) — side-effect-free Unity resource/validation policy.
+- [`scripts/unity-resource-guard.sh`](scripts/unity-resource-guard.sh) — host preflight that validates Unity policy/readiness and acquires the exclusive editor lock.
+- [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
-- [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates Phase 2 GitHub labels.
+- [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing and Unity scheduling labels.
 - [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — explicitly clears the local/remote halt gates for one approved retry.
 - [`AGENTS.md`](AGENTS.md) — rules for modifying this supervisor repository.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — supervisor boundaries and phased design.
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
+- [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 
 ## Safety posture
 
-Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, and a host-side execution gate that requires explicit rearm before a second worker lifetime.
+Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and fail-closed Unity scheduling for work that requires editor validation.
 
-Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment.
+Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).
