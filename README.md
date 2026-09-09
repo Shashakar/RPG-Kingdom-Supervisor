@@ -52,6 +52,8 @@ Phase 4 turns that scheduling contract into real Unity validation:
 
 See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract.
 
+Current diagnostics work addresses a boundary exposed by GH-97: model-free App Server probes can succeed while the actual model-backed turn still sees `.git` as read-only or cannot use WSL-to-Windows interop. The Supervisor now provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe so that difference can be measured before another implementation worker is dispatched. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
+
 ## Repositories
 
 - Game repository: `Shashakar/RPG-Kingdom`
@@ -76,12 +78,34 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
 - [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing and Unity scheduling labels.
 - [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — explicitly clears the local/remote halt gates for one approved retry.
+- [`scripts/diagnose-issue.sh`](scripts/diagnose-issue.sh) — read-only terminal summary for one dispatched issue.
+- [`scripts/serve-diagnostics.sh`](scripts/serve-diagnostics.sh) — localhost-only, read-only issue diagnostics dashboard.
+- [`scripts/codex-turn-environment-probe.sh`](scripts/codex-turn-environment-probe.sh) — explicit model-backed probe for `.git` writes and WSL-to-Windows interop; never run automatically because it consumes allowance.
 - [`AGENTS.md`](AGENTS.md) — rules for modifying this supervisor repository.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — supervisor boundaries and phased design.
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 Windows staging and Unity Test Framework execution contract.
+- [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md) — model-turn execution diagnostics and localhost dashboard usage.
+
+## Diagnostics quick start
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/diagnose-issue.sh 97
+bash scripts/serve-diagnostics.sh
+```
+
+The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only.
+
+When the model-free probes and a real Symphony worker disagree, run the explicit model-turn probe once before spending another full worker lifetime:
+
+```bash
+bash scripts/codex-turn-environment-probe.sh --run
+```
+
+That probe uses Luna / low by default and consumes a small amount of Codex allowance. It is intentionally excluded from normal startup and test execution.
 
 ## Safety posture
 
