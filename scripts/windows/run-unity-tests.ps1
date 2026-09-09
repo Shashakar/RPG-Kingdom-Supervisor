@@ -145,13 +145,14 @@ if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
 }
 else {
     # Some early Unity startup crashes happen before the requested -logFile is created.
-    # Preserve the global Editor.log when it was touched by this run so the worker still
-    # receives actionable diagnostics rather than an empty artifact directory.
+    # Preserve only a bounded tail of the global Editor.log when it was touched by this
+    # run so Codex gets useful diagnostics without ingesting a multi-megabyte log.
     $defaultEditorLog = Join-Path $env:LOCALAPPDATA "Unity\Editor\Editor.log"
     if (Test-Path -LiteralPath $defaultEditorLog -PathType Leaf) {
         $defaultEditorLogInfo = Get-Item -LiteralPath $defaultEditorLog
         if ($defaultEditorLogInfo.LastWriteTime -ge $launchStartedAt.AddSeconds(-2)) {
-            Copy-Item -LiteralPath $defaultEditorLog -Destination (Join-Path $SourceOutput "Editor.log") -Force
+            Get-Content -LiteralPath $defaultEditorLog -Tail 4000 |
+                Set-Content -LiteralPath (Join-Path $SourceOutput "Editor.log") -Encoding UTF8
         }
     }
 }
