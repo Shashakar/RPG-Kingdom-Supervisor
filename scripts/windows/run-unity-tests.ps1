@@ -28,6 +28,16 @@ function Fail-Runner {
     exit $Code
 }
 
+function Assert-UnityHostIdle {
+    $unityProcesses = @(Get-Process -Name "Unity" -ErrorAction SilentlyContinue)
+    if ($unityProcesses.Count -eq 0) {
+        return
+    }
+
+    $processIds = ($unityProcesses | Sort-Object Id | ForEach-Object { $_.Id }) -join ", "
+    Fail-Runner "Unity Editor host is busy (Unity.exe PID(s): $processIds). resource:unity-editor requires exclusive host access; close all Unity Editor instances and retry." 89
+}
+
 function Invoke-ProjectMirror {
     param(
         [string]$Source,
@@ -78,6 +88,10 @@ catch {
     Fail-Runner "cannot create or write staging project '$StageProject': $($_.Exception.Message)" 85
 }
 
+# Phase 3's resource:unity-editor contract is host-wide, not merely stage-project-wide.
+# A human Editor or another Unity process means Symphony does not own the resource.
+Assert-UnityHostIdle
+
 if ($HealthOnly) {
     [ordered]@{
         status = "ready"
@@ -122,29 +136,32 @@ if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
     $unityArgs += @("-testFilter", $TestFilter)
 }
 
-# Unity.exe is a Windows GUI application. Launch it through Start-Process so
-# PowerShell waits for the actual Unity process and reports its exit code,
-# rather than accidentally reusing the previous robocopy $LASTEXITCODE.
-try {
-    $unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru
-    $unityExitCode = $unityProcess.ExitCode
-}
-catch {
-    Fail-Runner "failed to launch Unity: $($_.Exception.Message)" 89
-}
+$launchStartedAt = Get-Date
+$unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru
+$unityExitCode = $unityProcess.ExitCode
 
 if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
     Copy-Item -LiteralPath $LogPath -Destination (Join-Path $SourceOutput "Editor.log") -Force
 }
+else {
+    # Some early Unity startup crashes happen before the requested -logFile is created.
+    # Preserve the global Editor.log when it was touched by this run so the worker still
+    # receives actionable diagnostics rather than an empty artifact directory.
+    $defaultEditorLog = Join-Path $env:LOCALAPPDATA "Unity\Editor\Editor.log"
+    if (Test-Path -LiteralPath $defaultEditorLog -PathType Leaf) {
+        $defaultEditorLogInfo = Get-Item -LiteralPath $defaultEditorLog
+        if ($defaultEditorLogInfo.LastWriteTime -ge $launchStartedAt.AddSeconds(-2)) {
+            Copy-Item -LiteralPath $defaultEditorLog -Destination (Join-Path $SourceOutput "Editor.log") -Force
+        }
+    }
+}
 
 if (-not (Test-Path -LiteralPath $ResultsPath -PathType Leaf)) {
-    $logHint = if (Test-Path -LiteralPath (Join-Path $SourceOutput "Editor.log") -PathType Leaf) {
-        Join-Path $SourceOutput "Editor.log"
+    $copiedLogPath = Join-Path $SourceOutput "Editor.log"
+    if (Test-Path -LiteralPath $copiedLogPath -PathType Leaf) {
+        Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$copiedLogPath'." 87
     }
-    else {
-        $LogPath
-    }
-    Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$logHint'." 87
+    Fail-Runner "Unity exited with code $unityExitCode without producing test results or an Editor log." 87
 }
 
 Copy-Item -LiteralPath $ResultsPath -Destination (Join-Path $SourceOutput "results.xml") -Force
