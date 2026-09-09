@@ -36,6 +36,12 @@ if ! grep -Fq 'Map.put(params, "permissions", permissions)' "$app_server"; then
   exit 1
 fi
 
+runtime_root_count="$(grep -Fc '"runtimeWorkspaceRoots" => [workspace]' "$app_server" || true)"
+if [[ "$runtime_root_count" -lt 2 ]]; then
+  echo "ERROR: Symphony App Server client does not materialize the issue workspace as the runtime workspace root on both thread/start and turn/start" >&2
+  exit 1
+fi
+
 if ! grep -Fq 'Map.put(params, "sandbox", thread_sandbox)' "$app_server"; then
   echo "ERROR: Symphony App Server client lost legacy thread-sandbox fallback" >&2
   exit 1
