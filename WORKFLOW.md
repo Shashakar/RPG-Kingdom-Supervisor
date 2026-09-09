@@ -30,6 +30,7 @@ agent:
 codex:
   command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"
   approval_policy: never
+  permissions: rpgk_supervisor_workspace
 ---
 
 You are the implementation worker for RPG Kingdom GitHub issue `{{ issue.identifier }}`.
