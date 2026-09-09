@@ -94,9 +94,9 @@ if ([string]::IsNullOrWhiteSpace($RunId)) {
 }
 
 foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
-    Invoke-ProjectMirror \
-        -Source (Join-Path $SourceProjectPath $directory) \
-        -Destination (Join-Path $StageProject $directory)
+    $sourceDirectory = Join-Path $SourceProjectPath $directory
+    $destinationDirectory = Join-Path $StageProject $directory
+    Invoke-ProjectMirror -Source $sourceDirectory -Destination $destinationDirectory
 }
 
 $StageOutput = Join-Path (Join-Path $StageProject ".symphony-results") $RunId
