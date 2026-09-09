@@ -25,25 +25,47 @@ if [[ -n "$(git -C "$SYMPHONY_REPO_ROOT" status --porcelain)" ]]; then
 fi
 
 current="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse HEAD)"
-if [[ "$current" != "$PIN" ]]; then
-  echo "ERROR: Symphony checkout is not at the evaluated upstream pin." >&2
-  echo "Expected: $PIN" >&2
-  echo "Current:  $current" >&2
+current_branch="$(git -C "$SYMPHONY_REPO_ROOT" branch --show-current)"
+
+# The compatibility branch is generated from the evaluated pin. When the
+# Supervisor tightens the transform, safely rebuild that dedicated local branch
+# from the pin instead of requiring the operator to delete the old generated
+# commit manually. Never reset an unrelated branch.
+if [[ "$current_branch" == "$LOCAL_BRANCH" ]]; then
+  if ! git -C "$SYMPHONY_REPO_ROOT" merge-base --is-ancestor "$PIN" "$current" 2>/dev/null; then
+    echo "ERROR: local Symphony branch '$LOCAL_BRANCH' is not based on the evaluated upstream pin." >&2
+    echo "Expected ancestor: $PIN" >&2
+    echo "Current:           $current" >&2
+    exit 1
+  fi
+  if [[ "$current" != "$PIN" ]]; then
+    echo "RPG Kingdom Symphony permissions patch: rebuilding $LOCAL_BRANCH from evaluated pin"
+    git -C "$SYMPHONY_REPO_ROOT" reset --hard "$PIN"
+    current="$PIN"
+  fi
+elif [[ "$current" != "$PIN" ]]; then
+  echo "ERROR: Symphony checkout is not at the evaluated upstream pin or generated compatibility branch." >&2
+  echo "Expected pin: $PIN" >&2
+  echo "Current:      $current" >&2
+  echo "Branch:       ${current_branch:-<detached>}" >&2
   echo "Review upstream changes before changing the pin or applying this patch." >&2
   exit 1
 fi
 
-current_branch="$(git -C "$SYMPHONY_REPO_ROOT" branch --show-current)"
 if [[ "$current_branch" != "$LOCAL_BRANCH" ]]; then
   if git -C "$SYMPHONY_REPO_ROOT" show-ref --verify --quiet "refs/heads/$LOCAL_BRANCH"; then
     local_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"
-    if [[ "$local_head" != "$PIN" ]]; then
-      echo "ERROR: local Symphony branch '$LOCAL_BRANCH' exists at an unexpected commit." >&2
-      echo "Expected: $PIN" >&2
-      echo "Current:  $local_head" >&2
+    if ! git -C "$SYMPHONY_REPO_ROOT" merge-base --is-ancestor "$PIN" "$local_head" 2>/dev/null; then
+      echo "ERROR: local Symphony branch '$LOCAL_BRANCH' exists but is not based on the evaluated pin." >&2
+      echo "Expected ancestor: $PIN" >&2
+      echo "Current:           $local_head" >&2
       exit 1
     fi
     git -C "$SYMPHONY_REPO_ROOT" switch "$LOCAL_BRANCH"
+    if [[ "$local_head" != "$PIN" ]]; then
+      echo "RPG Kingdom Symphony permissions patch: rebuilding existing $LOCAL_BRANCH from evaluated pin"
+      git -C "$SYMPHONY_REPO_ROOT" reset --hard "$PIN"
+    fi
   else
     git -C "$SYMPHONY_REPO_ROOT" switch -c "$LOCAL_BRANCH"
   fi
