@@ -11,7 +11,7 @@ API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
-RUNNER_READY="${RPGK_UNITY_RUNNER_READY:-0}"
+UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
 
 workspace_name="$(basename "$PWD")"
@@ -60,7 +60,7 @@ halt_issue() {
 
   local body
   body=$(cat <<EOF
-Symphony halted this dispatch during the Phase 3 Unity preflight before launching Codex.
+Symphony halted this dispatch during the Unity preflight before launching Codex.
 
 Reason: $reason
 
@@ -91,12 +91,17 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-# Phase 3 defines the contract but does not pretend the Phase 4 Windows Unity bridge exists.
-# Keep this unset until the actual runner integration has passed its health check.
-if [[ "$RUNNER_READY" != "1" ]]; then
-  halt_issue "resource:unity-editor was requested, but the Unity runner is not marked ready (RPGK_UNITY_RUNNER_READY=1 is absent)"
+set +e
+health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
+health_status=$?
+set -e
+if (( health_status != 0 )); then
+  health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
+  halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
   exit 76
 fi
+
+echo "$health_output"
 
 mkdir -p "$STATE_ROOT/locks"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then

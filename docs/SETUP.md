@@ -1,21 +1,23 @@
 # Supervisor Setup
 
-This document covers the operator setup for running official OpenAI Symphony against `Shashakar/RPG-Kingdom` using this repository's `WORKFLOW.md`.
+This document covers the evaluated Windows/WSL setup for running official OpenAI Symphony against `Shashakar/RPG-Kingdom` using this repository's `WORKFLOW.md`.
 
 ## 1. Host environment
 
-Official Symphony currently publishes macOS and Linux release targets. On Windows, use WSL2 for the evaluated setup unless you intentionally choose to build and support the Elixir runtime another way.
+Symphony runs in WSL2 Ubuntu. Unity remains a Windows application.
 
-The Symphony host needs:
+The WSL host needs:
 
 - Git
-- GitHub CLI (`gh`) or another Git authentication path that can push to `Shashakar/RPG-Kingdom`
+- GitHub CLI (`gh`) with push/PR access to `Shashakar/RPG-Kingdom`
 - Codex CLI with App Server support
 - `mise`
 - `curl`, `jq`, and `tput`
+- `wslpath`
+- Windows PowerShell reachable as `powershell.exe`
 - network access to GitHub and OpenAI
 
-Verify from the same shell that will run Symphony:
+Verify:
 
 ```bash
 git --version
@@ -24,10 +26,12 @@ codex --version
 mise --version
 curl --version
 jq --version
+command -v wslpath
+command -v powershell.exe
 tput colors >/dev/null 2>&1 || true
 ```
 
-Also verify that normal repository operations work from that shell before involving Symphony:
+Normal Git operations must work before involving Symphony:
 
 ```bash
 git clone https://github.com/Shashakar/RPG-Kingdom.git /tmp/rpg-kingdom-supervisor-auth-check
@@ -38,11 +42,9 @@ cd ..
 rm -rf rpg-kingdom-supervisor-auth-check
 ```
 
-Do not proceed to unattended workers until the operator environment can authenticate to GitHub reliably.
-
 ## 2. Install the evaluated Symphony revision
 
-The currently evaluated upstream revision is recorded in `SYMPHONY_UPSTREAM.md`.
+The evaluated upstream revision is recorded in `SYMPHONY_UPSTREAM.md`.
 
 ```bash
 git clone https://github.com/openai/symphony.git ~/src/openai-symphony
@@ -55,7 +57,7 @@ mise exec -- mix setup
 mise exec -- mix build
 ```
 
-On Ubuntu 26.04, if `mise` attempts to compile Erlang and fails on native build dependencies, the precompiled OTP route used during the evaluated setup is:
+On Ubuntu 26.04, if `mise` tries to compile Erlang and native dependencies are unavailable:
 
 ```bash
 export MISE_ERLANG_COMPILE=false
@@ -63,23 +65,19 @@ export MISE_ERLANG_PRECOMPILED_OS=ubuntu-26.04
 mise install
 ```
 
-Do not silently replace the pinned revision with current upstream `main`. Review and deliberately update the pin first.
+Do not silently replace the pinned Symphony revision with upstream `main`.
 
 ## 3. Configure GitHub tracker authentication
 
-Symphony's GitHub tracker adapter uses a dedicated variable:
+Symphony uses a dedicated tracker credential:
 
 ```text
 SYMPHONY_GITHUB_TOKEN
 ```
 
-Do **not** use `GITHUB_TOKEN` or `GH_TOKEN` for the Symphony tracker credential. GitHub CLI treats those names as authentication overrides, which can replace the operator's stored `gh auth` credential during clone/push/PR operations.
+Do **not** use `GITHUB_TOKEN` or `GH_TOKEN` for this PAT; those names override normal GitHub CLI credentials and can break clone/push access.
 
-Use a host-side fine-grained PAT with the minimum GitHub Issues permissions required by the workflow. Do not commit it to either repository.
-
-### Recommended persistent secret file
-
-Keep the token scoped to the supervisor launcher instead of exporting it from every shell startup file:
+Recommended persistent setup:
 
 ```bash
 mkdir -p ~/.config/rpg-kingdom-supervisor
@@ -90,47 +88,12 @@ echo
 printf 'export SYMPHONY_GITHUB_TOKEN=%q\n' "$TOKEN" \
   > ~/.config/rpg-kingdom-supervisor/secrets.env
 unset TOKEN
-
 chmod 600 ~/.config/rpg-kingdom-supervisor/secrets.env
 ```
 
-Verify permissions without printing the secret:
+`scripts/run-symphony.sh` loads that file automatically. Keep normal Git/PR authentication separate through `gh auth login` / `gh auth setup-git`.
 
-```bash
-ls -l ~/.config/rpg-kingdom-supervisor/secrets.env
-```
-
-Expected mode is `-rw-------`.
-
-`scripts/run-symphony.sh` sources this file automatically. Override the location with `RPGK_SECRETS_FILE` if required.
-
-For one-off interactive use instead:
-
-```bash
-read -s -p "Symphony GitHub token: " SYMPHONY_GITHUB_TOKEN
-echo
-export SYMPHONY_GITHUB_TOKEN
-unset GITHUB_TOKEN
-unset GH_TOKEN
-```
-
-The evaluated Symphony revision scrubs the provider secret environment reference before it execs the Codex App Server command. The model router therefore does not receive the narrow tracker PAT.
-
-### Separate Git push/PR authentication
-
-The tracker token is not the worker's Git credential.
-
-Configure Git/GitHub CLI authentication independently with `gh auth login` and `gh auth setup-git`, then verify it in the same WSL/Linux environment used by Symphony:
-
-```bash
-gh auth status
-git clone https://github.com/Shashakar/RPG-Kingdom.git /tmp/rpg-kingdom-supervisor-auth-check
-rm -rf /tmp/rpg-kingdom-supervisor-auth-check
-```
-
-The model router uses this normal `gh` authentication only to read routing labels for the issue being launched.
-
-## 4. Clone/update this supervisor repository
+## 4. Clone/update the supervisor
 
 ```bash
 git clone https://github.com/Shashakar/RPG-Kingdom-Supervisor.git ~/src/RPG-Kingdom-Supervisor
@@ -139,31 +102,23 @@ git switch main
 git pull --ff-only
 ```
 
-The runtime expects this default path. If you intentionally keep it elsewhere, set:
+Override a nonstandard supervisor location with `RPGK_SUPERVISOR_ROOT`.
 
-```bash
-export RPGK_SUPERVISOR_ROOT=/absolute/path/to/RPG-Kingdom-Supervisor
-```
-
-The tracked launcher can be run with `bash scripts/run-symphony.sh` even if the checkout does not preserve executable mode. `chmod +x scripts/run-symphony.sh` is optional convenience.
-
-## 5. Install routing and Unity scheduling labels
-
-Install/update the full label set with:
+## 5. Install routing and Unity labels
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
 bash scripts/install-labels.sh
 ```
 
-Dispatch/runtime labels:
+Dispatch/runtime:
 
 ```text
 symphony:ready
 symphony:halted
 ```
 
-Risk labels:
+Risk:
 
 ```text
 risk:mechanical
@@ -173,24 +128,19 @@ risk:architecture
 risk:end-to-end
 ```
 
-Explicit model overrides:
+Model/effort overrides:
 
 ```text
 model:luna
 model:terra
 model:sol
 model:astra
-```
-
-Reasoning overrides:
-
-```text
 effort:low
 effort:medium
 effort:high
 ```
 
-Phase 3 Unity scheduling labels:
+Unity scheduling:
 
 ```text
 resource:unity-editor
@@ -198,13 +148,9 @@ validation:unity-required
 validation:unity-optional
 ```
 
-The only label that authorizes dispatch is `symphony:ready`. Other labels choose execution/resource policy but do not authorize work by themselves.
-
-Avoid more than one risk, model, or effort label. `validation:unity-required` and `validation:unity-optional` are mutually exclusive. Required Unity validation also requires `resource:unity-editor`. Conflicts fail closed.
+Only `symphony:ready` authorizes execution. Other labels select policy.
 
 ## 6. Validate the supervisor locally
-
-Before restarting Symphony after a supervisor update:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
@@ -218,21 +164,15 @@ routing-policy-test: PASS
 after-run-guard-test: PASS
 unity-resource-policy-test: PASS
 unity-resource-guard-test: PASS
+unity-runner-policy-test: PASS
+unity-runner-host-syntax-test: PASS
+rearm-issue-test: PASS
 supervisor-tests: PASS
 ```
 
-The aggregate runner also executes the Codex-router and local worker-lifetime guard tests with their individual PASS output suppressed.
-
-You can inspect how an existing issue would route without starting Codex by entering its workspace and using router dry-run mode:
-
-```bash
-cd ~/code/rpg-kingdom-symphony-workspaces/GH-<number>
-RPGK_ROUTER_DRY_RUN=1 bash ~/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh
-```
+On a non-WSL host the PowerShell syntax check may report `SKIP`; the evaluated Windows/WSL host should report `PASS`.
 
 ## 7. Model/risk policy
-
-Default routes:
 
 | Issue policy | Model | Effort |
 |---|---|---|
@@ -243,81 +183,164 @@ Default routes:
 | `risk:end-to-end` | GPT-6 Astra | medium |
 | no risk/model label | GPT-5.6 Luna | medium |
 
-`model:*` labels override model selection. `effort:*` labels override reasoning effort.
+Use Terra when ambiguity/multiple runtime layers justify its measured higher allowance cost. Sol remains architecture-oriented. Astra remains reserved for genuinely difficult end-to-end/tool-heavy work.
 
-Use `risk:normal` for bounded implementation, straightforward bugs, and focused refactors. Use `risk:investigative` when multiple plausible causes or several runtime/test layers make Terra's higher allowance cost likely to save iterations. Astra remains reserved for difficult end-to-end work rather than merely important work.
+## 8. Unity scheduling policy
 
-## 8. Phase 3 Unity scheduling policy
+Ordinary code-only work needs no Unity labels.
 
-Use no Unity labels for ordinary code-only work.
-
-Use:
+If Unity validation is useful but not mandatory:
 
 ```text
 validation:unity-optional
 ```
 
-when a reviewable implementation can be created without Unity but missing editor validation must be explicit in the PR.
+If the worker should actually get editor access but the result is still optional, add:
 
-Use both:
+```text
+resource:unity-editor
+validation:unity-optional
+```
+
+If a clean PR requires Unity evidence:
 
 ```text
 resource:unity-editor
 validation:unity-required
 ```
 
-when Codex must not start unless the host can provide exclusive, healthy Unity execution.
+`validation:unity-required` requires the resource label. Required and optional validation labels are mutually exclusive.
 
-Phase 3 intentionally does not provide that runner yet. Keep this unset unless the Phase 4 runner has actually passed its health check:
-
-```text
-RPGK_UNITY_RUNNER_READY=1
-```
-
-Do not set it merely to bypass preflight. Until Phase 4 is complete, required Unity dispatches are expected to halt before Codex and be marked `symphony:halted`.
-
-The exclusive lock is stored under:
+The editor lock is stored under:
 
 ```text
 ~/.local/state/rpg-kingdom-supervisor/locks/unity-editor.lock/
 ```
 
-See `docs/PHASE3_UNITY_SCHEDULING.md` for the full contract.
+## 9. Phase 4 Unity host requirements
 
-## 9. Start Symphony
+RPG Kingdom declares its editor version in:
 
-Preferred startup:
+```text
+ProjectSettings/ProjectVersion.txt
+```
+
+The runner reads that file dynamically. On the evaluated host, RPG Kingdom currently declares `6000.3.10f1`, installed at:
+
+```text
+C:\Program Files\Unity\Hub\Editor\6000.3.10f1\Editor\Unity.exe
+```
+
+Verify Windows directly if needed:
+
+```powershell
+Get-ChildItem "C:\Program Files\Unity\Hub\Editor" -Directory |
+  Select-Object -ExpandProperty Name
+
+Test-Path "C:\Program Files\Unity\Hub\Editor\6000.3.10f1\Editor\Unity.exe"
+```
+
+The WSL/Windows path bridge should also work:
+
+```bash
+cd ~/code
+echo "Linux:   $PWD"
+echo "Windows: $(wslpath -w "$PWD")"
+```
+
+### Runner health check
+
+From any RPG Kingdom checkout/workspace:
+
+```bash
+cd /path/to/RPG-Kingdom
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh health
+```
+
+A healthy result is compact JSON similar to:
+
+```json
+{"status":"ready","unityVersion":"6000.3.10f1","unityPath":"C:\\Program Files\\Unity\\Hub\\Editor\\6000.3.10f1\\Editor\\Unity.exe","sourceProject":"...","stageProject":"C:\\Users\\...\\AppData\\Local\\RPGKingdomSupervisor\\UnityStages\\6000.3.10f1\\RPG-Kingdom"}
+```
+
+The health check verifies the real editor and staging path. **Do not set `RPGK_UNITY_RUNNER_READY=1`; Phase 4 no longer uses that placeholder.**
+
+### Windows-local staging project
+
+The default stage is:
+
+```text
+%LOCALAPPDATA%\RPGKingdomSupervisor\UnityStages\<UnityVersion>\RPG-Kingdom
+```
+
+PowerShell/robocopy mirrors only:
+
+```text
+Assets/
+Packages/
+ProjectSettings/
+```
+
+The staging `Library/` survives between issue runs. The first test for a Unity version can therefore be slow while Unity imports the project; later runs should reuse the import cache.
+
+If staging becomes corrupt, stop Symphony/Unity and delete the affected version directory. The next run recreates it from the authoritative WSL workspace.
+
+## 10. Unity runner commands
+
+`health` does not require the editor lock because the preflight calls it before lock acquisition.
+
+Actual tests require the current workspace to own `resource:unity-editor`:
+
+```bash
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh editmode
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode
+```
+
+Prefer targeted filters:
+
+```bash
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh editmode \
+  --filter 'RPGKingdom.Tests.EditMode.Inventory'
+
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode \
+  --filter 'RPGKingdom.Tests.PlayMode.Inventory'
+```
+
+Unity receives its native `-testFilter` argument. Test artifacts are copied back to:
+
+```text
+Logs/SymphonyUnity/<run-id>/results.xml
+Logs/SymphonyUnity/<run-id>/Editor.log
+Logs/SymphonyUnity/<run-id>/summary.json
+```
+
+`Logs/` is ignored by RPG Kingdom and these files must not be committed.
+
+The runner fails when Unity exits nonzero, no result XML is produced, zero tests match, the XML cannot be parsed, or tests fail.
+
+## 11. Start Symphony
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
 bash scripts/run-symphony.sh
 ```
 
-The launcher:
+The launcher loads the scoped secret, validates local prerequisites, launches the pinned Symphony runtime, and uses the alternate terminal screen when available so dashboard refreshes do not flood normal scrollback.
 
-- loads the permission-restricted supervisor secrets file;
-- validates the required local paths/tools;
-- starts the pinned Symphony runtime with this repository's `WORKFLOW.md`;
-- uses the terminal alternate-screen buffer when available so repeated status refreshes do not flood normal scrollback;
-- restores the normal terminal when Symphony exits.
+Set `RPGK_ALTERNATE_SCREEN=0` only when ordinary scrollback is intentionally desired.
 
-Set `RPGK_ALTERNATE_SCREEN=0` if you intentionally want ordinary terminal output/scrollback.
+The workflow currently allows one concurrent worker and four Codex turns per worker lifetime.
 
-The workflow currently allows one concurrent worker and a maximum of four Codex turns per worker lifetime.
-
-The observability HTTP dashboard remains optional. If intentionally enabled, keep it loopback-only and review the pinned dependency/security posture first.
-
-## 10. Dispatch an issue
+## 12. Dispatch an issue
 
 Before dispatch:
 
-1. make the issue complete enough for unattended implementation;
-2. assign one risk label when known;
-3. add model/effort overrides only for a concrete reason;
-4. classify Unity validation/resource needs;
-5. then add `symphony:ready`.
+1. make the issue sufficiently complete for unattended implementation;
+2. classify risk/model/effort;
+3. classify Unity resource/validation needs;
+4. add `symphony:ready` last.
 
-Example code-only bounded dispatch:
+Code-only example:
 
 ```bash
 gh issue edit <number> \
@@ -326,58 +349,54 @@ gh issue edit <number> \
   --add-label "symphony:ready"
 ```
 
-Expected success path:
+Unity-required example:
 
-1. Symphony sees the open issue with `symphony:ready`.
-2. It creates/reuses the isolated workspace and clones RPG Kingdom when new.
-3. `before-run-guard.sh` verifies the dispatch has not already consumed a worker lifetime.
-4. `unity-resource-guard.sh` validates Unity policy and acquires the editor lock if requested/available.
-5. `codex-app-server-router.sh` reads route labels and launches the selected model/effort.
-6. Codex follows RPG Kingdom instructions, creates a `codex/` branch, implements, validates available paths, pushes, and opens/updates a PR.
-7. After the reviewable PR exists, Codex removes `symphony:ready`.
-8. `release-unity-resource.sh` releases the Unity lock if this issue owns it.
-9. `after-run-guard.sh` records the completed worker lifetime; successful PR handoff needs no further tracker mutation.
-10. The issue remains open and the PR waits for human/ChatGPT review.
+```bash
+gh issue edit <number> \
+  --repo Shashakar/RPG-Kingdom \
+  --add-label "risk:normal" \
+  --add-label "resource:unity-editor" \
+  --add-label "validation:unity-required" \
+  --add-label "symphony:ready"
+```
 
-## 11. Budget exhaustion / failed handoff
+For Unity-required work the host health check and exclusive lock happen before Codex starts. Once running, Codex must use `unity-runner.sh` for relevant editor validation before a clean PR handoff.
 
-The supervisor does not allow a still-routable issue to roll directly into another fresh Codex worker lifetime.
+## 13. Failed handoff / explicit retry
 
-At the end of every worker lifetime, `scripts/after-run-guard.sh` writes `.symphony-attempt-complete` inside the persistent issue workspace before making any GitHub request. A subsequent worker reaches `scripts/before-run-guard.sh` and stops before Codex App Server launches.
+The persistent `.symphony-attempt-complete` marker prevents accidental second worker lifetimes. If a worker ends while `symphony:ready` remains, the after-run guard removes the lease, adds `symphony:halted`, and comments on the issue.
 
-If `symphony:ready` remains, the after-run guard removes it, adds `symphony:halted`, and leaves an explanatory comment.
+Unity policy/health/lock failures halt even earlier, before Codex spends a turn.
 
-Unity preflight failures happen even earlier: invalid required/optional labels, required Unity without the resource label, unavailable required Unity infrastructure, or a busy editor lock halt before Codex starts.
-
-Before retrying, inspect the PR/workspace/Symphony and Codex logs and decide whether another bounded run is justified. Then explicitly rearm:
+After inspection, an intentional retry is:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
 bash scripts/rearm-issue.sh <number>
 ```
 
-Change risk/model/effort/Unity labels before rearming when prior policy was inappropriate. Do not automate this retry loop.
+Change incorrect risk/model/Unity labels before rearming. Do not automate this retry loop.
 
-## 12. Benchmarks
+## 14. Environment overrides
 
-Issue #91 is the Phase 1 baseline. Issues #93 and #95 provide the Phase 2 measured routes documented in `PHASE2_BUDGETED_ROUTING.md`.
+Normal evaluated-host operation should not require these:
 
-Important operator signals are:
+```text
+RPGK_SUPERVISOR_ROOT
+RPGK_SECRETS_FILE
+RPGK_ALTERNATE_SCREEN
+RPGK_POWERSHELL_EXE
+RPGK_UNITY_EDITOR_WINDOWS
+RPGK_UNITY_STAGE_ROOT_WINDOWS
+RPGK_SUPERVISOR_STATE_ROOT
+```
 
-- Symphony turn count and worker lifetime count;
-- cached vs uncached input rather than raw cumulative dashboard totals alone;
-- five-hour and weekly allowance movement;
-- whether the selected model materially improved the result enough to justify its cost;
-- whether Unity-required work was blocked before Codex when the host resource was unavailable.
+Do not commit secrets in any override.
 
-Use real work to validate Sol and Astra when those classes naturally occur rather than spending allowance on synthetic benchmarks.
+## 15. Benchmarks and next phase
 
-## 13. Still deferred
+#91 is the Phase 1 usage baseline. #93 and #95 establish the Luna/Terra Phase 2 measurements in `PHASE2_BUDGETED_ROUTING.md`.
 
-Phase 3 does not add:
+Phase 4 should be validated with real Unity-required work rather than a synthetic Codex benchmark. Unity test execution itself does not consume Codex model allowance while the tool process is running, but the worker still spends model turns interpreting failures and making changes.
 
-- a Windows Unity runner or automatic Unity execution;
-- more than one concurrent worker;
-- automatic merge;
-- automatic PR feedback re-dispatch;
-- automatic retries after `symphony:halted`.
+After the runner is proven stable, Phase 5 can consider increasing **code-only** concurrency while the `unity-editor` resource remains exclusive.
