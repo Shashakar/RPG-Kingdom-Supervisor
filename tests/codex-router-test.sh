@@ -40,4 +40,25 @@ if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Verify the live App Server launch receives the named permission profile rather
+# than relying on Symphony's legacy workspace-write sandbox.
+cat > "$TMP/bin/codex" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$RPGK_TEST_CODEX_ARGS"
+MOCK
+chmod +x "$TMP/bin/codex"
+
+export RPGK_ROUTER_DRY_RUN=0
+export RPGK_TEST_LABELS="risk:normal"
+export RPGK_TEST_CODEX_ARGS="$TMP/codex-args.txt"
+bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null
+
+grep -Fxq 'default_permissions="rpgk_supervisor_workspace"' "$RPGK_TEST_CODEX_ARGS"
+grep -Fq 'permissions.rpgk_supervisor_workspace=' "$RPGK_TEST_CODEX_ARGS"
+grep -Fq '".git"="write"' "$RPGK_TEST_CODEX_ARGS"
+grep -Fxq 'model="gpt-5.6-luna"' "$RPGK_TEST_CODEX_ARGS"
+grep -Fxq 'model_reasoning_effort=medium' "$RPGK_TEST_CODEX_ARGS"
+grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
+
 echo "codex-router-test: PASS"
