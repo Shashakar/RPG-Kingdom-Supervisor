@@ -29,6 +29,11 @@ if ! grep -Fq 'Get-Content -LiteralPath $defaultEditorLog -Tail 4000' "$PS_SCRIP
   exit 1
 fi
 
+if ! grep -Fq 'New-Object System.Text.UTF8Encoding($false)' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: summary.json must be UTF-8 without a BOM" >&2
+  exit 1
+fi
+
 if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v wslpath >/dev/null 2>&1; then
   echo "unity-runner-host-syntax-test: SKIP (Windows PowerShell bridge unavailable)"
   exit 0
