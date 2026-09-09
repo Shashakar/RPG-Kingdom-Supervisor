@@ -29,6 +29,17 @@ grep -q 'cmd.exe' "$ROOT/scripts/codex-turn-environment-probe.py"
 grep -q '"permissions": profile' "$ROOT/scripts/codex-turn-environment-probe.py"
 grep -q '"effort": "low"' "$ROOT/scripts/codex-turn-environment-probe.py"
 
+# This client is intentionally headless. It must never wait indefinitely for an
+# approval prompt: both thread/start and turn/start explicitly use never, and
+# an unexpected approval request is surfaced as a probe failure.
+if [[ "$(grep -c '"approvalPolicy": "never"' "$ROOT/scripts/codex-turn-environment-probe.py")" -lt 2 ]]; then
+  echo "Model-turn probe must set approvalPolicy=never on both thread and turn" >&2
+  exit 1
+fi
+grep -q 'requestApproval' "$ROOT/scripts/codex-turn-environment-probe.py"
+grep -q 'still waiting for turn/completed' "$ROOT/scripts/codex-turn-environment-probe.py"
+grep -q '"--timeout-seconds"' "$ROOT/scripts/codex-turn-environment-probe.py"
+
 if grep -q 'codex-turn-environment-probe' "$ROOT/scripts/run-symphony.sh"; then
   echo "Model-backed turn probe must not run automatically at Symphony startup" >&2
   exit 1
