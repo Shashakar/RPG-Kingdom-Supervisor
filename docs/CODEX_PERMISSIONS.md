@@ -25,13 +25,13 @@ The shared profile is defined by `scripts/codex-permission-profile.sh`:
 
 The model router defines and selects this profile for `codex app-server` through trusted host-side `--config` overrides. `WORKFLOW.md` also names `rpgk_supervisor_workspace` through the local Symphony compatibility seam so `thread/start` and `turn/start` select `permissions` instead of sending mutually exclusive legacy sandbox overrides.
 
-## Why Symphony needs a compatibility patch
+## Why Symphony needs a compatibility transform
 
 The evaluated Symphony revision defaults `codex.thread_sandbox` to `workspace-write` and synthesizes a `workspaceWrite` turn policy when no explicit turn policy is configured. Its App Server client always sends those values. Current Codex App Server supports a named `permissions` field on both `thread/start` and `turn/start`, and that field cannot be combined with the legacy sandbox field on the same request.
 
-The pinned upstream Symphony revision does not expose that named-profile field in `WORKFLOW.md`, so configuration alone cannot express the required Git-write boundary. The Supervisor therefore carries a narrow, auditable patch in `patches/symphony-named-permissions.patch`. It adds a generic `codex.permissions` setting and preserves Symphony's legacy sandbox behavior as the fallback when no named profile is configured.
+The pinned upstream Symphony revision does not expose that named-profile field in `WORKFLOW.md`, so configuration alone cannot express the required Git-write boundary. The Supervisor therefore carries a narrow, deterministic source transform in `scripts/patch-symphony-named-permissions.py`. It is intentionally anchored to the evaluated upstream source and fails if those anchors no longer match. The transform adds a generic `codex.permissions` setting and preserves Symphony's legacy sandbox behavior as the fallback when no named profile is configured.
 
-Apply the patch once to the evaluated Symphony checkout with:
+Apply it once to the evaluated Symphony checkout with:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
@@ -42,11 +42,13 @@ The installer:
 
 - refuses a dirty Symphony checkout;
 - requires the evaluated upstream pin;
-- creates local branch `rpgk/named-permissions` rather than modifying upstream history in place;
-- applies the tracked compatibility patch;
+- creates or safely reuses local branch `rpgk/named-permissions` when it still points at that pin;
+- applies the deterministic pinned-source transform;
 - formats and runs the focused Symphony configuration/App Server tests;
 - commits the local compatibility change;
 - verifies the expected named-permission seam is active.
+
+The transform is used instead of a hand-authored unified diff because a malformed or stale hunk should not be able to strand the local Symphony checkout. Exact source anchors plus the upstream pin make failure explicit and reviewable.
 
 `scripts/run-symphony.sh` fails closed if that compatibility seam is missing, so a future upstream checkout/pull cannot silently return workers to read-only Git metadata.
 
@@ -91,4 +93,4 @@ bash scripts/verify-symphony-permissions-patch.sh
 bash scripts/codex-git-write-probe.sh
 ```
 
-If upstream Symphony gains first-class named-permission support, remove the local patch rather than maintaining duplicate behavior. Do not rearm a halted implementation issue after a Codex or Symphony upgrade until both permission checks pass.
+If upstream Symphony gains first-class named-permission support, remove the local transform rather than maintaining duplicate behavior. Do not rearm a halted implementation issue after a Codex or Symphony upgrade until both permission checks pass.
