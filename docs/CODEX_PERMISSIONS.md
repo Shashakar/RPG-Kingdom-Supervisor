@@ -4,11 +4,16 @@
 
 RPG Kingdom workers must perform ordinary local Git operations: fetch existing branches, switch/merge, stage, commit, and push. Codex's legacy `workspace-write` sandbox deliberately protects `.git` metadata as read-only, so source files can be edited while commands such as `git fetch`, `git add`, and `git commit` fail on `.git/FETCH_HEAD` or `.git/index.lock`.
 
-Issue #97 exposed this mismatch before implementation began. The worker could see `origin/codex/loot-rewards-v1` but could not switch to it because Symphony supplied the legacy `workspaceWrite` turn policy.
+Issue #97 exposed two distinct layers of this mismatch:
+
+1. the standalone Codex permission profile originally needed explicit `.git` write access;
+2. after that profile was corrected and the model-free probe passed, Symphony still sent `sandbox: workspace-write` on `thread/start` and `sandboxPolicy: workspaceWrite` on `turn/start`, overriding the App Server's named profile and restoring `.git` read-only protection.
+
+A passing direct Codex sandbox probe therefore is necessary but not sufficient. The orchestration client must select the same named permission profile when it creates the App Server thread and turn.
 
 ## Policy
 
-The Supervisor uses Codex's named permission-profile model instead of Symphony's legacy `thread_sandbox` / `turn_sandbox_policy` fields.
+The Supervisor uses Codex's named permission-profile model rather than `danger-full-access`.
 
 The shared profile is defined by `scripts/codex-permission-profile.sh`:
 
@@ -18,28 +23,59 @@ The shared profile is defined by `scripts/codex-permission-profile.sh`:
 - do not grant unrestricted host filesystem access;
 - do not use `danger-full-access`.
 
-The model router passes this profile to `codex app-server` through trusted host-side `--config` overrides. `WORKFLOW.md` intentionally omits legacy sandbox fields because permission profiles and the legacy sandbox model must not be composed.
+The model router defines and selects this profile for `codex app-server` through trusted host-side `--config` overrides. `WORKFLOW.md` also names `rpgk_supervisor_workspace` through the local Symphony compatibility seam so `thread/start` and `turn/start` select `permissions` instead of sending mutually exclusive legacy sandbox overrides.
 
-## Startup proof
+## Why Symphony needs a compatibility transform
 
-`scripts/codex-git-write-probe.sh` performs a model-free sandbox test against a disposable Git repository. It runs `git add` and `git commit` under the exact named permission profile used by the App Server. No model request or ChatGPT allowance is consumed.
+The evaluated Symphony revision defaults `codex.thread_sandbox` to `workspace-write` and synthesizes a `workspaceWrite` turn policy when no explicit turn policy is configured. Its App Server client always sends those values. Current Codex App Server supports a named `permissions` field on both `thread/start` and `turn/start`, and that field cannot be combined with the legacy sandbox field on the same request.
 
-`scripts/run-symphony.sh` runs this probe before entering the alternate screen or starting Symphony. If the installed Codex version/configuration cannot write `.git` under the scoped profile, Symphony fails closed before any issue can consume a worker lifetime.
+The pinned upstream Symphony revision does not expose that named-profile field in `WORKFLOW.md`, so configuration alone cannot express the required Git-write boundary. The Supervisor therefore carries a narrow, deterministic source transform in `scripts/patch-symphony-named-permissions.py`. It is intentionally anchored to the evaluated upstream source and fails if those anchors no longer match. The transform adds a generic `codex.permissions` setting and preserves Symphony's legacy sandbox behavior as the fallback when no named profile is configured.
 
-Run it directly with:
+Apply it once to the evaluated Symphony checkout with:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/apply-symphony-permissions-patch.sh
+```
+
+The installer:
+
+- refuses a dirty Symphony checkout;
+- requires the evaluated upstream pin;
+- creates or safely reuses local branch `rpgk/named-permissions` when it still points at that pin;
+- applies the deterministic pinned-source transform;
+- formats and runs the focused Symphony configuration/App Server tests;
+- commits the local compatibility change;
+- verifies the expected named-permission seam is active.
+
+The transform is used instead of a hand-authored unified diff because a malformed or stale hunk should not be able to strand the local Symphony checkout. Exact source anchors plus the upstream pin make failure explicit and reviewable.
+
+`scripts/run-symphony.sh` fails closed if that compatibility seam is missing, so a future upstream checkout/pull cannot silently return workers to read-only Git metadata.
+
+## Startup proofs
+
+`scripts/codex-git-write-probe.sh` performs a model-free sandbox test against a disposable Git repository. It runs `git add` and `git commit` under the exact named permission profile used by the App Server. No model request or ChatGPT allowance is consumed.
+
+`scripts/verify-symphony-permissions-patch.sh` separately proves the active pinned Symphony source can propagate `codex.permissions` and choose the named profile instead of the legacy sandbox request fields.
+
+`scripts/run-symphony.sh` requires both checks before entering the alternate screen or starting Symphony.
+
+Run them directly with:
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/verify-symphony-permissions-patch.sh
 bash scripts/codex-git-write-probe.sh
 ```
 
 Expected:
 
 ```text
+RPG Kingdom Symphony named-permissions compatibility: PASS
 RPG Kingdom Codex permission probe: PASS
 ```
 
-`RPGK_SKIP_CODEX_PERMISSION_PROBE=1` exists only as an operator escape hatch for diagnosis; normal unattended operation should not skip the proof.
+`RPGK_SKIP_CODEX_PERMISSION_PROBE=1` exists only as an operator escape hatch for diagnosis; normal unattended operation should not skip the direct Codex proof. The Symphony compatibility check is not optional.
 
 ## Security boundary
 
@@ -49,11 +85,12 @@ Unity remains a separate host-owned resource and may only be exercised through `
 
 ## Upgrade rule
 
-Codex owns the permission-profile schema and sandbox behavior. After upgrading Codex, rerun both:
+Codex owns the permission-profile schema and App Server request contract. Symphony owns the orchestration request construction. After upgrading either one:
 
 ```bash
 bash tests/run.sh
+bash scripts/verify-symphony-permissions-patch.sh
 bash scripts/codex-git-write-probe.sh
 ```
 
-Do not rearm a halted implementation issue after a Codex upgrade until the probe passes.
+If upstream Symphony gains first-class named-permission support, remove the local transform rather than maintaining duplicate behavior. Do not rearm a halted implementation issue after a Codex or Symphony upgrade until both permission checks pass.
