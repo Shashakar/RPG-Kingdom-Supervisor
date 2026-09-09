@@ -4,7 +4,7 @@ set -euo pipefail
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 SYMPHONY_ROOT="${SYMPHONY_ROOT:-$HOME/src/openai-symphony/elixir}"
 SYMPHONY_REPO_ROOT="$(cd "$SYMPHONY_ROOT/.." && pwd)"
-PATCH_FILE="$SUPERVISOR_ROOT/patches/symphony-named-permissions.patch"
+TRANSFORM="$SUPERVISOR_ROOT/scripts/patch-symphony-named-permissions.py"
 PIN="8001b52e3062495a16e520e4ceaf8f9de868c4d0"
 LOCAL_BRANCH="rpgk/named-permissions"
 
@@ -13,8 +13,8 @@ if bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh" >/dev/nu
   exit 0
 fi
 
-if [[ ! -f "$PATCH_FILE" ]]; then
-  echo "ERROR: Symphony compatibility patch not found: $PATCH_FILE" >&2
+if [[ ! -f "$TRANSFORM" ]]; then
+  echo "ERROR: Symphony compatibility transform not found: $TRANSFORM" >&2
   exit 1
 fi
 
@@ -33,30 +33,23 @@ if [[ "$current" != "$PIN" ]]; then
   exit 1
 fi
 
-# The compatibility patch is intentionally small and human-reviewable. Because it may be
-# edited directly, do not trust the hunk line counts; --recount derives them from the patch
-# body. Validate the patch before changing branches so a malformed patch cannot strand the
-# checkout on a newly-created local branch.
-git -C "$SYMPHONY_REPO_ROOT" apply --recount --check "$PATCH_FILE"
-
-if git -C "$SYMPHONY_REPO_ROOT" show-ref --verify --quiet "refs/heads/$LOCAL_BRANCH"; then
-  branch_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"
-  if [[ "$branch_head" != "$PIN" ]]; then
-    echo "ERROR: local Symphony branch '$LOCAL_BRANCH' already exists at an unexpected commit." >&2
-    echo "Expected: $PIN" >&2
-    echo "Current:  $branch_head" >&2
-    echo "Inspect that branch before retrying; this script will not overwrite it." >&2
-    exit 1
-  fi
-
-  if [[ "$(git -C "$SYMPHONY_REPO_ROOT" branch --show-current)" != "$LOCAL_BRANCH" ]]; then
+current_branch="$(git -C "$SYMPHONY_REPO_ROOT" branch --show-current)"
+if [[ "$current_branch" != "$LOCAL_BRANCH" ]]; then
+  if git -C "$SYMPHONY_REPO_ROOT" show-ref --verify --quiet "refs/heads/$LOCAL_BRANCH"; then
+    local_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"
+    if [[ "$local_head" != "$PIN" ]]; then
+      echo "ERROR: local Symphony branch '$LOCAL_BRANCH' exists at an unexpected commit." >&2
+      echo "Expected: $PIN" >&2
+      echo "Current:  $local_head" >&2
+      exit 1
+    fi
     git -C "$SYMPHONY_REPO_ROOT" switch "$LOCAL_BRANCH"
+  else
+    git -C "$SYMPHONY_REPO_ROOT" switch -c "$LOCAL_BRANCH"
   fi
-else
-  git -C "$SYMPHONY_REPO_ROOT" switch -c "$LOCAL_BRANCH"
 fi
 
-git -C "$SYMPHONY_REPO_ROOT" apply --recount "$PATCH_FILE"
+python3 "$TRANSFORM" "$SYMPHONY_ROOT"
 
 cd "$SYMPHONY_ROOT"
 mise exec -- mix format \
