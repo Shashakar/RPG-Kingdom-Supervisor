@@ -7,8 +7,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/codex-permission-profile.sh"
 
 [[ "$RPGK_CODEX_PERMISSION_PROFILE" == "rpgk_supervisor_workspace" ]]
-[[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" == *'extends=":workspace"'* ]]
-[[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" == *'".git"="write"'* ]]
+[[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" != *'extends='* ]]
+[[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" == *'":root"="read"'* ]]
+[[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" == *'":workspace_roots"={"."="write",".git"="write"}'* ]]
 [[ "$RPGK_CODEX_PERMISSION_PROFILE_TOML" == *'network={enabled=true}'* ]]
 
 if grep -Eq '^[[:space:]]*(thread_sandbox|turn_sandbox_policy):' "$ROOT/WORKFLOW.md"; then
@@ -19,6 +20,7 @@ fi
 grep -q 'codex-permission-profile.sh' "$ROOT/scripts/codex-app-server-router.sh"
 grep -q 'RPGK_CODEX_PERMISSION_ARGS' "$ROOT/scripts/codex-app-server-router.sh"
 grep -q 'codex-git-write-probe.sh' "$ROOT/scripts/run-symphony.sh"
+grep -q 'codex-app-server-permission-probe.sh' "$ROOT/scripts/run-symphony.sh"
 grep -qE '^[[:space:]]*sandbox[[:space:]]*\\?$' "$ROOT/scripts/codex-git-write-probe.sh"
 
 # Only inspect executable shell lines. The probe intentionally documents the
@@ -30,7 +32,22 @@ if grep -qE 'sandbox[[:space:]]+\$?"?sandbox_subcommand|sandbox[[:space:]]+(linu
   exit 1
 fi
 
+# The App Server preflight must remain model-free: it may initialize and create
+# an ephemeral thread to inspect activePermissionProfile, but must never start a
+# model turn.
+grep -q '"method": "thread/start"' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q '"ephemeral": True' "$ROOT/scripts/codex-app-server-permission-probe.py"
+if grep -q '"method": "turn/start"' "$ROOT/scripts/codex-app-server-permission-probe.py"; then
+  echo "Codex App Server permission probe must not start a model turn" >&2
+  exit 1
+fi
+
+grep -q 'activePermissionProfile' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q 'experimentalApi' "$ROOT/scripts/codex-app-server-permission-probe.py"
+
 bash -n "$ROOT/scripts/codex-permission-profile.sh"
 bash -n "$ROOT/scripts/codex-git-write-probe.sh"
+bash -n "$ROOT/scripts/codex-app-server-permission-probe.sh"
+python3 -m py_compile "$ROOT/scripts/codex-app-server-permission-probe.py"
 
 echo "codex-permissions-policy-test: PASS"
