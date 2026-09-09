@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Verify that Codex App Server selects the Supervisor's named permission profile.
+"""Verify Codex App Server selects and enforces the Supervisor permission profile.
 
-This intentionally starts no model turn. It performs only the App Server
-initialize + thread/start handshake against a disposable repository and checks
-ThreadStartResponse.activePermissionProfile.
+This probe is intentionally model-free. It performs the App Server initialize +
+ephemeral thread/start handshake to prove the selected profile identity, then
+uses App Server command/exec with the same named permission profile to perform
+real Git metadata writes in a disposable repository.
+
+No turn/start request is sent, so the probe does not consume model allowance.
 """
 
 from __future__ import annotations
@@ -16,10 +19,10 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
@@ -71,6 +74,25 @@ def read_response(
         return result
 
 
+def git_write_probe_script() -> str:
+    # Exercise the exact metadata paths that blocked GH-97 plus ordinary Git
+    # index/object/ref writes. The repository is disposable, so a probe commit
+    # is both safe and substantially stronger than checking profile identity.
+    return r"""set -euo pipefail
+: > .git/FETCH_HEAD
+printf 'probe\n' > .git/rpgk-write-probe
+rm .git/rpgk-write-probe
+git config user.email rpgk-probe@local.invalid
+git config user.name 'RPG Kingdom Permission Probe'
+printf 'probe\n' > probe.txt
+git add probe.txt
+git commit -q -m 'permission probe'
+test -f .git/index
+git rev-parse --verify HEAD >/dev/null
+printf 'app-server-git-write-ok\n'
+"""
+
+
 def main() -> int:
     profile = os.environ.get("RPGK_CODEX_PERMISSION_PROFILE", "")
     profile_toml = os.environ.get("RPGK_CODEX_PERMISSION_PROFILE_TOML", "")
@@ -113,7 +135,7 @@ def main() -> int:
                         "clientInfo": {
                             "name": "rpgk-supervisor-permission-probe",
                             "title": "RPG Kingdom Supervisor Permission Probe",
-                            "version": "1.0.0",
+                            "version": "1.1.0",
                         },
                     },
                 },
@@ -150,6 +172,34 @@ def main() -> int:
                     "Supervisor permission profile unexpectedly inherits "
                     f"{active.get('extends')!r}"
                 )
+
+            write_message(
+                proc,
+                {
+                    "method": "command/exec",
+                    "id": 3,
+                    "params": {
+                        "command": ["bash", "-lc", git_write_probe_script()],
+                        "cwd": str(repo),
+                        "permissionProfile": profile,
+                        "timeoutMs": 20000,
+                    },
+                },
+            )
+            command_result = read_response(proc, 3, timeout_seconds=25.0)
+            exit_code = command_result.get("exitCode")
+            stdout = command_result.get("stdout", "")
+            stderr = command_result.get("stderr", "")
+            if exit_code != 0:
+                fail(
+                    "command/exec could not write Git metadata "
+                    f"(exit={exit_code}, stderr={stderr!r}, stdout={stdout!r})"
+                )
+            if "app-server-git-write-ok" not in stdout:
+                fail(
+                    "command/exec exited successfully but did not complete the Git write proof "
+                    f"(stdout={stdout!r}, stderr={stderr!r})"
+                )
         except Exception as exc:
             print(
                 f"RPG Kingdom Codex App Server permission probe: FAILED; {exc}",
@@ -166,7 +216,7 @@ def main() -> int:
 
     print(
         "RPG Kingdom Codex App Server permission probe: "
-        f"PASS (active={profile})"
+        f"PASS (active={profile}, git_write=ok)"
     )
     return 0
 
