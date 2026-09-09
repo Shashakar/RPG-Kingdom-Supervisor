@@ -33,6 +33,12 @@ if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
   exit 1
 fi
 
+if ! bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh"; then
+  echo "ERROR: the pinned Symphony checkout does not support named Codex permission profiles." >&2
+  echo "Run: bash $SUPERVISOR_ROOT/scripts/apply-symphony-permissions-patch.sh" >&2
+  exit 1
+fi
+
 if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
   if ! bash "$SUPERVISOR_ROOT/scripts/codex-git-write-probe.sh"; then
     echo "ERROR: Codex Git-write permission probe failed; Symphony will not start because workers could not complete normal branch/commit/push workflows." >&2
