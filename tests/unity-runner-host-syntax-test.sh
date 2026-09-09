@@ -19,7 +19,7 @@ if ! grep -Fq 'resource:unity-editor requires exclusive host access' "$PS_SCRIPT
   exit 1
 fi
 
-if ! grep -Fq 'Unity\\Editor\\Editor.log' "$PS_SCRIPT"; then
+if ! grep -Fq 'Unity\Editor\Editor.log' "$PS_SCRIPT"; then
   echo "unity-runner-host-syntax-test: early startup failures must preserve the global Editor.log when available" >&2
   exit 1
 fi
