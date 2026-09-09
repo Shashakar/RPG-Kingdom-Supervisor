@@ -30,10 +30,6 @@ agent:
 codex:
   command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"
   approval_policy: never
-  thread_sandbox: workspace-write
-  turn_sandbox_policy:
-    type: workspaceWrite
-    networkAccess: true
 ---
 
 You are the implementation worker for RPG Kingdom GitHub issue `{{ issue.identifier }}`.
@@ -57,6 +53,7 @@ No issue description was provided.
 3. Read the repository-root `AGENTS.md` first. Read every additional document that `AGENTS.md` requires for this task, but do not broaden context beyond those requirements and the files actually relevant to the issue.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
 5. Do not change the supervisor repository from a worker session.
+6. The App Server runs under the supervisor's named Codex permission profile. The current RPG Kingdom workspace and its `.git` metadata are writable so normal fetch/switch/add/commit/push operations can complete; this does not grant write authority outside the current workspace or relax the Unity boundary below.
 
 ## Phase 2 execution contract
 

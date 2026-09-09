@@ -33,6 +33,13 @@ if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
   exit 1
 fi
 
+if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
+  if ! bash "$SUPERVISOR_ROOT/scripts/codex-git-write-probe.sh"; then
+    echo "ERROR: Codex Git-write permission probe failed; Symphony will not start because workers could not complete normal branch/commit/push workflows." >&2
+    exit 1
+  fi
+fi
+
 cleanup_screen() {
   if (( ALT_SCREEN_ACTIVE == 1 )); then
     tput rmcup 2>/dev/null || true
