@@ -30,6 +30,12 @@ grep -Fq 'Map.put(params, "permissions", permissions)' "$TRANSFORM" || {
   exit 1
 }
 
+runtime_root_count="$(grep -Fc '"runtimeWorkspaceRoots" => [workspace]' "$TRANSFORM" || true)"
+if [[ "$runtime_root_count" -lt 2 ]]; then
+  echo "symphony-permissions-compat-test: transform must materialize the issue workspace as runtimeWorkspaceRoots for both thread/start and turn/start" >&2
+  exit 1
+fi
+
 grep -Fq 'Map.put(params, "sandbox", thread_sandbox)' "$TRANSFORM" || {
   echo "symphony-permissions-compat-test: transform must preserve legacy thread-sandbox fallback" >&2
   exit 1
@@ -45,8 +51,18 @@ grep -Fq 'python3 "$TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
   exit 1
 }
 
-grep -Fq 'local_head="$(git -C "$SYMPHONY_REPO_ROOT" rev-parse "$LOCAL_BRANCH")"' "$APPLY" || {
-  echo "symphony-permissions-compat-test: installer must recover a prior failed install branch when it still points at the evaluated pin" >&2
+grep -Fq 'git -C "$SYMPHONY_REPO_ROOT" reset --hard "$PIN"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must be able to safely rebuild the dedicated generated compatibility branch from the evaluated pin" >&2
+  exit 1
+}
+
+grep -Fq 'current_branch" == "$LOCAL_BRANCH"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must restrict generated-branch reset behavior to the dedicated compatibility branch" >&2
+  exit 1
+}
+
+grep -Fq 'runtimeWorkspaceRoots' "$VERIFY" || {
+  echo "symphony-permissions-compat-test: verifier must require runtime workspace root propagation" >&2
   exit 1
 }
 
