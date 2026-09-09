@@ -17,11 +17,7 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 case "$(uname -s)" in
-  Linux)
-    sandbox_subcommand="linux"
-    ;;
-  Darwin)
-    sandbox_subcommand="macos"
+  Linux|Darwin)
     ;;
   *)
     echo "RPG Kingdom Codex permission probe: unsupported host for model-free sandbox probe: $(uname -s)" >&2
@@ -36,9 +32,13 @@ repo="$tmp/repo"
 git init -q "$repo"
 printf 'probe\n' > "$repo/probe.txt"
 
+# Current Codex selects the host sandbox backend from the running platform.
+# `codex sandbox linux ...` was an older CLI shape; on current builds `linux`
+# is interpreted as the program to execute, which makes the probe fail before
+# the permission profile is evaluated.
 if ! codex \
   "${RPGK_CODEX_PERMISSION_ARGS[@]}" \
-  sandbox "$sandbox_subcommand" \
+  sandbox \
   --permission-profile "$RPGK_CODEX_PERMISSION_PROFILE" \
   -C "$repo" \
   -- \
