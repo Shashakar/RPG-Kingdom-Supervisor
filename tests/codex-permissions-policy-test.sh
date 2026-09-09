@@ -32,11 +32,17 @@ if grep -qE 'sandbox[[:space:]]+\$?"?sandbox_subcommand|sandbox[[:space:]]+(linu
   exit 1
 fi
 
-# The App Server preflight must remain model-free: it may initialize and create
-# an ephemeral thread to inspect activePermissionProfile, but must never start a
-# model turn.
+# The App Server preflight must remain model-free while proving more than
+# profile identity. It may initialize, create an ephemeral thread, and execute
+# a standalone command through command/exec with the same permission profile,
+# but it must never start a model turn.
 grep -q '"method": "thread/start"' "$ROOT/scripts/codex-app-server-permission-probe.py"
 grep -q '"ephemeral": True' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q '"method": "command/exec"' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q '"permissionProfile": profile' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q '.git/FETCH_HEAD' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q 'git add probe.txt' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q 'git commit -q' "$ROOT/scripts/codex-app-server-permission-probe.py"
 if grep -q '"method": "turn/start"' "$ROOT/scripts/codex-app-server-permission-probe.py"; then
   echo "Codex App Server permission probe must not start a model turn" >&2
   exit 1
@@ -44,6 +50,7 @@ fi
 
 grep -q 'activePermissionProfile' "$ROOT/scripts/codex-app-server-permission-probe.py"
 grep -q 'experimentalApi' "$ROOT/scripts/codex-app-server-permission-probe.py"
+grep -q 'git_write=ok' "$ROOT/scripts/codex-app-server-permission-probe.py"
 
 bash -n "$ROOT/scripts/codex-permission-profile.sh"
 bash -n "$ROOT/scripts/codex-git-write-probe.sh"
