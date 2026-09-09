@@ -6,6 +6,8 @@ RPGK_REPO="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
 
 # shellcheck source=routing-policy.sh
 source "$SUPERVISOR_ROOT/scripts/routing-policy.sh"
+# shellcheck source=codex-permission-profile.sh
+source "$SUPERVISOR_ROOT/scripts/codex-permission-profile.sh"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -32,6 +34,7 @@ fi
 
 exec codex \
   --config shell_environment_policy.inherit=all \
+  "${RPGK_CODEX_PERMISSION_ARGS[@]}" \
   --config "model=\"$model\"" \
   --config "model_reasoning_effort=$reasoning_effort" \
   app-server
