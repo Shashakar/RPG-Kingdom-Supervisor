@@ -11,6 +11,7 @@ Phase 4 turns the Phase 3 `unity-editor` scheduling contract into real, observab
 - preserve the staged `Library/` cache across issues and branches;
 - return test XML, Editor logs, and a small JSON summary to the worker workspace;
 - require Phase 3 exclusive-resource ownership before a worker can execute Unity;
+- treat any already-running Windows `Unity.exe` as the host resource being busy;
 - keep production-scene authoring authority unchanged.
 
 ## Host shape
@@ -111,11 +112,22 @@ It verifies:
 - the source project contains `Assets`, `Packages`, and `ProjectSettings`;
 - the project-declared Unity editor executable exists;
 - Windows `robocopy.exe` is available;
-- the persistent staging project root can be created/written.
+- the persistent staging project root can be created/written;
+- no Windows `Unity.exe` process is already running.
+
+The last check is intentional. `resource:unity-editor` means exclusive host-wide Editor ownership, including human-launched Editors; a GitHub/Symphony lock cannot truthfully grant that resource while another Editor is already using it.
 
 A successful health check returns a compact JSON object containing the Unity version, editor path, source path, and stage path.
 
 Phase 4 removes the Phase 3 manual `RPGK_UNITY_RUNNER_READY=1` assertion. Readiness is now determined from the real host/project on each Unity-resource dispatch.
+
+## Unity 6000.3.10f1 host caveat
+
+The evaluated host exposed Unity issue `UUM-140399`: Unity can crash during startup when its global `CurlRequestCache.db` cannot be opened because the database is corrupt or externally locked. The failure observed on RPG Kingdom's current `6000.3.10f1` produced `0x80000003` in `Unity.dll` with `CurlFileCache`/`CurlRequestInitialize` on the stack while another Editor was active.
+
+Unity fixed `UUM-140399` in the 6000.3 stream in `6000.3.17f1`. RPG Kingdom still declares `6000.3.10f1`, so Phase 4 does not silently substitute a newer editor. Instead, the runner honors the repository-declared version and refuses to claim the Unity resource while any other Editor process is active. Upgrading the project editor remains a separate RPG Kingdom decision.
+
+This host-wide idle requirement is correct independently of the Unity bug: the resource label promises exclusive Editor ownership. The known 6000.3.10f1 crash simply makes failing closed especially important on the current host.
 
 ## Test execution
 
@@ -131,6 +143,8 @@ The Windows bridge runs Unity with the native Test Framework command-line flow:
 - optional `-testFilter`
 
 The runner intentionally does not force `-nographics`; RPG Kingdom PlayMode validation may need a graphics device.
+
+Unity is launched through a synchronous Windows process boundary and the runner waits for the Editor process to exit before inspecting results. If Unity crashes before the requested `-logFile` is created, the bridge copies the global `%LOCALAPPDATA%\Unity\Editor\Editor.log` back when that file was updated by the current run so the worker still receives startup diagnostics.
 
 The PowerShell bridge parses the NUnit-style `test-run` result XML. A run fails when:
 
@@ -150,9 +164,10 @@ For test execution, `unity-runner.sh` requires:
 
 1. the project root to be a Symphony `GH-<number>` workspace;
 2. the Phase 3 lock directory to exist;
-3. its recorded owner to match that issue identifier.
+3. its recorded owner to match that issue identifier;
+4. the Windows host to be free of pre-existing `Unity.exe` processes before the supported runner begins.
 
-This means increasing code-only concurrency later does not allow two workers to share the staged Unity Editor.
+This means increasing code-only concurrency later does not allow two workers to share the staged Unity Editor, and human editor use also prevents Symphony from falsely claiming exclusive Unity ownership.
 
 Workers are explicitly instructed not to invoke `Unity.exe`, `powershell.exe`, or ad-hoc Windows commands themselves. The supported runner is the orchestration boundary.
 
@@ -164,7 +179,7 @@ The Phase 3 labels keep their existing meanings, but Phase 4 makes them executab
 - `validation:unity-required` — the issue must have the resource and must produce relevant Unity runner evidence before clean PR handoff;
 - `validation:unity-optional` — work may complete without editor evidence; if the resource was also granted, the worker may use the runner.
 
-A required Unity issue that fails the host health check still halts before Codex starts, preserving the usage budget.
+A required Unity issue that fails the host health check still halts before Codex starts, preserving the usage budget. An already-open human Unity Editor is therefore a normal busy-resource condition, not permission to start a second Editor anyway.
 
 ## First-run cost and cache behavior
 
