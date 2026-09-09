@@ -31,16 +31,26 @@ Phase 2 makes that path usage-aware:
 
 The routing policy was adjusted after real #93/#95 benchmarks showed that Luna mechanical work had negligible visible allowance impact while one successful Terra investigative turn consumed 8 percentage points of the five-hour allowance. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
-Phase 3 makes Unity dependence explicit without yet pretending a Windows Unity runner exists:
+Phase 3 makes Unity dependence explicit:
 
 - `resource:unity-editor` declares exclusive host-owned Unity Editor access;
 - `validation:unity-required` blocks before Codex if the Unity resource/runner is unavailable;
 - `validation:unity-optional` permits implementation while requiring missing Unity validation to be reported in the PR;
 - conflicting Unity validation labels fail closed;
-- a host-side lock prevents multiple future workers from sharing the editor;
-- Unity execution itself remains deferred to Phase 4.
+- a host-side lock prevents multiple future workers from sharing the editor.
 
 See [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) for the scheduling contract.
+
+Phase 4 turns that scheduling contract into real Unity validation:
+
+- the runner reads the Unity version declared by the issue workspace;
+- PowerShell/robocopy mirrors `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project;
+- the staged `Library/` cache survives across issues;
+- Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
+- `results.xml`, `Editor.log`, and `summary.json` return to the ignored `Logs/SymphonyUnity/` directory;
+- test execution is refused unless the current issue owns the Phase 3 Unity lock.
+
+See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract.
 
 ## Repositories
 
@@ -59,6 +69,9 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes before Codex starts.
 - [`scripts/unity-resource-policy.sh`](scripts/unity-resource-policy.sh) — side-effect-free Unity resource/validation policy.
 - [`scripts/unity-resource-guard.sh`](scripts/unity-resource-guard.sh) — host preflight that validates Unity policy/readiness and acquires the exclusive editor lock.
+- [`scripts/unity-runner-policy.sh`](scripts/unity-runner-policy.sh) — project-version and test-platform helpers for the Windows runner.
+- [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — supported WSL entrypoint for Unity health/EditMode/PlayMode validation.
+- [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
 - [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing and Unity scheduling labels.
@@ -68,9 +81,12 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
+- [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 Windows staging and Unity Test Framework execution contract.
 
 ## Safety posture
 
-Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and fail-closed Unity scheduling for work that requires editor validation.
+Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
+
+Unity execution does not broaden production-scene authority. Workers that own the editor resource must use the supported runner rather than ad-hoc Windows/Unity commands, and Unity validation artifacts remain untracked evidence.
 
 Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).
