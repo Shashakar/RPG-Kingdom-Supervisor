@@ -122,15 +122,29 @@ if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
     $unityArgs += @("-testFilter", $TestFilter)
 }
 
-& $UnityPath @unityArgs
-$unityExitCode = $LASTEXITCODE
+# Unity.exe is a Windows GUI application. Launch it through Start-Process so
+# PowerShell waits for the actual Unity process and reports its exit code,
+# rather than accidentally reusing the previous robocopy $LASTEXITCODE.
+try {
+    $unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru
+    $unityExitCode = $unityProcess.ExitCode
+}
+catch {
+    Fail-Runner "failed to launch Unity: $($_.Exception.Message)" 89
+}
 
 if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
     Copy-Item -LiteralPath $LogPath -Destination (Join-Path $SourceOutput "Editor.log") -Force
 }
 
 if (-not (Test-Path -LiteralPath $ResultsPath -PathType Leaf)) {
-    Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$SourceOutput\Editor.log'." 87
+    $logHint = if (Test-Path -LiteralPath (Join-Path $SourceOutput "Editor.log") -PathType Leaf) {
+        Join-Path $SourceOutput "Editor.log"
+    }
+    else {
+        $LogPath
+    }
+    Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$logHint'." 87
 }
 
 Copy-Item -LiteralPath $ResultsPath -Destination (Join-Path $SourceOutput "results.xml") -Force
