@@ -7,7 +7,7 @@ The supervisor is currently evaluated against:
 - Commit date: 2026-08-12
 - Commit subject: `Scrub GitHub and GitLab authentication token aliases (#119)`
 - Local compatibility branch: `rpgk/named-permissions`
-- Tracked compatibility patch: `patches/symphony-named-permissions.patch`
+- Tracked compatibility transform: `scripts/patch-symphony-named-permissions.py`
 
 ## Why this revision
 
@@ -17,7 +17,7 @@ This revision includes the official GitHub Issues tracker adapter and Codex App 
 
 The pinned Symphony revision always supplies the legacy Codex sandbox selection on App Server `thread/start` / `turn/start`. Current Codex permission profiles can explicitly make the current workspace's `.git` metadata writable, but those legacy request fields override the App Server's selected named profile and return `.git` to read-only protection.
 
-The Supervisor therefore carries one narrow local compatibility patch that adds a `codex.permissions` workflow setting and forwards it through the App Server protocol's named `permissions` field. Legacy Symphony sandbox behavior remains the fallback when the setting is absent. The patch exists because the required boundary cannot be expressed through the pinned upstream configuration contract alone.
+The Supervisor therefore carries one narrow local compatibility transform that adds a `codex.permissions` workflow setting and forwards it through the App Server protocol's named `permissions` field. Legacy Symphony sandbox behavior remains the fallback when the setting is absent. The transform exists because the required boundary cannot be expressed through the pinned upstream configuration contract alone.
 
 Apply and validate it through the Supervisor scripts; do not hand-edit the upstream checkout:
 
@@ -26,7 +26,7 @@ bash scripts/apply-symphony-permissions-patch.sh
 bash scripts/verify-symphony-permissions-patch.sh
 ```
 
-If upstream Symphony adds equivalent first-class support, remove this patch as part of the reviewed pin upgrade.
+If upstream Symphony adds equivalent first-class support, remove this transform as part of the reviewed pin upgrade.
 
 ## Upgrade policy
 
@@ -37,9 +37,9 @@ Before changing this pin:
 1. review upstream changes since the current revision;
 2. verify GitHub tracker behavior and Codex App Server configuration remain compatible with `WORKFLOW.md`;
 3. verify credential isolation has not regressed;
-4. determine whether upstream now provides the named-permissions seam and retire/rebase the local compatibility patch accordingly;
+4. determine whether upstream now provides the named-permissions seam and retire/rebase the local compatibility transform accordingly;
 5. run the Supervisor shell suite plus both permission checks;
 6. run the Phase 1 smoke path against a disposable or low-risk RPG Kingdom issue;
 7. update this file with the new revision and relevant compatibility notes.
 
-This repository does not vendor Symphony source. It pins the evaluated upstream revision and, while necessary, tracks the minimal source patch applied to a local compatibility branch.
+This repository does not vendor Symphony source. It pins the evaluated upstream revision and, while necessary, tracks the minimal deterministic source transform applied to a local compatibility branch.
