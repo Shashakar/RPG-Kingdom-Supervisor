@@ -12,6 +12,7 @@ Phase 3 owns:
 - a pre-Codex Unity policy check;
 - an exclusive host-side `unity-editor` lock;
 - release of that lock at the end of the worker lifetime;
+- reviewed recovery of a stale same-issue lock through the one-shot rearm path;
 - fail-closed tracker handoff when required Unity access is unavailable or policy labels conflict;
 - worker instructions that forbid invented Unity results and ad hoc editor launching.
 
@@ -37,15 +38,23 @@ The issue may proceed without Unity. The worker must explicitly report any missi
 
 `validation:unity-required` and `validation:unity-optional` are mutually exclusive.
 
+### `symphony:rearm`
+
+This is not a Unity resource label. It is the one-shot reviewed continuation approval owned by the Phase 2 worker-lifetime guard. It matters to Phase 3 because the same host preflight may use it to recover a stale `unity-editor` lock owned by the issue being explicitly rearmed.
+
+The label is consumed before Codex starts. It never authorizes clearing a lock owned by another issue.
+
 ## Preflight sequence
 
 For each dispatch, `WORKFLOW.md` executes:
 
-1. `before-run-guard.sh` — enforces the one-worker-lifetime allowance boundary;
+1. `before-run-guard.sh` — enforces the one-worker-lifetime allowance boundary and consumes an explicit `symphony:rearm` continuation request when present; during that reviewed continuation it may clear a stale Unity lock owned by the same GH issue;
 2. `unity-resource-guard.sh` — reads Unity labels, validates policy, runs the supported Unity runner health check when the editor resource is requested, and acquires the lock;
 3. Codex App Server — only if both guards succeed.
 
 A Unity preflight failure removes `symphony:ready`, adds `symphony:halted`, and leaves a concise issue comment before exiting. This avoids repeatedly buying Codex attempts for a host capability known to be unavailable.
+
+Because `symphony:rearm` is consumed before the Unity guard runs, a failed Unity preflight requires another explicit rearm after the condition is reviewed. The approval is never reusable.
 
 ## Exclusive resource lock
 
@@ -58,6 +67,8 @@ The lock lives outside the RPG Kingdom workspace:
 It records the owning `GH-<number>` issue, workspace path, and acquisition timestamp. Atomic directory creation prevents a second owner from sharing the editor.
 
 `release-unity-resource.sh` runs before the normal after-run guard and removes the lock only when the current issue owns it.
+
+A host interruption can prevent `after_run` from releasing the directory. A reviewed continuation may recover that stale lock only when `before-run-guard.sh` sees the one-shot `symphony:rearm` label and the recorded owner matches the same `GH-<number>`. A lock owned by another issue remains authoritative and is never reclaimed by rearm.
 
 With `max_concurrent_agents: 1`, the lock is primarily a correctness contract. It becomes an active concurrency boundary when code-only concurrency increases later.
 
@@ -109,6 +120,18 @@ symphony:ready
 
 The host must pass the live Phase 4 health check and acquire the editor lock before Codex starts.
 
+Reviewed continuation of a previously completed/halted Unity-required issue:
+
+```text
+risk:investigative
+resource:unity-editor
+validation:unity-required
+symphony:rearm
+symphony:ready
+```
+
+Add `symphony:rearm` before the normal ready lease. The host consumes it during preflight.
+
 ## Why resource and validation labels are separate
 
 - `resource:*` says what scarce host capability the worker needs;
@@ -124,4 +147,6 @@ Keeping them separate avoids making every Unity-adjacent code change editor-bloc
 - Unity access remains exclusive and host-owned;
 - resource ownership does not broaden production-scene authority;
 - unavailable Unity infrastructure does not consume a Codex worker turn;
-- retry remains an explicit operator decision through the existing rearm path.
+- `symphony:ready` alone cannot bypass a prior worker lifetime;
+- a reviewed rearm may recover only same-issue stale Unity state and can never steal another issue's lock;
+- retry remains an explicit human/ChatGPT decision through the one-shot rearm path.
