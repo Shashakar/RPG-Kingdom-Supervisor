@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/GH-456"
+git -C "$TMP/GH-456" init -q
 
 cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -33,11 +34,28 @@ run_guard() {
   (cd "$TMP/GH-456" && FAKE_LABELS_JSON="${FAKE_LABELS_JSON:-[]}" bash "$ROOT/scripts/before-run-guard.sh")
 }
 
-# First lifetime has no local gate and needs no rearm.
+# First lifetime has no local gate and needs no rearm. The guard still registers its runtime
+# marker in the workspace-local Git exclude so a later rearmed handoff cannot stage it by accident.
 FAKE_LABELS_JSON='[]' run_guard >/dev/null
+exclude_file="$(git -C "$TMP/GH-456" rev-parse --git-path info/exclude)"
+grep -Fxq '/.symphony-attempt-complete' "$TMP/GH-456/$exclude_file" 2>/dev/null || \
+  grep -Fxq '/.symphony-attempt-complete' "$exclude_file" || {
+    echo "attempt marker was not registered in the local Git exclude" >&2
+    exit 1
+  }
 
-# A completed-attempt marker cannot be bypassed by re-adding ready alone.
+# A completed-attempt marker cannot be bypassed by re-adding ready alone, and ordinary Git
+# staging must leave that Supervisor-owned runtime artifact untracked.
 touch "$TMP/GH-456/.symphony-attempt-complete"
+git -C "$TMP/GH-456" check-ignore -q -- .symphony-attempt-complete || {
+  echo "attempt marker is not ignored by the workspace-local Git exclude" >&2
+  exit 1
+}
+git -C "$TMP/GH-456" add -A -- .
+if git -C "$TMP/GH-456" diff --cached --name-only | grep -Fxq '.symphony-attempt-complete'; then
+  echo "ordinary Git staging included the Supervisor attempt marker" >&2
+  exit 1
+fi
 set +e
 FAKE_LABELS_JSON='[{"name":"symphony:ready"}]' run_guard >/dev/null 2>&1
 status=$?
@@ -55,6 +73,10 @@ FAKE_LABELS_JSON='[{"name":"symphony:ready"},{"name":"symphony:rearm"},{"name":"
 [[ -e "$TMP/GH-456/.symphony-attempt-complete" ]] || { echo "explicit rearm should not delete the durable attempt marker" >&2; exit 1; }
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "explicit rearm did not clear stale same-issue Unity lock" >&2; exit 1; }
 grep -Fq '/issues/456/labels/symphony%3Arearm' "$TMP/curl.log" || { echo "explicit rearm was not consumed" >&2; exit 1; }
+git -C "$TMP/GH-456" check-ignore -q -- .symphony-attempt-complete || {
+  echo "rearmed lifetime lost local Git exclusion for the durable marker" >&2
+  exit 1
+}
 
 # A one-shot approval cannot be reused after it has been consumed.
 set +e
