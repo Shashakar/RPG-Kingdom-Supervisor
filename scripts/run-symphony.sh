@@ -63,13 +63,8 @@ if ! bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh"; then
 fi
 
 if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
-  if ! bash "$SUPERVISOR_ROOT/scripts/codex-git-write-probe.sh"; then
-    echo "ERROR: Codex Git-write permission probe failed; Symphony will not start because the configured worker profile is not healthy." >&2
-    exit 1
-  fi
-
   if ! bash "$SUPERVISOR_ROOT/scripts/codex-app-server-permission-probe.sh"; then
-    echo "ERROR: Codex App Server did not select the Supervisor permission profile; Symphony will not start because its worker path is not proven to match the standalone sandbox probe." >&2
+    echo "ERROR: Codex App Server did not select a source-writable Supervisor permission profile." >&2
     exit 1
   fi
 fi
