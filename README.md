@@ -26,8 +26,10 @@ Phase 2 makes that path usage-aware:
 - model and reasoning labels allow explicit human/ChatGPT overrides;
 - worker turns are capped at four for the current phase;
 - a persistent workspace marker prevents a second Codex worker lifetime from starting accidentally;
+- `symphony:rearm` is a one-shot human/ChatGPT continuation approval consumed by host preflight, while `symphony:ready` remains only the normal dispatch lease;
 - the host also removes `symphony:ready` and adds `symphony:halted` when an attempt ends without a clean PR handoff;
-- worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads.
+- worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads;
+- fixes that change behavior-bearing configuration/wiring must validate the relevant pre-existing behavior as well as the new acceptance path.
 
 The routing policy was adjusted after real #93/#95 benchmarks showed that Luna mechanical work had negligible visible allowance impact while one successful Terra investigative turn consumed 8 percentage points of the five-hour allowance. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
@@ -37,7 +39,8 @@ Phase 3 makes Unity dependence explicit:
 - `validation:unity-required` blocks before Codex if the Unity resource/runner is unavailable;
 - `validation:unity-optional` permits implementation while requiring missing Unity validation to be reported in the PR;
 - conflicting Unity validation labels fail closed;
-- a host-side lock prevents multiple future workers from sharing the editor.
+- a host-side lock prevents multiple future workers from sharing the editor;
+- a reviewed `symphony:rearm` may recover a stale Unity lock only when that lock is owned by the same GH issue; another issue's lock is never reclaimed.
 
 See [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) for the scheduling contract.
 
@@ -83,7 +86,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, starts/reuses the host brokers, and uses an alternate terminal screen when available.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher.
-- [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes before Codex starts.
+- [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation and final Git/PR handoff.
 - [`scripts/git-handoff-broker.py`](scripts/git-handoff-broker.py) — host-owned Git request broker and structured status producer.
 - [`scripts/git-handoff-host.py`](scripts/git-handoff-host.py) — bounded host Git/GitHub implementation used by the broker.
@@ -96,8 +99,8 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
-- [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing and Unity scheduling labels.
-- [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — explicitly clears the local/remote halt gates for one approved retry.
+- [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing, continuation, and Unity scheduling labels.
+- [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — requests the one-shot remote continuation approval plus normal dispatch lease; host preflight owns local stale-state recovery.
 - [`scripts/diagnose-issue.sh`](scripts/diagnose-issue.sh) — read-only terminal summary for one dispatched issue.
 - [`scripts/serve-diagnostics.sh`](scripts/serve-diagnostics.sh) — localhost-only, read-only issue diagnostics dashboard.
 - [`scripts/codex-turn-environment-probe.sh`](scripts/codex-turn-environment-probe.sh) — explicit model-backed environment diagnostic; never run automatically because it consumes allowance.
@@ -131,7 +134,7 @@ That probe uses Luna / low by default and consumes a small amount of Codex allow
 
 ## Safety posture
 
-Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
+Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires an explicit one-shot rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
 
 Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. The host stops at a reviewable PR; merge remains a human decision.
 
