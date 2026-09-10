@@ -158,6 +158,7 @@ def main() -> int:
       %{
         "approvalPolicy" => approval_policy,
         "cwd" => workspace,
+        "runtimeWorkspaceRoots" => [workspace],
         "dynamicTools" => dynamic_tool_binding.tool_specs
       }
       |> put_thread_permissions(permissions, thread_sandbox)
@@ -209,6 +210,7 @@ def main() -> int:
           }
         ],
         "cwd" => workspace,
+        "runtimeWorkspaceRoots" => [workspace],
         "title" => "#{issue.identifier}: #{issue.title}",
         "approvalPolicy" => approval_policy
       }
