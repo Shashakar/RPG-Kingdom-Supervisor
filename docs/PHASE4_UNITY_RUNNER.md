@@ -13,6 +13,7 @@ Phase 4 turns the Phase 3 `unity-editor` scheduling contract into real, observab
 - require Phase 3 exclusive-resource ownership before test execution;
 - treat any already-running Windows `Unity.exe` as the host resource being busy;
 - keep WSL/Windows interop host-owned instead of model-owned;
+- keep the broker responsive and diagnosable while a host Unity operation is running;
 - keep production-scene authoring authority unchanged.
 
 ## Why the host broker exists
@@ -67,15 +68,19 @@ Broker response + structured host status
 
 `run-symphony.sh` starts the broker before Symphony and waits for protocol version 1 to report `ready`. If a compatible broker is already running for the same workspace root, the launcher reuses it. A broker started by the launcher is stopped when that launcher exits; a reused broker is left to its original owner.
 
+The broker event loop remains responsive while a Unity host operation is active. The host adapter runs as a managed child process in its own process group. Exactly one host operation may run at a time; another valid request is acknowledged immediately and receives `HostBusy` with the active request details instead of timing out waiting for an acknowledgement.
+
 Host status is written to:
 
 ```text
 ~/.local/state/rpg-kingdom-supervisor/unity-broker/status.json
 ```
 
-The status records the protocol version, broker PID/state, workspace root, active request, and the compact last result. This file is intended as a diagnostics source; worker requests continue to use workspace-local IPC so Codex does not need write access to Supervisor state.
+The status records the protocol version, broker PID/state, workspace root, active request, and the compact last result. While a request is active, `activeRequest` includes the issue/workspace, operation, test filter, child PID, start time, and elapsed seconds; the status heartbeat is refreshed while the host process runs. This file is intended as a diagnostics source; worker requests continue to use workspace-local IPC so Codex does not need write access to Supervisor state.
 
-If the broker does not acknowledge a request promptly, the worker-facing runner fails clearly and tells the operator to launch Symphony through `scripts/run-symphony.sh`. Once acknowledged, a longer timeout covers staging/import/test execution.
+A broker host operation has a bounded timeout, 1800 seconds by default. On timeout or broker shutdown, the broker terminates the host runner's process group so PowerShell/Unity descendants are not intentionally left behind, records `TimedOut` or `BrokerStopped`, and returns to a known broker state. Existing request files found when a new broker starts are failed as `StaleRequest` rather than replayed across broker lifetimes.
+
+If the broker does not acknowledge a request promptly, the worker-facing runner still fails clearly and tells the operator to launch Symphony through `scripts/run-symphony.sh`. Because an active broker now acknowledges concurrent requests with `HostBusy`, an acknowledgement timeout should indicate an absent, incompatible, or unhealthy broker rather than merely a long-running Unity operation.
 
 ## Supported runner interface
 
@@ -98,6 +103,14 @@ bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode \
 ```
 
 `--filter` is passed unchanged to Unity Test Framework. Workers must not bypass this interface by launching PowerShell, Windows commands, or `Unity.exe` directly.
+
+Broker lifecycle outcomes are explicit at the runner boundary:
+
+- `HostBusy` — another Unity host operation already owns the broker execution slot;
+- `TimedOut` — the active host process exceeded the configured host timeout and its process group was terminated;
+- `StaleRequest` — a request survived from a previous broker lifetime and was deliberately not replayed;
+- `BrokerStopped` — the broker was shut down while the request was active;
+- `NoTestsMatched` — Unity ran successfully but the requested test filter matched zero tests.
 
 ## Health and resource ownership
 
@@ -131,7 +144,7 @@ Unity runs with the native Test Framework command-line flow: `-batchmode`, `-acc
 
 The bridge copies `results.xml`, `Editor.log`, and `summary.json` back under `Logs/SymphonyUnity/<run-id>/`. If Unity crashes before the requested log exists, a bounded tail of the global `%LOCALAPPDATA%\Unity\Editor\Editor.log` is copied when it was touched by the current run.
 
-A run is unsuccessful when Unity exits nonzero, result XML is missing/malformed, one or more tests fail, or zero tests match. Zero-test runs are explicitly represented as `NoTestsMatched` so a green-looking Unity aggregate cannot be mistaken for validation evidence.
+A run is unsuccessful when Unity exits nonzero, result XML is missing/malformed, one or more tests fail, the host operation times out, or zero tests match. Zero-test runs are explicitly represented as `NoTestsMatched` so a green-looking Unity aggregate cannot be mistaken for validation evidence.
 
 ## Unity 6000.3.10f1 host caveat
 
@@ -148,9 +161,11 @@ RPGK_SUPERVISOR_STATE_ROOT
 RPGK_SYMPHONY_WORKSPACE_ROOT
 RPGK_UNITY_BROKER_ACK_TIMEOUT_SECONDS
 RPGK_UNITY_BROKER_TIMEOUT_SECONDS
-RPGK_POWERSHELL_EXE                 # host adapter only
-RPGK_UNITY_EDITOR_WINDOWS           # host adapter only
-RPGK_UNITY_STAGE_ROOT_WINDOWS       # host adapter only
+RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS # launcher -> broker, default 1800
+RPGK_UNITY_BROKER_KILL_GRACE_SECONDS   # launcher -> broker, default 5
+RPGK_POWERSHELL_EXE                    # host adapter only
+RPGK_UNITY_EDITOR_WINDOWS              # host adapter only
+RPGK_UNITY_STAGE_ROOT_WINDOWS           # host adapter only
 ```
 
 Do not put credentials in these values.
