@@ -67,6 +67,7 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - Respect all production-scene restrictions in RPG Kingdom. Unity access does not broaden scene-edit authority.
 - Add or update tests and documentation required by the RPG Kingdom repository contract.
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
+- When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
 - Do not merge the pull request.
 
 ## Host-owned Git handoff contract
@@ -191,6 +192,8 @@ The `symphony:ready` label is the dispatch lease.
 
 Removing `symphony:ready` remains intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present, the host also removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub mutation is temporarily unavailable.
 
+A reviewed continuation uses `symphony:rearm` as a one-shot host-consumed approval in addition to the normal `symphony:ready` lease. Human/ChatGPT review may request the continuation through GitHub by adding `symphony:rearm` first and `symphony:ready` last, or an operator may use `scripts/rearm-issue.sh`. During `before_run`, the host consumes `symphony:rearm`, preserves the durable completed-attempt marker, and clears only a stale Unity lock owned by the same GH issue. Re-adding `symphony:ready` by itself is not a valid rearm and must remain blocked.
+
 ## Completion criteria
 
 Do not report success unless all of the following are true:
@@ -198,6 +201,7 @@ Do not report success unless all of the following are true:
 - the implementation matches the issue and RPG Kingdom architecture;
 - repository-required tests/docs have been addressed;
 - available relevant validation has been run and failures are not hidden;
+- any pre-existing runtime behavior materially affected by changed configuration, wiring, serialization, or presentation/controller assets has focused preservation evidence in addition to the new acceptance-path evidence;
 - `validation:unity-required`, when present, has actual relevant Unity runner evidence and its successful `runId` values were supplied to the host handoff;
 - the host handoff reports the branch was pushed and verified at the expected commit SHA;
 - a reviewable PR against `main` exists and the handoff returns its URL/number;
