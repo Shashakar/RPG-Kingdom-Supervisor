@@ -11,6 +11,8 @@ BROKER_ROOT="$STATE_ROOT/unity-broker"
 BROKER_STATUS="$BROKER_ROOT/status.json"
 BROKER_PID_FILE="$BROKER_ROOT/pid"
 BROKER_LOG="$BROKER_ROOT/broker.log"
+BROKER_HOST_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS:-1800}"
+BROKER_KILL_GRACE_SECONDS="${RPGK_UNITY_BROKER_KILL_GRACE_SECONDS:-5}"
 BROKER_STARTED=0
 BROKER_PID=""
 ALT_SCREEN_ACTIVE=0
@@ -109,6 +111,8 @@ start_unity_broker() {
     --workspace-root "$WORKSPACE_ROOT" \
     --state-root "$STATE_ROOT" \
     --host-runner "$SUPERVISOR_ROOT/scripts/unity-runner-host.sh" \
+    --command-timeout-seconds "$BROKER_HOST_TIMEOUT_SECONDS" \
+    --kill-grace-seconds "$BROKER_KILL_GRACE_SECONDS" \
     >>"$BROKER_LOG" 2>&1 &
   BROKER_PID=$!
   BROKER_STARTED=1
