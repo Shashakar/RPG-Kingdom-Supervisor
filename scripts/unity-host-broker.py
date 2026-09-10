@@ -520,15 +520,15 @@ def main() -> int:
                     continue
 
                 if active is not None:
+                    active_description = f"{active.spec.request_id} ({active.spec.operation})"
+                    if active.spec.test_filter:
+                        active_description += f" filter='{active.spec.test_filter}'"
                     busy = response_for_status(
                         prepared.request_id,
                         prepared.operation,
                         "HostBusy",
                         87,
-                        (
-                            "RPG Kingdom Unity broker: host is busy with "
-                            f"{active.spec.request_id} ({active.spec.operation})"
-                        ),
+                        f"RPG Kingdom Unity broker: host is busy with {active_description}",
                         details={"activeRequest": active_snapshot(active)},
                     )
                     write_response(request_path, busy)
