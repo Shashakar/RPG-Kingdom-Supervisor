@@ -44,8 +44,11 @@ def main() -> int:
         subprocess.run(["git", "init", "-b", "main", str(workspace)], check=True, capture_output=True)
         git(workspace, "config", "user.name", "Test User")
         git(workspace, "config", "user.email", "test@example.invalid")
+        # Match the RPG Kingdom repository contract: Unity/Supervisor validation output under Logs/
+        # is runtime evidence, not source, and is ignored by Git in real GH workspaces.
+        (workspace / ".gitignore").write_text("Logs/\n", encoding="utf-8")
         (workspace / "game.txt").write_text("base\n", encoding="utf-8")
-        git(workspace, "add", "game.txt")
+        git(workspace, "add", ".gitignore", "game.txt")
         git(workspace, "commit", "-m", "base")
         git(workspace, "push", str(remote), "main")
         git(workspace, "remote", "add", "origin", "https://github.com/Shashakar/RPG-Kingdom.git")
@@ -118,6 +121,7 @@ def main() -> int:
             ),
             encoding="utf-8",
         )
+        assert git(workspace, "status", "--short", "--ignored", "Logs/SymphonyUnity/run-pass/summary.json").startswith("!!")
 
         labels = module.issue_labels("https://api.invalid", "token", "Shashakar", "RPG-Kingdom", 321)
         assert "validation:unity-required" in labels
