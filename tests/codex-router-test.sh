@@ -41,10 +41,15 @@ if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
 fi
 
 # Verify the live App Server launch receives the named permission profile rather
-# than relying on Symphony's legacy workspace-write sandbox.
+# than relying on Symphony's legacy workspace-write sandbox. Git metadata is now
+# intentionally host-owned, and the tracker token must not reach the Codex child.
 cat > "$TMP/bin/codex" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${SYMPHONY_GITHUB_TOKEN:-}" ]]; then
+  echo "tracker token leaked into Codex child" >&2
+  exit 91
+fi
 printf '%s\n' "$@" > "$RPGK_TEST_CODEX_ARGS"
 MOCK
 chmod +x "$TMP/bin/codex"
@@ -52,11 +57,16 @@ chmod +x "$TMP/bin/codex"
 export RPGK_ROUTER_DRY_RUN=0
 export RPGK_TEST_LABELS="risk:normal"
 export RPGK_TEST_CODEX_ARGS="$TMP/codex-args.txt"
+export SYMPHONY_GITHUB_TOKEN="test-secret-must-not-reach-codex"
 bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null
 
 grep -Fxq 'default_permissions="rpgk_supervisor_workspace"' "$RPGK_TEST_CODEX_ARGS"
 grep -Fq 'permissions.rpgk_supervisor_workspace=' "$RPGK_TEST_CODEX_ARGS"
-grep -Fq '".git"="write"' "$RPGK_TEST_CODEX_ARGS"
+grep -Fq '":workspace_roots"={"."="write"}' "$RPGK_TEST_CODEX_ARGS"
+if grep -Fq '".git"="write"' "$RPGK_TEST_CODEX_ARGS"; then
+  echo "Router still grants model-side Git metadata writes" >&2
+  exit 1
+fi
 grep -Fxq 'model="gpt-5.6-luna"' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'model_reasoning_effort=medium' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
