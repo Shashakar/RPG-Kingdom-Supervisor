@@ -2,12 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=unity-runner-policy.sh
-source "$ROOT/scripts/unity-runner-policy.sh"
-
-POWERSHELL_EXE="${RPGK_POWERSHELL_EXE:-powershell.exe}"
-STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
-LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
+WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
+ACK_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_ACK_TIMEOUT_SECONDS:-10}"
+RUN_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_TIMEOUT_SECONDS:-3600}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -17,10 +14,9 @@ Usage:
   unity-runner.sh playmode [--project PATH] [--filter FILTER]
 
 Environment overrides:
-  RPGK_POWERSHELL_EXE
-  RPGK_UNITY_EDITOR_WINDOWS
-  RPGK_UNITY_STAGE_ROOT_WINDOWS
-  RPGK_SUPERVISOR_STATE_ROOT
+  RPGK_SYMPHONY_WORKSPACE_ROOT
+  RPGK_UNITY_BROKER_ACK_TIMEOUT_SECONDS
+  RPGK_UNITY_BROKER_TIMEOUT_SECONDS
 EOF
 }
 
@@ -67,79 +63,77 @@ case "$command" in
     ;;
 esac
 
-if ! command -v "$POWERSHELL_EXE" >/dev/null 2>&1; then
-  echo "RPG Kingdom Unity runner: '$POWERSHELL_EXE' is unavailable from WSL" >&2
-  exit 80
-fi
-
-if ! command -v wslpath >/dev/null 2>&1; then
-  echo "RPG Kingdom Unity runner: wslpath is unavailable; the Windows bridge requires WSL" >&2
+if ! command -v jq >/dev/null 2>&1; then
+  echo "RPG Kingdom Unity runner: jq is required for broker requests" >&2
   exit 80
 fi
 
 project="$(cd "$project" && pwd)"
-unity_version="$(rpgk_project_unity_version "$project")"
-unity_editor_windows="${RPGK_UNITY_EDITOR_WINDOWS:-$(rpgk_default_unity_editor_windows "$unity_version")}" 
-source_project_windows="$(wslpath -w "$project")"
-runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-tests.ps1")"
-
-powershell_args=(
-  -NoProfile
-  -ExecutionPolicy Bypass
-  -File "$runner_windows"
-  -SourceProjectPath "$source_project_windows"
-  -UnityVersion "$unity_version"
-  -UnityPath "$unity_editor_windows"
-)
-
-if [[ -n "${RPGK_UNITY_STAGE_ROOT_WINDOWS:-}" ]]; then
-  powershell_args+=( -StageRoot "$RPGK_UNITY_STAGE_ROOT_WINDOWS" )
-fi
-
-if [[ "$command" == "health" ]]; then
-  "$POWERSHELL_EXE" "${powershell_args[@]}" -HealthOnly
-  exit $?
-fi
-
+workspace_root="$(cd "$WORKSPACE_ROOT" && pwd)"
 workspace_name="$(basename "$project")"
-if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
-  echo "RPG Kingdom Unity runner: project '$project' is not a Symphony GH issue workspace" >&2
+
+if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ || "$(dirname "$project")" != "$workspace_root" ]]; then
+  echo "RPG Kingdom Unity runner: project '$project' is not a Symphony GH issue workspace under '$workspace_root'" >&2
   exit 81
 fi
-issue_identifier="GH-${BASH_REMATCH[1]}"
 
-if [[ ! -d "$LOCK_DIR" || ! -f "$LOCK_DIR/owner" ]]; then
-  echo "RPG Kingdom Unity runner: unity-editor is not locked for $issue_identifier" >&2
-  exit 82
+broker_dir="$project/Logs/SymphonyUnity/.broker"
+request_dir="$broker_dir/requests"
+ack_dir="$broker_dir/acks"
+response_dir="$broker_dir/responses"
+mkdir -p "$request_dir" "$ack_dir" "$response_dir"
+
+request_id="${workspace_name}-${command}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+request_path="$request_dir/$request_id.json"
+ack_path="$ack_dir/$request_id.json"
+response_path="$response_dir/$request_id.json"
+temp_request="$request_path.tmp.$$"
+
+jq -cn \
+  --arg requestId "$request_id" \
+  --arg operation "$command" \
+  --arg testFilter "$test_filter" \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter}' \
+  > "$temp_request"
+mv "$temp_request" "$request_path"
+
+ack_deadline=$((SECONDS + ACK_TIMEOUT_SECONDS))
+while [[ ! -f "$ack_path" && ! -f "$response_path" ]]; do
+  if (( SECONDS >= ack_deadline )); then
+    rm -f "$request_path" 2>/dev/null || true
+    echo "RPG Kingdom Unity runner: host broker did not acknowledge the request within ${ACK_TIMEOUT_SECONDS}s; start Symphony through scripts/run-symphony.sh" >&2
+    exit 84
+  fi
+  sleep 0.2
+done
+
+run_deadline=$((SECONDS + RUN_TIMEOUT_SECONDS))
+while [[ ! -f "$response_path" ]]; do
+  if (( SECONDS >= run_deadline )); then
+    echo "RPG Kingdom Unity runner: host broker request '$request_id' exceeded ${RUN_TIMEOUT_SECONDS}s" >&2
+    exit 85
+  fi
+  sleep 0.5
+done
+
+stdout="$(jq -r '.stdout // ""' "$response_path")"
+stderr="$(jq -r '.stderr // ""' "$response_path")"
+status="$(jq -r '.status // "failed"' "$response_path")"
+exit_code="$(jq -r '.exitCode // 86' "$response_path")"
+
+if [[ -n "$stdout" ]]; then
+  printf '%s\n' "$stdout"
+fi
+if [[ -n "$stderr" ]]; then
+  printf '%s\n' "$stderr" >&2
+fi
+if [[ "$status" == "NoTestsMatched" ]]; then
+  echo "RPG Kingdom Unity runner: NoTestsMatched" >&2
 fi
 
-lock_owner="$(cat "$LOCK_DIR/owner")"
-if [[ "$lock_owner" != "$issue_identifier" ]]; then
-  echo "RPG Kingdom Unity runner: unity-editor belongs to '$lock_owner', not '$issue_identifier'" >&2
-  exit 83
+if [[ ! "$exit_code" =~ ^[0-9]+$ ]]; then
+  echo "RPG Kingdom Unity runner: broker returned an invalid exit code" >&2
+  exit 86
 fi
 
-platform="$(rpgk_normalize_test_platform "$command")"
-run_id="$(date -u +%Y%m%dT%H%M%SZ)-${command}-$$"
-
-powershell_args+=(
-  -TestPlatform "$platform"
-  -RunId "$run_id"
-)
-if [[ -n "$test_filter" ]]; then
-  powershell_args+=( -TestFilter "$test_filter" )
-fi
-
-set +e
-"$POWERSHELL_EXE" "${powershell_args[@]}"
-status=$?
-set -e
-
-artifact_dir="$project/Logs/SymphonyUnity/$run_id"
-echo "RPG Kingdom Unity runner: artifacts -> $artifact_dir"
-
-if [[ -f "$artifact_dir/summary.json" ]]; then
-  echo "RPG Kingdom Unity runner: summary -> $(tr -d '\r\n' < "$artifact_dir/summary.json")"
-fi
-
-exit "$status"
+exit "$exit_code"

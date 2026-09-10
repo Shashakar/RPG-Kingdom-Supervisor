@@ -43,16 +43,20 @@ See [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) for the
 
 Phase 4 turns that scheduling contract into real Unity validation:
 
+- `run-symphony.sh` starts a host-owned Unity execution broker before Symphony;
+- the worker-facing runner submits typed `health`, `editmode`, or `playmode` requests through workspace-local IPC instead of invoking Windows interop from the Codex sandbox;
+- the host broker revalidates workspace/resource ownership and performs the WSL-to-Windows hop through the host-only runner;
 - the runner reads the Unity version declared by the issue workspace;
 - PowerShell/robocopy mirrors `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project;
 - the staged `Library/` cache survives across issues;
 - Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
 - `results.xml`, `Editor.log`, and `summary.json` return to the ignored `Logs/SymphonyUnity/` directory;
+- zero matched tests are reported as `NoTestsMatched`, not as a successful green run;
 - test execution is refused unless the current issue owns the Phase 3 Unity lock.
 
 See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract.
 
-Current diagnostics work addresses a boundary exposed by GH-97: model-free App Server probes can succeed while the actual model-backed turn still sees `.git` as read-only or cannot use WSL-to-Windows interop. The Supervisor now provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe so that difference can be measured before another implementation worker is dispatched. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
+Current diagnostics work addresses a boundary exposed by GH-97: model-free App Server probes can succeed while the actual model-backed turn still sees `.git` as read-only or cannot use WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. The Unity broker also emits host-owned structured status so the dashboard can report the current/last Unity operation without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
 ## Repositories
 
@@ -65,14 +69,16 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
-- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret and uses an alternate terminal screen when available.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, starts/reuses the Unity host broker, and uses an alternate terminal screen when available.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes before Codex starts.
 - [`scripts/unity-resource-policy.sh`](scripts/unity-resource-policy.sh) — side-effect-free Unity resource/validation policy.
 - [`scripts/unity-resource-guard.sh`](scripts/unity-resource-guard.sh) — host preflight that validates Unity policy/readiness and acquires the exclusive editor lock.
 - [`scripts/unity-runner-policy.sh`](scripts/unity-runner-policy.sh) — project-version and test-platform helpers for the Windows runner.
-- [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — supported WSL entrypoint for Unity health/EditMode/PlayMode validation.
+- [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — worker-facing broker client for Unity health/EditMode/PlayMode validation.
+- [`scripts/unity-host-broker.py`](scripts/unity-host-broker.py) — host-owned typed Unity request broker and structured status producer.
+- [`scripts/unity-runner-host.sh`](scripts/unity-runner-host.sh) — host-only direct WSL/Windows adapter used by the broker.
 - [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
@@ -86,7 +92,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
-- [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 Windows staging and Unity Test Framework execution contract.
+- [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md) — model-turn execution diagnostics and localhost dashboard usage.
 
 ## Diagnostics quick start
@@ -111,6 +117,6 @@ That probe uses Luna / low by default and consumes a small amount of Codex allow
 
 Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
 
-Unity execution does not broaden production-scene authority. Workers that own the editor resource must use the supported runner rather than ad-hoc Windows/Unity commands, and Unity validation artifacts remain untracked evidence.
+Unity execution does not broaden production-scene authority. Workers that own the editor resource must use the supported runner rather than ad-hoc Windows/Unity commands. The worker-facing runner accepts only typed Unity operations; the host broker owns Windows interop and revalidates resource ownership before executing a test. Unity validation artifacts remain untracked evidence.
 
 Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).

@@ -14,6 +14,7 @@ bash "$ROOT/tests/unity-resource-policy-test.sh"
 bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
 bash "$ROOT/tests/unity-runner-host-syntax-test.sh"
+bash "$ROOT/tests/unity-broker-test.sh"
 bash "$ROOT/tests/rearm-issue-test.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
 
