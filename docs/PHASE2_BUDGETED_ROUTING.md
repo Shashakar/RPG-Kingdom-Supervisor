@@ -25,8 +25,10 @@ Phase 2 keeps official Symphony unmodified and uses narrow host-side adapters at
 
 2. `scripts/before-run-guard.sh`
    - runs before each Symphony worker lifetime;
-   - refuses to launch Codex when the workspace already contains `.symphony-attempt-complete`;
-   - gives Phase 2 a local hard execution gate even if a GitHub label mutation is temporarily unavailable.
+   - refuses to launch Codex when prior worker state exists unless GitHub carries the one-shot `symphony:rearm` approval;
+   - consumes `symphony:rearm` before Codex starts so the approval cannot be reused;
+   - recovers only a stale Unity lock owned by the same GH issue when that explicit rearm is present;
+   - gives Phase 2 a local hard execution gate even if a normal `symphony:ready` label is re-added accidentally.
 
 3. `scripts/after-run-guard.sh`
    - writes `.symphony-attempt-complete` before any network-dependent cleanup;
@@ -34,7 +36,7 @@ Phase 2 keeps official Symphony unmodified and uses narrow host-side adapters at
    - otherwise removes `symphony:ready`, adds `symphony:halted`, and comments on the issue;
    - prevents the Phase 1 failure mode where reaching `agent.max_turns` caused a brand-new Codex thread to be dispatched automatically.
 
-The local marker is deliberately persistent because Symphony preserves per-issue workspaces. A later retry must therefore be an explicit operator action rather than merely re-adding a GitHub label.
+The local marker is deliberately persistent because Symphony preserves per-issue workspaces. A later retry must therefore be explicitly approved rather than merely re-adding the normal dispatch lease. The one-shot `symphony:rearm` label is the host-recognized approval that lets human/ChatGPT review request a continuation without direct access to Supervisor host state.
 
 ## Default turn budget
 
@@ -146,19 +148,29 @@ The supervisor never overrides a read required by RPG Kingdom's authoritative re
 
 `symphony:ready` remains the GitHub dispatch lease, but it is no longer the only execution gate.
 
-At the end of every worker lifetime, the workspace receives `.symphony-attempt-complete` before the guard makes any GitHub request. A subsequent Symphony worker lifetime reaches `before_run` and is rejected before Codex App Server starts. This remains true even if GitHub is temporarily unavailable when the first attempt ends.
+At the end of every worker lifetime, the workspace receives `.symphony-attempt-complete` before the guard makes any GitHub request. A subsequent Symphony worker lifetime reaches `before_run` and is rejected before Codex App Server starts unless the issue also carries a one-shot `symphony:rearm` approval. This remains true even if GitHub is temporarily unavailable when the first attempt ends.
 
 When the GitHub API is available, the after-run guard also removes `symphony:ready` first and then adds `symphony:halted` for operator visibility.
 
-To approve a retry, use the checked-in helper:
+To approve a retry from the operator checkout, use the checked-in helper:
 
 ```bash
 bash scripts/rearm-issue.sh <issue-number>
 ```
 
-The helper removes `symphony:halted` when present, deletes the local completed-attempt marker, and re-adds `symphony:ready`. Adjust risk/model/effort labels before rearming when the prior route was inappropriate.
+The helper removes `symphony:halted` when present and requests both `symphony:rearm` and `symphony:ready`. It does not directly mutate the workspace marker or Unity lock. On the next `before_run`, the host consumes `symphony:rearm`, allows that one worker lifetime despite the persistent marker, and clears a stale Unity lock only when it is owned by the same GH issue. A lock owned by another issue is never reclaimed by this path.
 
-Do not build an automatic retry loop around `symphony:halted` or the rearm helper.
+A human/ChatGPT review tool without host filesystem access may request the same continuation by adding `symphony:rearm` first and `symphony:ready` last. Do **not** re-add `symphony:ready` by itself after a completed attempt; the local guard will continue to reject that dispatch.
+
+If another preflight fails after the one-shot approval is consumed, another explicit review/rearm is required. Do not build an automatic retry loop around `symphony:halted` or `symphony:rearm`.
+
+## Regression-preservation validation
+
+A bounded fix is not complete merely because the assertion that originally exposed it becomes green. When the implementation changes behavior-bearing configuration or wiring, the worker must identify what existing behavior that configuration provided and gather focused preservation evidence for it.
+
+Examples include Animator/controller replacement, prefab or scene references, serialized asset links, input bindings, and other configuration where satisfying one contract can silently displace another. The GH-98/PR #100 animation review is the motivating case: parameter availability was proven, but the first fix did not prove that the player-specific motion-backed animation behavior remained intact.
+
+This requirement is intentionally focused. It does not justify a repository-wide regression sweep; it requires validation of the concrete existing behavior put at risk by the chosen implementation.
 
 ## Phase 2 acceptance status
 
