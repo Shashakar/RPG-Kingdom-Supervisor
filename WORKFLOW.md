@@ -68,6 +68,7 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - Add or update tests and documentation required by the RPG Kingdom repository contract.
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
 - When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
+- On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
 - Do not merge the pull request.
 
 ## Host-owned Git handoff contract
@@ -105,10 +106,14 @@ The host handoff:
 - requires `origin/main` to be an ancestor of the handoff commit;
 - refuses a non-fast-forward update to an existing remote feature branch;
 - when `validation:unity-required` is present, requires supplied Unity run IDs to resolve to passing, non-zero Supervisor result summaries;
+- when a prior completed-attempt marker exists, rejects supplied Unity run IDs whose summaries predate that marker;
 - pushes without force;
 - opens or updates the PR against `main`;
+- refuses to rewrite an existing PR when the remote branch did not advance and the handoff has no fresh current-attempt Unity evidence;
 - removes `symphony:ready` only after the remote branch and reviewable PR are confirmed;
 - never merges the PR.
+
+A recovered workspace can legitimately reach handoff with no new `git commit` during the current call when a prior failed handoff already left a local commit. The host judges progress by whether the remote branch advances, not merely by whether this invocation created the commit. If neither the remote branch advances nor fresh current-attempt evidence exists, treat `NoHandoffProgress` as a real blocker and do not rewrite PR text to imply that review feedback was resolved.
 
 Do not use direct `git push`, force-push, temporary Git metadata copies, or GitHub Git-object/branch API reconstruction as the normal completion path. If the host handoff returns a real blocker, preserve the workspace, leave a concise issue comment with the structured failure, and stop without claiming success.
 
@@ -143,7 +148,9 @@ Rules:
 - Do not mutate the Windows staging project directly; it is disposable validation state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
+- `HostBusy` is valid only while the broker's host child is still running when the request is handled; the broker reaps an already-exited child before returning that status.
 - If `validation:unity-required` is present, do not complete the PR handoff without relevant Unity validation. Supply the successful runner `runId` values to `git-handoff.sh handoff` so the host can verify that evidence exists and passed.
+- On a rearmed continuation, every supplied Unity run must be newer than the previous `.symphony-attempt-complete` marker. Historical passing runs cannot substitute for validating the current continuation.
 - If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.
 - If broader Unity validation exposes unrelated failures after the issue's targeted contract is green, report them explicitly without silently expanding issue scope.
 
@@ -187,6 +194,7 @@ The `symphony:ready` label is the dispatch lease.
 - Do not remove it merely to indicate that work started.
 - If a true external blocker prevents useful progress, leave a concise issue comment describing the blocker and stop without claiming success.
 - When implementation and available validation are complete, use the host Git handoff operation. Its PR body must summarize implementation, tests/validation run, anything not validated, architecture/doc changes, and intentionally deferred follow-up.
+- Do not update an existing PR body to claim review feedback is resolved when the branch has not advanced and no fresh current-attempt evidence directly supports that claim.
 - Confirm the returned handoff result contains the expected remote branch SHA and PR URL/number before reporting success.
 - The host removes `symphony:ready` only after the PR exists. Do not remove the dispatch lease before handoff or merge the PR.
 
@@ -203,6 +211,7 @@ Do not report success unless all of the following are true:
 - available relevant validation has been run and failures are not hidden;
 - any pre-existing runtime behavior materially affected by changed configuration, wiring, serialization, or presentation/controller assets has focused preservation evidence in addition to the new acceptance-path evidence;
 - `validation:unity-required`, when present, has actual relevant Unity runner evidence and its successful `runId` values were supplied to the host handoff;
+- on a reviewed continuation, supplied Unity evidence was produced after the prior completed-attempt marker rather than recycled from an earlier worker lifetime;
 - the host handoff reports the branch was pushed and verified at the expected commit SHA;
 - a reviewable PR against `main` exists and the handoff returns its URL/number;
 - remaining optional/manual validation is explicit rather than guessed;

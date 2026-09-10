@@ -16,8 +16,9 @@ from urllib import error, parse, request
 
 BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
+ATTEMPT_MARKER = ".symphony-attempt-complete"
 FORBIDDEN_PATHS = (
-    ".symphony-attempt-complete",
+    ATTEMPT_MARKER,
     "Logs/SymphonyUnity/",
     "Logs/SymphonyGit/",
 )
@@ -136,6 +137,13 @@ def current_branch(workspace: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def remote_branch_sha(workspace: Path, branch: str) -> str | None:
+    remote_ref = f"refs/remotes/origin/{branch}"
+    if not git_ref_exists(workspace, remote_ref):
+        return None
+    return run_git(workspace, "rev-parse", remote_ref).stdout.strip()
+
+
 def prepare_branch(workspace: Path, branch: str) -> dict[str, Any]:
     validate_branch(branch)
     run_git(workspace, "fetch", "--prune", "origin", timeout=180)
@@ -227,7 +235,20 @@ def issue_labels(api_root: str, token: str, owner: str, repo: str, issue_number:
     return {str(item.get("name", "")).lower() for item in payload if isinstance(item, dict)}
 
 
-def validate_unity_evidence(workspace: Path, run_ids: list[str], required: bool) -> list[dict[str, Any]]:
+def previous_attempt_boundary_ns(workspace: Path) -> int | None:
+    marker_path = workspace / ATTEMPT_MARKER
+    if not marker_path.is_file():
+        return None
+    return marker_path.stat().st_mtime_ns
+
+
+def validate_unity_evidence(
+    workspace: Path,
+    run_ids: list[str],
+    required: bool,
+    *,
+    newer_than_ns: int | None = None,
+) -> list[dict[str, Any]]:
     if required and not run_ids:
         raise HandoffError(
             "validation:unity-required is present but no Unity validation run IDs were supplied",
@@ -245,6 +266,13 @@ def validate_unity_evidence(workspace: Path, run_ids: list[str], required: bool)
                 f"Unity validation summary does not exist: {summary_path}",
                 code=72,
                 status="ValidationEvidenceMissing",
+            )
+        if newer_than_ns is not None and summary_path.stat().st_mtime_ns <= newer_than_ns:
+            raise HandoffError(
+                f"Unity validation run '{run_id}' predates the current reviewed continuation",
+                code=72,
+                status="ValidationEvidenceStale",
+                details={"runId": run_id, "summaryPath": str(summary_path)},
             )
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8-sig"))
@@ -288,7 +316,7 @@ def staged_paths(workspace: Path) -> list[str]:
 def reject_forbidden_paths(paths: list[str]) -> None:
     rejected = []
     for path in paths:
-        if path == ".symphony-attempt-complete" or any(path.startswith(prefix) for prefix in FORBIDDEN_PATHS[1:]):
+        if path == ATTEMPT_MARKER or any(path.startswith(prefix) for prefix in FORBIDDEN_PATHS[1:]):
             rejected.append(path)
     if rejected:
         raise HandoffError(
@@ -360,6 +388,14 @@ def push_branch(workspace: Path, branch: str) -> str:
     return remote_sha
 
 
+def handoff_has_reviewable_progress(
+    remote_sha_before: str | None,
+    commit_sha: str,
+    evidence: list[dict[str, Any]],
+) -> bool:
+    return remote_sha_before != commit_sha or bool(evidence)
+
+
 def create_or_update_pr(
     api_root: str,
     token: str,
@@ -368,6 +404,8 @@ def create_or_update_pr(
     branch: str,
     title: str,
     body: str,
+    *,
+    allow_existing_update: bool = True,
 ) -> tuple[int, str, bool]:
     if not title.strip():
         raise HandoffError("PR title is required", code=64, status="InvalidRequest")
@@ -376,6 +414,13 @@ def create_or_update_pr(
     if isinstance(existing, list) and existing:
         first = existing[0]
         number = int(first["number"])
+        if not allow_existing_update:
+            raise HandoffError(
+                "existing PR cannot be rewritten because this handoff produced neither a remote branch advance nor fresh current-attempt validation evidence",
+                code=75,
+                status="NoHandoffProgress",
+                details={"prNumber": number, "branch": branch},
+            )
         updated = api_request(
             api_root,
             token,
@@ -469,15 +514,18 @@ def main() -> int:
             workspace,
             list(dict.fromkeys(run_ids_raw)),
             "validation:unity-required" in labels,
+            newer_than_ns=previous_attempt_boundary_ns(workspace),
         )
 
         run_git(workspace, "fetch", "--prune", "origin", timeout=180)
+        remote_sha_before = remote_branch_sha(workspace, branch)
         commit_sha, committed = commit_changes(workspace, str(payload.get("commitMessage", "")))
         ensure_safe_history(workspace, branch)
 
         if commit_sha == run_git(workspace, "rev-parse", "origin/main").stdout.strip():
             raise HandoffError("handoff contains no commit beyond origin/main", code=75, status="NoChanges")
 
+        reviewable_progress = handoff_has_reviewable_progress(remote_sha_before, commit_sha, evidence)
         pushed_sha = push_branch(workspace, branch)
         pr_number, pr_url, pr_created = create_or_update_pr(
             api_root,
@@ -487,6 +535,7 @@ def main() -> int:
             branch,
             str(payload.get("prTitle", "")),
             str(payload.get("prBody", "")),
+            allow_existing_update=reviewable_progress,
         )
         lease_removed = remove_dispatch_lease(api_root, token, owner, repo, issue_number)
 
@@ -499,6 +548,7 @@ def main() -> int:
                 "branch": branch,
                 "commitSha": commit_sha,
                 "committed": committed,
+                "branchAdvanced": remote_sha_before != commit_sha,
                 "pushedSha": pushed_sha,
                 "prNumber": pr_number,
                 "prUrl": pr_url,

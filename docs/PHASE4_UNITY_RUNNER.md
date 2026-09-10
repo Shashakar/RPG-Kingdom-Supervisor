@@ -70,6 +70,8 @@ Broker response + structured host status
 
 The broker event loop remains responsive while a Unity host operation is active. The host adapter runs as a managed child process in its own process group. Exactly one host operation may run at a time; another valid request is acknowledged immediately and receives `HostBusy` with the active request details instead of timing out waiting for an acknowledgement.
 
+A completed child is reaped both at the start of the broker loop and again immediately before a pending request would receive `HostBusy`. This closes the completion race where a host process could exit after the loop's first poll but before the next request was classified. `HostBusy` therefore means the prior child is still running at the point the new request is handled; an already-exited child is finalized and the pending request may start in the same broker iteration.
+
 Host status is written to:
 
 ```text
@@ -106,7 +108,7 @@ bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode \
 
 Broker lifecycle outcomes are explicit at the runner boundary:
 
-- `HostBusy` — another Unity host operation already owns the broker execution slot;
+- `HostBusy` — another Unity host operation still owns the broker execution slot when the pending request is handled;
 - `TimedOut` — the active host process exceeded the configured host timeout and its process group was terminated;
 - `StaleRequest` — a request survived from a previous broker lifetime and was deliberately not replayed;
 - `BrokerStopped` — the broker was shut down while the request was active;
@@ -145,6 +147,8 @@ Unity runs with the native Test Framework command-line flow: `-batchmode`, `-acc
 The bridge copies `results.xml`, `Editor.log`, and `summary.json` back under `Logs/SymphonyUnity/<run-id>/`. If Unity crashes before the requested log exists, a bounded tail of the global `%LOCALAPPDATA%\Unity\Editor\Editor.log` is copied when it was touched by the current run.
 
 A run is unsuccessful when Unity exits nonzero, result XML is missing/malformed, one or more tests fail, the host operation times out, or zero tests match. Zero-test runs are explicitly represented as `NoTestsMatched` so a green-looking Unity aggregate cannot be mistaken for validation evidence.
+
+For reviewed continuations, Git handoff uses the preserved `.symphony-attempt-complete` marker as a freshness boundary. A passing Unity summary from before that marker remains useful historical diagnostics, but it cannot be supplied as proof that the current continuation validated its implementation. The current worker must produce fresh relevant Unity evidence after the rearm boundary before a Unity-required handoff can succeed.
 
 ## Unity 6000.3.10f1 host caveat
 

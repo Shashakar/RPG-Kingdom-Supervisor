@@ -61,6 +61,8 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" handoff \
 
 Repeat `--validation-run` for additional successful Unity runs. A long PR description may instead be supplied with `--pr-body-file`.
 
+For a reviewed continuation, the previous `.symphony-attempt-complete` marker is also the validation freshness boundary. Every supplied Unity summary must have been produced after that marker. Passing results from an earlier worker lifetime are intentionally rejected as `ValidationEvidenceStale`; rearm authorizes another attempt, not reuse of old evidence as proof of the new attempt.
+
 ## Safety policy
 
 The host runner fails closed unless all applicable checks pass:
@@ -73,10 +75,14 @@ The host runner fails closed unless all applicable checks pass:
 - an existing remote feature branch can fast-forward to the local handoff commit;
 - Supervisor runtime artifacts are not staged for commit;
 - when the issue has `validation:unity-required`, at least one explicitly supplied Unity run resolves to a passing, non-zero `summary.json` result;
+- when the workspace contains a prior completed-attempt marker, every supplied Unity run is newer than that marker;
+- an existing PR is rewritten only when the remote feature branch advances or the handoff carries fresh current-attempt Unity evidence;
 - push succeeds without force and the remote branch SHA verifies back to the local commit;
 - the PR exists against `main` before the `symphony:ready` dispatch lease is removed.
 
 A handoff operation may stage and commit the issue's source changes, but it will not merge, rebase, reset, force-push, delete branches, or mutate another repository.
+
+The existing-PR progress gate is deliberately independent from whether `git commit` happens during the current handoff call. A recovered workspace may already contain a valid local commit from an earlier failed network handoff; advancing the remote branch to that commit is real progress and permits the PR update. Conversely, if the remote branch is unchanged and no fresh validation exists, the host returns `NoHandoffProgress` instead of allowing a worker to rewrite the PR description with unsupported completion claims.
 
 ## Authentication
 
@@ -91,7 +97,9 @@ Broker/client results are structured and use explicit statuses such as:
 - `InvalidBranch`
 - `UnexpectedBranch`
 - `ValidationEvidenceMissing`
+- `ValidationEvidenceStale`
 - `ValidationEvidenceFailed`
+- `NoHandoffProgress`
 - `MainNotIntegrated`
 - `NonFastForward`
 - `GitFailed`

@@ -177,6 +177,89 @@ jq -e '.state == "ready" and .lastResult.status == "TimedOut" and .lastResult.ex
 recovery_output="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" health --project "$WORKSPACE")"
 grep -Fq '"status":"ready"' <<<"$recovery_output" || { echo "unity-broker-test: broker was not usable after timeout" >&2; exit 1; }
 
+# Unit-level coverage for the race guard: an exited child is immediately reapable, while a truly
+# running child remains busy. The broker calls this helper both at loop start and immediately before
+# emitting HostBusy so a just-finished operation cannot create a stale busy lease.
+python3 - "$ROOT/scripts/unity-host-broker.py" <<'PY'
+import importlib.util
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+
+module_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("rpgk_unity_host_broker", module_path)
+if spec is None or spec.loader is None:
+    raise RuntimeError("failed to load unity-host-broker.py")
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+with tempfile.TemporaryDirectory(prefix="rpgk-unity-reap-test-") as temp:
+    root = Path(temp)
+    request_path = root / "request.json"
+    request_path.write_text("{}\n", encoding="utf-8")
+    request_spec = module.RequestSpec(
+        request_path=request_path,
+        request_id="race-test",
+        operation="health",
+        test_filter="",
+        workspace=root,
+    )
+
+    finished_stdout = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    finished_stderr = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    finished = subprocess.Popen(
+        ["bash", "-lc", "printf '%s\\n' '{\"status\":\"ready\"}'"],
+        stdout=finished_stdout,
+        stderr=finished_stderr,
+        text=True,
+    )
+    finished.wait(timeout=2)
+    finished_active = module.ActiveOperation(
+        spec=request_spec,
+        response_path=root / "finished-response.json",
+        process=finished,
+        stdout_handle=finished_stdout,
+        stderr_handle=finished_stderr,
+        started_monotonic=time.monotonic(),
+        started_at=module.utc_now(),
+    )
+    finished_response = module.complete_finished_operation(finished_active)
+    assert finished_response is not None
+    assert finished_response["status"] == "completed"
+    module.close_operation(finished_active)
+
+    running_stdout = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    running_stderr = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    running = subprocess.Popen(
+        ["bash", "-lc", "sleep 30"],
+        stdout=running_stdout,
+        stderr=running_stderr,
+        text=True,
+        start_new_session=True,
+    )
+    running_active = module.ActiveOperation(
+        spec=request_spec,
+        response_path=root / "running-response.json",
+        process=running,
+        stdout_handle=running_stdout,
+        stderr_handle=running_stderr,
+        started_monotonic=time.monotonic(),
+        started_at=module.utc_now(),
+    )
+    assert module.complete_finished_operation(running_active) is None
+    module.terminate_process_group(running, 0.1)
+    module.close_operation(running_active)
+PY
+
+reap_call_count="$(grep -c 'reap_completed_active()' "$ROOT/scripts/unity-host-broker.py")"
+[[ "$reap_call_count" -ge 3 ]] || {
+  echo "unity-broker-test: completed-operation reaper must run at loop start and before HostBusy" >&2
+  exit 1
+}
+
 if grep -Eq 'powershell\.exe|wslpath' "$ROOT/scripts/unity-runner.sh"; then
   echo "unity-broker-test: worker-facing runner must not perform WSL/Windows interop" >&2
   exit 1

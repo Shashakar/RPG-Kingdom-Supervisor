@@ -324,6 +324,13 @@ def complete_operation(
     }
 
 
+def complete_finished_operation(active: ActiveOperation) -> dict[str, Any] | None:
+    """Return the completed response only when the host child has actually exited."""
+    if active.process.poll() is None:
+        return None
+    return complete_operation(active)
+
+
 def close_operation(active: ActiveOperation) -> None:
     active.stdout_handle.close()
     active.stderr_handle.close()
@@ -465,6 +472,21 @@ def main() -> int:
             },
         )
 
+    def reap_completed_active() -> bool:
+        nonlocal active, last_result, last_status_write
+        if active is None:
+            return False
+        response = complete_finished_operation(active)
+        if response is None:
+            return False
+        write_response(active.spec.request_path, response)
+        last_result = last_result_snapshot(response)
+        close_operation(active)
+        active = None
+        write_status("ready")
+        last_status_write = time.monotonic()
+        return True
+
     stale_count = fail_stale_requests(workspace_root)
     write_status("ready")
     if stale_count:
@@ -475,14 +497,8 @@ def main() -> int:
             now = time.monotonic()
 
             if active is not None:
-                if active.process.poll() is not None:
-                    response = complete_operation(active)
-                    write_response(active.spec.request_path, response)
-                    last_result = last_result_snapshot(response)
-                    close_operation(active)
-                    active = None
-                    write_status("ready")
-                    last_status_write = now
+                if reap_completed_active():
+                    now = time.monotonic()
                 elif now - active.started_monotonic >= max(args.command_timeout_seconds, 1):
                     terminate_process_group(active.process, args.kill_grace_seconds)
                     response = complete_operation(
@@ -518,6 +534,11 @@ def main() -> int:
                 if isinstance(prepared, dict):
                     write_response(request_path, prepared)
                     continue
+
+                # A child may exit after the loop's first poll but before this request is handled.
+                # Reap it here so a completed operation cannot leave a transient false HostBusy lease.
+                if active is not None:
+                    reap_completed_active()
 
                 if active is not None:
                     active_description = f"{active.spec.request_id} ({active.spec.operation})"
