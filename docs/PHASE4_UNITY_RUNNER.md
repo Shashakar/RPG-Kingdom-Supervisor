@@ -1,92 +1,88 @@
-# Phase 4 — Windows Unity Runner
+# Phase 4 — Host-Owned Windows Unity Runner
 
-Phase 4 turns the Phase 3 `unity-editor` scheduling contract into real, observable Unity validation without moving the RPG Kingdom source of truth out of the Symphony WSL workspace.
+Phase 4 turns the Phase 3 `unity-editor` scheduling contract into real, observable Unity validation without moving RPG Kingdom's source of truth out of the Symphony WSL workspace. The host-owned broker refinement keeps the fragile WSL-to-Windows process boundary outside the Codex worker sandbox.
 
 ## Goals
 
 - run the Unity version declared by RPG Kingdom's `ProjectSettings/ProjectVersion.txt`;
 - execute EditMode and PlayMode tests from a Symphony worker;
-- support narrow Unity Test Framework filters so workers do not default to expensive full-suite runs;
+- support narrow Unity Test Framework filters;
 - keep Unity's active project on Windows NTFS rather than `\\wsl.localhost`;
 - preserve the staged `Library/` cache across issues and branches;
-- return test XML, Editor logs, and a small JSON summary to the worker workspace;
-- require Phase 3 exclusive-resource ownership before a worker can execute Unity;
+- return test XML, Editor logs, and a compact JSON summary to the worker workspace;
+- require Phase 3 exclusive-resource ownership before test execution;
 - treat any already-running Windows `Unity.exe` as the host resource being busy;
+- keep WSL/Windows interop host-owned instead of model-owned;
 - keep production-scene authoring authority unchanged.
 
-## Host shape
+## Why the host broker exists
 
-The evaluated Windows/WSL host provides:
+GH-97 and a fresh GH-98 run demonstrated that a model-backed Codex turn can fail WSL-to-Windows interop with `UtilBindVsockAnyPort` even when the same host can run the Unity bridge successfully from the operator shell. Permission probes therefore cannot prove that a future model process will own a reliable Windows bridge.
 
-- WSL2 Ubuntu;
-- Windows PowerShell reachable as `powershell.exe`;
-- `wslpath` for WSL/Windows path conversion;
-- Unity Hub editors installed under `C:\Program Files\Unity\Hub\Editor`;
-- RPG Kingdom currently declaring Unity `6000.3.10f1`.
+The worker still uses the same narrow command surface, but `scripts/unity-runner.sh` is now a broker client. It writes a typed request inside the worker's own ignored `Logs/SymphonyUnity/.broker/` directory. A persistent broker launched by `scripts/run-symphony.sh` from the operator shell performs the direct host operation through `scripts/unity-runner-host.sh`.
 
-The runner does not hard-code the current project version. `scripts/unity-runner.sh` reads `ProjectSettings/ProjectVersion.txt` on every health check/run and resolves the default editor path from that version. `RPGK_UNITY_EDITOR_WINDOWS` can override the editor executable when a host intentionally uses a nonstandard install location.
+The broker is intentionally not a generic command service. Its protocol accepts only `health`, `editmode`, and `playmode`, plus an optional Unity Test Framework filter. The broker derives the project path from the request location, requires it to be an immediate `GH-<number>` child of the configured Symphony workspace root, and revalidates the Unity lock before test operations.
 
 ## Data flow
 
 ```text
-Symphony WSL workspace (GH-N)
+Operator WSL shell
         |
-        | supported runner only
-        v
-scripts/unity-runner.sh
+        | scripts/run-symphony.sh
+        +------------------------------+
+        |                              |
+        v                              v
+Unity host broker                Symphony / Codex worker
+        ^                              |
+        |                              | unity-runner.sh
+        |                              | typed workspace-local request
+        |                              v
+        +---- GH-N/Logs/SymphonyUnity/.broker/
         |
-        | verifies Phase 3 unity-editor lock ownership
-        | converts workspace path with wslpath
+        | host-only unity-runner-host.sh
+        | wslpath + powershell.exe
         v
 Windows PowerShell bridge
         |
-        | robocopy /MIR
-        |   Assets/
-        |   Packages/
-        |   ProjectSettings/
+        | robocopy /MIR Assets, Packages, ProjectSettings
         v
 %LOCALAPPDATA%\RPGKingdomSupervisor\UnityStages\<version>\RPG-Kingdom
         |
-        | Library/ is preserved between runs
+        | preserved Library/
         v
 Unity.exe -batchmode -runTests ...
         |
-        +--> .symphony-results\<run-id>\results.xml
-        +--> .symphony-results\<run-id>\Editor.log
-        +--> .symphony-results\<run-id>\summary.json
+        +--> results.xml
+        +--> Editor.log
+        +--> summary.json
         |
-        | copy evidence back
+        | copied back to GH-N/Logs/SymphonyUnity/<run-id>/
         v
-WSL workspace/Logs/SymphonyUnity/<run-id>/
+Broker response + structured host status
 ```
 
-`Logs/` is already ignored by RPG Kingdom. Unity validation artifacts therefore remain available to Codex and the human reviewer without polluting the implementation branch.
+`Logs/` is ignored by RPG Kingdom. Requests, responses, and Unity artifacts remain available for diagnostics without entering the implementation branch.
 
-## Why stage on Windows NTFS
+## Broker lifecycle and status
 
-Unity performs substantial AssetDatabase, import-cache, metadata, and temporary-file I/O. The source workspace is intentionally kept in the WSL Linux filesystem for Git/Codex performance, but the project Unity opens is a Windows-local staging copy.
+`run-symphony.sh` starts the broker before Symphony and waits for protocol version 1 to report `ready`. If a compatible broker is already running for the same workspace root, the launcher reuses it. A broker started by the launcher is stopped when that launcher exits; a reused broker is left to its original owner.
 
-The runner mirrors only the three Unity source/configuration directories that define the project:
+Host status is written to:
 
-- `Assets/`
-- `Packages/`
-- `ProjectSettings/`
+```text
+~/.local/state/rpg-kingdom-supervisor/unity-broker/status.json
+```
 
-It does **not** mirror the worker's `.git/`, `Library/`, `Temp/`, `Logs/`, or other generated state into the stage. `robocopy /MIR` removes staged source files that were deleted on the branch, while the staged `Library/` survives to make later runs substantially cheaper than the first import.
+The status records the protocol version, broker PID/state, workspace root, active request, and the compact last result. This file is intended as a diagnostics source; worker requests continue to use workspace-local IPC so Codex does not need write access to Supervisor state.
 
-The staging directory is validation state, not a second source of truth. Changes made there are never synchronized back into RPG Kingdom.
+If the broker does not acknowledge a request promptly, the worker-facing runner fails clearly and tells the operator to launch Symphony through `scripts/run-symphony.sh`. Once acknowledged, a longer timeout covers staging/import/test execution.
 
 ## Supported runner interface
 
-From an RPG Kingdom project root:
+From a Symphony `GH-<number>` workspace:
 
 ```bash
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh health
-```
-
-For an issue workspace that currently owns the Phase 3 Unity resource:
-
-```bash
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh editmode
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode
 ```
@@ -101,115 +97,64 @@ bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode \
   --filter 'RPGKingdom.Tests.PlayMode.Inventory'
 ```
 
-`--filter` is passed to Unity Test Framework's `-testFilter` argument. It may therefore be a full/partial test name, semicolon-separated names, or a supported regular-expression filter according to the installed Unity Test Framework.
+`--filter` is passed unchanged to Unity Test Framework. Workers must not bypass this interface by launching PowerShell, Windows commands, or `Unity.exe` directly.
 
-## Health check
+## Health and resource ownership
 
-`health` deliberately does not require the Unity lock. The Phase 3 preflight calls it **before** acquiring the resource.
+`health` deliberately does not require the Unity lock because the Phase 3 preflight calls it before acquiring the resource. The broker/host adapter verifies the project and host prerequisites and confirms that no Windows `Unity.exe` is already running.
 
-It verifies:
+`editmode` and `playmode` require:
 
-- the source project contains `Assets`, `Packages`, and `ProjectSettings`;
-- the project-declared Unity editor executable exists;
-- Windows `robocopy.exe` is available;
-- the persistent staging project root can be created/written;
-- no Windows `Unity.exe` process is already running.
+1. a request from an immediate `GH-<number>` child of the configured Symphony workspace root;
+2. an existing Phase 3 lock;
+3. a lock owner matching that GH issue;
+4. the recorded lock workspace matching the request workspace;
+5. a Windows host free of pre-existing `Unity.exe` processes.
 
-The last check is intentional. `resource:unity-editor` means exclusive host-wide Editor ownership, including human-launched Editors; a GitHub/Symphony lock cannot truthfully grant that resource while another Editor is already using it.
+The worker-facing client and host adapter retain defense-in-depth checks, while the broker is authoritative for deciding whether a typed request may cross the host boundary.
 
-A successful health check returns a compact JSON object containing the Unity version, editor path, source path, and stage path.
+## Windows staging
 
-Phase 4 removes the Phase 3 manual `RPGK_UNITY_RUNNER_READY=1` assertion. Readiness is now determined from the real host/project on each Unity-resource dispatch.
+The source workspace remains on the WSL Linux filesystem for Git/Codex performance. The host adapter resolves the repository-declared Unity version, converts the workspace and PowerShell script paths with `wslpath`, and invokes Windows PowerShell.
+
+The PowerShell bridge mirrors only:
+
+- `Assets/`
+- `Packages/`
+- `ProjectSettings/`
+
+It does not mirror `.git/`, `Library/`, `Temp/`, `Logs/`, or unrelated generated state. `robocopy /MIR` removes staged source files deleted on the branch, while `Library/` persists for cache reuse. The staging directory is disposable validation state and is never synchronized back into RPG Kingdom.
+
+## Test execution and evidence
+
+Unity runs with the native Test Framework command-line flow: `-batchmode`, `-accept-apiupdate`, `-projectPath`, `-runTests`, `-testPlatform`, `-testResults`, `-logFile`, and optional `-testFilter`.
+
+The bridge copies `results.xml`, `Editor.log`, and `summary.json` back under `Logs/SymphonyUnity/<run-id>/`. If Unity crashes before the requested log exists, a bounded tail of the global `%LOCALAPPDATA%\Unity\Editor\Editor.log` is copied when it was touched by the current run.
+
+A run is unsuccessful when Unity exits nonzero, result XML is missing/malformed, one or more tests fail, or zero tests match. Zero-test runs are explicitly represented as `NoTestsMatched` so a green-looking Unity aggregate cannot be mistaken for validation evidence.
 
 ## Unity 6000.3.10f1 host caveat
 
-The evaluated host exposed Unity issue `UUM-140399`: Unity can crash during startup when its global `CurlRequestCache.db` cannot be opened because the database is corrupt or externally locked. The failure observed on RPG Kingdom's current `6000.3.10f1` produced `0x80000003` in `Unity.dll` with `CurlFileCache`/`CurlRequestInitialize` on the stack while another Editor was active.
+The evaluated host exposed Unity issue `UUM-140399`: Unity can crash during startup when its global `CurlRequestCache.db` cannot be opened because the database is corrupt or externally locked. Unity fixed the issue later in the 6000.3 stream, but RPG Kingdom currently declares `6000.3.10f1` and the Supervisor does not silently substitute another version.
 
-Unity fixed `UUM-140399` in the 6000.3 stream in `6000.3.17f1`. RPG Kingdom still declares `6000.3.10f1`, so Phase 4 does not silently substitute a newer editor. Instead, the runner honors the repository-declared version and refuses to claim the Unity resource while any other Editor process is active. Upgrading the project editor remains a separate RPG Kingdom decision.
-
-This host-wide idle requirement is correct independently of the Unity bug: the resource label promises exclusive Editor ownership. The known 6000.3.10f1 crash simply makes failing closed especially important on the current host.
-
-## Test execution
-
-The Windows bridge runs Unity with the native Test Framework command-line flow:
-
-- `-batchmode`
-- `-accept-apiupdate`
-- `-projectPath`
-- `-runTests`
-- `-testPlatform EditMode|PlayMode`
-- `-testResults`
-- `-logFile`
-- optional `-testFilter`
-
-The runner intentionally does not force `-nographics`; RPG Kingdom PlayMode validation may need a graphics device.
-
-Unity is launched through a synchronous Windows process boundary and the runner waits for the Editor process to exit before inspecting results. If Unity crashes before the requested `-logFile` is created, the bridge copies the global `%LOCALAPPDATA%\Unity\Editor\Editor.log` back when that file was updated by the current run so the worker still receives startup diagnostics.
-
-The PowerShell bridge parses the NUnit-style `test-run` result XML. A run fails when:
-
-- Unity exits nonzero;
-- the result XML is missing or malformed;
-- zero tests matched the requested filter;
-- one or more tests failed;
-- the aggregate result is not successful.
-
-The JSON summary records model-independent evidence such as test platform/filter, total/passed/failed/skipped counts, Unity exit code, run ID, artifact path, and staging project path.
-
-## Resource ownership
-
-`health` may run without a lock. `editmode` and `playmode` may not.
-
-For test execution, `unity-runner.sh` requires:
-
-1. the project root to be a Symphony `GH-<number>` workspace;
-2. the Phase 3 lock directory to exist;
-3. its recorded owner to match that issue identifier;
-4. the Windows host to be free of pre-existing `Unity.exe` processes before the supported runner begins.
-
-This means increasing code-only concurrency later does not allow two workers to share the staged Unity Editor, and human editor use also prevents Symphony from falsely claiming exclusive Unity ownership.
-
-Workers are explicitly instructed not to invoke `Unity.exe`, `powershell.exe`, or ad-hoc Windows commands themselves. The supported runner is the orchestration boundary.
-
-## Validation labels
-
-The Phase 3 labels keep their existing meanings, but Phase 4 makes them executable:
-
-- `resource:unity-editor` — acquire exclusive Unity ownership and expose the supported runner;
-- `validation:unity-required` — the issue must have the resource and must produce relevant Unity runner evidence before clean PR handoff;
-- `validation:unity-optional` — work may complete without editor evidence; if the resource was also granted, the worker may use the runner.
-
-A required Unity issue that fails the host health check still halts before Codex starts, preserving the usage budget. An already-open human Unity Editor is therefore a normal busy-resource condition, not permission to start a second Editor anyway.
-
-## First-run cost and cache behavior
-
-The first run for a Unity version can be slow because the staging project has no `Library/` yet. That is expected. The stage is keyed by Unity version and retained across issue workspaces, so subsequent runs reuse Unity's import cache.
-
-If the stage becomes corrupt, the operator may stop Symphony/Unity and remove the affected version directory under `%LOCALAPPDATA%\RPGKingdomSupervisor\UnityStages`. The next run rebuilds it from the authoritative WSL workspace.
+The host-wide idle check remains correct independently of that Unity bug: `resource:unity-editor` promises exclusive Editor ownership.
 
 ## Environment overrides
 
-The default host should not require these, but the runner supports:
+Normal operation should not require overrides. Supported host/client settings include:
 
 ```text
-RPGK_POWERSHELL_EXE
-RPGK_UNITY_EDITOR_WINDOWS
-RPGK_UNITY_STAGE_ROOT_WINDOWS
 RPGK_SUPERVISOR_STATE_ROOT
+RPGK_SYMPHONY_WORKSPACE_ROOT
+RPGK_UNITY_BROKER_ACK_TIMEOUT_SECONDS
+RPGK_UNITY_BROKER_TIMEOUT_SECONDS
+RPGK_POWERSHELL_EXE                 # host adapter only
+RPGK_UNITY_EDITOR_WINDOWS           # host adapter only
+RPGK_UNITY_STAGE_ROOT_WINDOWS       # host adapter only
 ```
 
 Do not put credentials in these values.
 
 ## Still deferred
 
-Phase 4 does not add:
-
-- automatic Unity builds;
-- production-scene authoring permission;
-- screenshot/visual-regression capture;
-- Unity Workbench/editor GUI control;
-- automatic full-suite validation for every issue;
-- more than one concurrent Symphony worker;
-- automatic PR merge or retry.
-
-Those capabilities should be added only when they solve a measured bottleneck without weakening the current resource and review boundaries.
+This refinement does not add Git commit/push brokering, arbitrary shell/PowerShell execution, automatic Unity builds, production-scene authoring permission, visual-regression capture, additional worker concurrency, automatic retry, or automatic PR merge. Those remain separate decisions based on measured failures.

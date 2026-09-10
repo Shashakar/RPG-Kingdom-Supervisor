@@ -179,6 +179,9 @@ try {
     $failed = [int]$testRun.failed
     $skipped = [int]$testRun.skipped
     $result = [string]$testRun.result
+    if ($total -le 0) {
+        $result = "NoTestsMatched"
+    }
 }
 catch {
     Fail-Runner "could not parse Unity test results: $($_.Exception.Message)" 88
