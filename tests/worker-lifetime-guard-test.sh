@@ -63,8 +63,17 @@ set -e
 [[ "$status" -eq 73 ]] || { echo "expected prior-attempt guard to exit 73 without rearm, got $status" >&2; exit 1; }
 [[ -e "$TMP/GH-456/.symphony-attempt-complete" ]] || { echo "blocked retry unexpectedly removed the attempt marker" >&2; exit 1; }
 
+# Reproduce the #98 residue from a handoff that staged the marker before local exclusion existed.
+# Preflight may safely remove this reserved runtime path from the index because it is absent from HEAD,
+# but it must preserve the durable marker on disk.
+git -C "$TMP/GH-456" add -f -- .symphony-attempt-complete
+git -C "$TMP/GH-456" diff --cached --name-only | grep -Fxq '.symphony-attempt-complete' || {
+  echo "test setup failed to stage stale attempt marker residue" >&2
+  exit 1
+}
+
 # Explicit rearm authorizes exactly this before_run invocation. The marker remains as the durable
-# lifetime boundary, while a stale same-issue Unity lock is cleared before the Unity guard runs.
+# lifetime boundary, stale index residue is removed, and a stale same-issue Unity lock is cleared.
 mkdir -p "$TMP/state/locks/unity-editor.lock"
 printf 'GH-456\n' > "$TMP/state/locks/unity-editor.lock/owner"
 printf '%s\n' "$TMP/GH-456" > "$TMP/state/locks/unity-editor.lock/workspace"
@@ -77,6 +86,10 @@ git -C "$TMP/GH-456" check-ignore -q -- .symphony-attempt-complete || {
   echo "rearmed lifetime lost local Git exclusion for the durable marker" >&2
   exit 1
 }
+if git -C "$TMP/GH-456" diff --cached --name-only | grep -Fxq '.symphony-attempt-complete'; then
+  echo "rearmed preflight did not unstage stale attempt marker residue" >&2
+  exit 1
+fi
 
 # A one-shot approval cannot be reused after it has been consumed.
 set +e
@@ -91,5 +104,24 @@ printf 'GH-999\n' > "$TMP/state/locks/unity-editor.lock/owner"
 FAKE_LABELS_JSON='[{"name":"symphony:ready"},{"name":"symphony:rearm"}]' run_guard >/dev/null
 [[ -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "rearm incorrectly cleared another issue's Unity lock" >&2; exit 1; }
 [[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-999" ]] || { echo "rearm changed another issue's Unity lock owner" >&2; exit 1; }
+
+# A marker that is actually committed to repository history is not stale Supervisor residue and must
+# fail closed before any tracker or worker action occurs.
+mkdir -p "$TMP/GH-457"
+git -C "$TMP/GH-457" init -q
+git -C "$TMP/GH-457" config user.name "Test User"
+git -C "$TMP/GH-457" config user.email "test@example.invalid"
+printf 'tracked\n' > "$TMP/GH-457/.symphony-attempt-complete"
+git -C "$TMP/GH-457" add -f -- .symphony-attempt-complete
+git -C "$TMP/GH-457" commit -qm "track forbidden marker"
+set +e
+(cd "$TMP/GH-457" && bash "$ROOT/scripts/before-run-guard.sh") >"$TMP/tracked-marker.out" 2>"$TMP/tracked-marker.err"
+status=$?
+set -e
+[[ "$status" -eq 73 ]] || { echo "expected tracked attempt marker to fail closed with 73, got $status" >&2; exit 1; }
+grep -Fq "is tracked in HEAD" "$TMP/tracked-marker.err" || {
+  echo "tracked attempt marker failure did not explain repository-state conflict" >&2
+  exit 1
+}
 
 echo "worker-lifetime-guard-test: PASS"
