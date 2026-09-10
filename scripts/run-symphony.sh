@@ -15,6 +15,14 @@ BROKER_HOST_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS:-1800}"
 BROKER_KILL_GRACE_SECONDS="${RPGK_UNITY_BROKER_KILL_GRACE_SECONDS:-5}"
 BROKER_STARTED=0
 BROKER_PID=""
+GIT_BROKER_ROOT="$STATE_ROOT/git-broker"
+GIT_BROKER_STATUS="$GIT_BROKER_ROOT/status.json"
+GIT_BROKER_PID_FILE="$GIT_BROKER_ROOT/pid"
+GIT_BROKER_LOG="$GIT_BROKER_ROOT/broker.log"
+GIT_BROKER_HOST_TIMEOUT_SECONDS="${RPGK_GIT_BROKER_HOST_TIMEOUT_SECONDS:-300}"
+GIT_BROKER_KILL_GRACE_SECONDS="${RPGK_GIT_BROKER_KILL_GRACE_SECONDS:-5}"
+GIT_BROKER_STARTED=0
+GIT_BROKER_PID=""
 ALT_SCREEN_ACTIVE=0
 
 if [[ -f "$SECRETS_FILE" ]]; then
@@ -34,7 +42,7 @@ if ! command -v mise >/dev/null 2>&1; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
-  echo "ERROR: python3 and jq are required for the Unity host broker." >&2
+  echo "ERROR: python3 and jq are required for the host brokers." >&2
   exit 1
 fi
 
@@ -56,7 +64,7 @@ fi
 
 if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
   if ! bash "$SUPERVISOR_ROOT/scripts/codex-git-write-probe.sh"; then
-    echo "ERROR: Codex Git-write permission probe failed; Symphony will not start because workers could not complete normal branch/commit/push workflows." >&2
+    echo "ERROR: Codex Git-write permission probe failed; Symphony will not start because the configured worker profile is not healthy." >&2
     exit 1
   fi
 
@@ -81,9 +89,18 @@ stop_unity_broker() {
   fi
 }
 
+stop_git_broker() {
+  if (( GIT_BROKER_STARTED == 1 )) && [[ -n "$GIT_BROKER_PID" ]]; then
+    kill "$GIT_BROKER_PID" 2>/dev/null || true
+    wait "$GIT_BROKER_PID" 2>/dev/null || true
+    GIT_BROKER_STARTED=0
+  fi
+}
+
 cleanup_all() {
   cleanup_screen
   stop_unity_broker
+  stop_git_broker
 }
 trap cleanup_all EXIT
 
@@ -140,7 +157,64 @@ start_unity_broker() {
   return 1
 }
 
+start_git_broker() {
+  mkdir -p "$GIT_BROKER_ROOT" "$WORKSPACE_ROOT"
+
+  if [[ -f "$GIT_BROKER_PID_FILE" ]]; then
+    local existing_pid
+    existing_pid="$(tr -d '[:space:]' < "$GIT_BROKER_PID_FILE")"
+    if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e \
+        --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
+        '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' \
+        "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
+        echo "RPG Kingdom Git handoff broker: reusing PID $existing_pid"
+        return 0
+      fi
+      echo "ERROR: an incompatible Git handoff broker is already running as PID $existing_pid." >&2
+      echo "Stop that broker before starting Symphony with this Supervisor checkout." >&2
+      return 1
+    fi
+  fi
+
+  python3 -u "$SUPERVISOR_ROOT/scripts/git-handoff-broker.py" \
+    --workspace-root "$WORKSPACE_ROOT" \
+    --state-root "$STATE_ROOT" \
+    --host-runner "$SUPERVISOR_ROOT/scripts/git-handoff-host.py" \
+    --command-timeout-seconds "$GIT_BROKER_HOST_TIMEOUT_SECONDS" \
+    --kill-grace-seconds "$GIT_BROKER_KILL_GRACE_SECONDS" \
+    >>"$GIT_BROKER_LOG" 2>&1 &
+  GIT_BROKER_PID=$!
+  GIT_BROKER_STARTED=1
+
+  local attempt
+  for attempt in $(seq 1 50); do
+    if ! kill -0 "$GIT_BROKER_PID" 2>/dev/null; then
+      echo "ERROR: Git handoff broker exited during startup. Recent log:" >&2
+      tail -n 40 "$GIT_BROKER_LOG" >&2 2>/dev/null || true
+      return 1
+    fi
+    if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e \
+      --argjson pid "$GIT_BROKER_PID" \
+      --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
+      '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' \
+      "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
+      echo "RPG Kingdom Git handoff broker: ready (PID $GIT_BROKER_PID)"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "ERROR: Git handoff broker did not become ready within 5 seconds. Recent log:" >&2
+  tail -n 40 "$GIT_BROKER_LOG" >&2 2>/dev/null || true
+  return 1
+}
+
 if ! start_unity_broker; then
+  exit 1
+fi
+
+if ! start_git_broker; then
   exit 1
 fi
 
