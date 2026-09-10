@@ -15,7 +15,7 @@ Phase 1 proved the end-to-end path:
 - each issue receives an isolated Symphony workspace containing a clone of RPG Kingdom.
 - Codex runs through App Server inside that workspace.
 - RPG Kingdom's own `AGENTS.md` and documentation remain authoritative for implementation behavior.
-- Codex opens a pull request; merge remains a human decision.
+- completed work stops at a pull request; merge remains a human decision.
 
 Phase 2 makes that path usage-aware:
 
@@ -56,7 +56,18 @@ Phase 4 turns that scheduling contract into real Unity validation:
 
 See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract.
 
-Current diagnostics work addresses a boundary exposed by GH-97: model-free App Server probes can succeed while the actual model-backed turn still sees `.git` as read-only or cannot use WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. The Unity broker also emits host-owned structured status so the dashboard can report the current/last Unity operation without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
+Phase 5 removes the remaining model-turn infrastructure dependency from PR handoff:
+
+- `run-symphony.sh` also starts a host-owned Git handoff broker;
+- workers prepare their required `codex/*` branch through a typed host request before source edits;
+- source implementation remains model-owned, but `.git` metadata writes and final GitHub push/PR network operations are host-owned;
+- successful Unity run IDs are supplied to final handoff when `validation:unity-required` is present;
+- the host stages/commits the task, refuses force/non-fast-forward history, pushes and verifies the remote SHA, creates or updates the PR, then removes `symphony:ready`;
+- PR merge remains explicitly human-owned.
+
+See [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) for the Git handoff contract.
+
+Current diagnostics work addresses boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
 ## Repositories
 
@@ -69,10 +80,13 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
-- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, starts/reuses the Unity host broker, and uses an alternate terminal screen when available.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, starts/reuses the host brokers, and uses an alternate terminal screen when available.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes before Codex starts.
+- [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation and final Git/PR handoff.
+- [`scripts/git-handoff-broker.py`](scripts/git-handoff-broker.py) — host-owned Git request broker and structured status producer.
+- [`scripts/git-handoff-host.py`](scripts/git-handoff-host.py) — bounded host Git/GitHub implementation used by the broker.
 - [`scripts/unity-resource-policy.sh`](scripts/unity-resource-policy.sh) — side-effect-free Unity resource/validation policy.
 - [`scripts/unity-resource-guard.sh`](scripts/unity-resource-guard.sh) — host preflight that validates Unity policy/readiness and acquires the exclusive editor lock.
 - [`scripts/unity-runner-policy.sh`](scripts/unity-runner-policy.sh) — project-version and test-platform helpers for the Windows runner.
@@ -86,10 +100,12 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — explicitly clears the local/remote halt gates for one approved retry.
 - [`scripts/diagnose-issue.sh`](scripts/diagnose-issue.sh) — read-only terminal summary for one dispatched issue.
 - [`scripts/serve-diagnostics.sh`](scripts/serve-diagnostics.sh) — localhost-only, read-only issue diagnostics dashboard.
-- [`scripts/codex-turn-environment-probe.sh`](scripts/codex-turn-environment-probe.sh) — explicit model-backed probe for `.git` writes and WSL-to-Windows interop; never run automatically because it consumes allowance.
+- [`scripts/codex-turn-environment-probe.sh`](scripts/codex-turn-environment-probe.sh) — explicit model-backed environment diagnostic; never run automatically because it consumes allowance.
 - [`AGENTS.md`](AGENTS.md) — rules for modifying this supervisor repository.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — supervisor boundaries and phased design.
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
+- [`docs/CODEX_PERMISSIONS.md`](docs/CODEX_PERMISSIONS.md) — current model-turn permission boundary and probes.
+- [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) — host-owned branch/commit/push/PR handoff contract.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
@@ -99,13 +115,13 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
-bash scripts/diagnose-issue.sh 97
+bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
 The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only.
 
-When the model-free probes and a real Symphony worker disagree, run the explicit model-turn probe once before spending another full worker lifetime:
+When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 
 ```bash
 bash scripts/codex-turn-environment-probe.sh --run
@@ -117,6 +133,6 @@ That probe uses Luna / low by default and consumes a small amount of Codex allow
 
 Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, a required PR review boundary, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires explicit rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
 
-Unity execution does not broaden production-scene authority. Workers that own the editor resource must use the supported runner rather than ad-hoc Windows/Unity commands. The worker-facing runner accepts only typed Unity operations; the host broker owns Windows interop and revalidates resource ownership before executing a test. Unity validation artifacts remain untracked evidence.
+Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. The host stops at a reviewable PR; merge remains a human decision.
 
 Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).

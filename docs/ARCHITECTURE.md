@@ -2,9 +2,9 @@
 
 ## Purpose
 
-RPG Kingdom Supervisor removes manual Codex session management from RPG Kingdom development while preserving human architectural control, usage discipline, independent review, and explicit ownership of scarce host resources.
+RPG Kingdom Supervisor removes manual Codex session management from RPG Kingdom development while preserving human architectural control, usage discipline, independent review, and explicit ownership of fragile or scarce host resources.
 
-The supervisor is an orchestration system, not a gameplay system. It consumes approved GitHub issues, prepares isolated workspaces, runs Codex through Symphony, optionally validates through a host-owned Unity runner, and hands completed work back as pull requests.
+The supervisor is an orchestration system, not a gameplay system. It consumes approved GitHub issues, prepares isolated workspaces, runs Codex through Symphony, validates through bounded host services when required, and hands completed work back as pull requests.
 
 ## System boundaries
 
@@ -12,7 +12,7 @@ The supervisor is an orchestration system, not a gameplay system. It consumes ap
 
 Architecture, prioritization, research, issue definition, risk classification, model overrides, Unity validation requirements, and independent PR review remain outside the autonomous execution loop.
 
-The supervisor does not decide the RPG Kingdom roadmap.
+The supervisor does not decide the RPG Kingdom roadmap, and PR merge remains human-owned.
 
 ### GitHub
 
@@ -26,13 +26,36 @@ GitHub pull requests are the handoff boundary back to human review. The supervis
 
 Official `openai/symphony` provides tracker polling, required-label filtering, per-issue workspace lifecycle, Codex App Server lifecycle, turn continuation/retry behavior, tracker-native tools, and runtime observability.
 
-This repository adds RPG Kingdom-specific workflow configuration plus narrow host adapters for model routing, fail-closed execution budgeting, Unity resource ownership, and Unity test execution.
+This repository adds RPG Kingdom-specific workflow configuration plus narrow host adapters for model routing, fail-closed execution budgeting, Unity resource ownership/execution, and Git handoff.
 
 ### Codex
 
 Codex operates in the workspace created for the current issue. Once RPG Kingdom is cloned, its own `AGENTS.md`, architecture docs, and system contracts remain authoritative.
 
-Codex is responsible for implementation, relevant tests, required docs, branch publication, and PR creation. A worker may invoke the supervisor's supported Unity runner when its issue owns `resource:unity-editor`; it may not modify the supervisor or invent another Windows/Unity bridge.
+Codex owns implementation decisions, source edits, relevant tests, and required docs. It does not need reliable direct ownership of `.git` metadata, Windows interop, or final GitHub push/PR networking. Those seams are exposed through typed Supervisor clients.
+
+Before source changes, the worker requests its required `codex/*` branch through `scripts/git-handoff.sh prepare`. When its issue owns `resource:unity-editor`, it uses `scripts/unity-runner.sh` for editor validation. After implementation and required validation, it requests final commit/push/PR handoff through `scripts/git-handoff.sh handoff`.
+
+The worker may not modify the Supervisor or replace these typed boundaries with generic host command execution.
+
+### Git handoff
+
+Git metadata and final GitHub publication are host-owned orchestration capabilities because GH-97/GH-98 showed that model-free permission/network probes do not guarantee equivalent model-turn behavior.
+
+The Git handoff boundary is deliberately narrow:
+
+- requests originate only from a `GH-N` workspace under the configured Symphony workspace root;
+- the workspace Git top-level and `origin` must identify `Shashakar/RPG-Kingdom`;
+- only `codex/*` branches are accepted;
+- `prepare` performs host-side fetch and safe create/switch without resetting source edits;
+- `handoff` stages/commits the issue worktree, rejects Supervisor runtime artifacts, and requires `origin/main` to be an ancestor;
+- existing remote feature branches may only fast-forward;
+- required Unity evidence is verified from explicit successful Supervisor run IDs;
+- push never uses force and the resulting remote SHA is re-read and compared to local HEAD;
+- a PR against `main` must exist before `symphony:ready` is removed;
+- merge is never performed by the broker.
+
+The broker inherits the host-side tracker credential and exposes no generic shell or arbitrary repository target. The worker request files contain no token.
 
 ### Unity
 
@@ -48,11 +71,13 @@ Phase 3 defines scheduling:
 Phase 4 defines execution:
 
 - `scripts/unity-runner.sh` is the only supported worker entrypoint;
+- requests travel through workspace-local IPC to a host-owned broker started before Symphony;
 - the project-declared Unity version is resolved from `ProjectSettings/ProjectVersion.txt`;
 - Windows PowerShell/robocopy mirrors `Assets`, `Packages`, and `ProjectSettings` from the WSL workspace into a persistent NTFS staging project;
 - the stage keeps its `Library/` cache across issues;
 - Unity Test Framework runs EditMode/PlayMode tests, optionally with a narrow filter;
-- result XML, Editor logs, and JSON summaries return to the ignored `Logs/SymphonyUnity/` workspace path.
+- result XML, Editor logs, and JSON summaries return to the ignored `Logs/SymphonyUnity/` workspace path;
+- the broker remains responsive while a Unity child operation is active and reports busy/timeout state explicitly.
 
 The staging project is disposable validation state. It never becomes a source of truth and is never synchronized back into RPG Kingdom.
 
@@ -82,14 +107,18 @@ Unity resource preflight
       | requested + health failure -> halt before Codex
       | requested + healthy -> acquire unity-editor lock
       v
-Codex model router
+Codex model router -> App Server
       |
-      v
-Codex App Server
-      |
-      | inspect + implement
+      | git-handoff.sh prepare codex/*
+      | inspect + implement source
       | if Unity owned: unity-runner.sh editmode/playmode
-      | push + PR
+      | git-handoff.sh handoff
+      v
+Host Git broker
+      |
+      | validate workspace/origin/branch/history/evidence
+      | stage + commit + non-force push
+      | create/update PR
       | remove symphony:ready
       v
 release Unity lock if owned
@@ -98,7 +127,7 @@ release Unity lock if owned
 host after-run budget guard
       |
       v
-GitHub PR -> Human + ChatGPT review
+GitHub PR -> Human + ChatGPT review -> Human merge
 ```
 
 If a worker attempt ends while `symphony:ready` remains, the after-run budget guard revokes the lease, adds `symphony:halted`, and requires explicit rearm before another worker lifetime.
@@ -110,9 +139,9 @@ If a worker attempt ends while `symphony:ready` remains, the after-run budget gu
 - maximum turns per worker lifetime is `4`;
 - risk/model/effort and Unity labels must be internally consistent;
 - known Unity host failures halt before Codex when editor access was requested;
-- `validation:unity-required` requires actual relevant Unity runner evidence before clean handoff;
+- `validation:unity-required` requires actual relevant Unity runner evidence before Git handoff;
 - the worker keeps `symphony:ready` while implementation is genuinely active;
-- a reviewable PR must exist before the worker removes `symphony:ready`;
+- a reviewable PR must exist before the host handoff removes `symphony:ready`;
 - no automatic merge or automatic fresh-session retry is permitted.
 
 ## Model/risk routing
@@ -168,13 +197,15 @@ The goal is to reduce context processing, not weaken architecture discipline.
 
 Upstream Symphony's `agent.max_turns` is a worker-lifetime ceiling, not a total issue budget. Phase 2 therefore uses `symphony:ready` plus a persistent workspace marker to prevent accidental fresh-session redispatch.
 
-Phase 3 adds a pre-Codex resource gate. Phase 4 makes that gate evidence-based by calling the real Unity runner health check before acquiring the editor lock.
+Phase 3 adds a pre-Codex resource gate. Phase 4 makes that gate evidence-based through the host Unity broker. Reliability hardening adds host-owned Git publication so a completed model turn is not required to own Git metadata or GitHub DNS.
 
-These controls are host-side. The narrow Symphony tracker credential is not intentionally injected into Codex.
+These controls are host-side. The narrow Symphony tracker credential is not placed in worker request payloads.
 
 ## Authentication boundary
 
-Symphony's tracker PAT is stored in `SYMPHONY_GITHUB_TOKEN` and remains separate from normal `gh`/Git credentials used to clone, push, and create PRs.
+Symphony's tracker PAT is stored in `SYMPHONY_GITHUB_TOKEN` in the operator environment/secrets file. The host Git broker inherits that credential for GitHub REST and authenticated Git transport. Its workspace-local request/response files never contain the token.
+
+A generated host-side `GIT_ASKPASS` helper reads the token from the host process environment; the token value is not written into the helper file.
 
 The Windows Unity bridge uses no GitHub credential. It receives only project paths, Unity version/path, test platform/filter, and staging/output paths.
 
@@ -186,10 +217,10 @@ Current RPG Kingdom-specific behavior uses existing seams:
 
 1. `codex.command` -> model router;
 2. `hooks.before_run` -> worker-lifetime and Unity resource/health guards;
-3. worker tool execution -> supported Unity runner;
+3. worker tool execution -> typed Git/Unity broker clients;
 4. `hooks.after_run` -> Unity release and redispatch guard.
 
-A local Symphony patch is justified only when a required behavior cannot be expressed safely through configuration, prompts, hooks, command adapters, or the supported host runner.
+A local Symphony patch is justified only when a required behavior cannot be expressed safely through configuration, prompts, hooks, command adapters, or the supported host brokers.
 
 ## Planned phases
 
@@ -205,9 +236,13 @@ Added Luna/Terra/Sol/Astra routing, context budgeting, turn limits, and fail-clo
 
 Added explicit Unity resource/validation labels, live pre-Codex resource ownership rules, and the exclusive editor lock.
 
-### Phase 4 — Unity worker integration — CURRENT
+### Phase 4 — Unity worker integration — COMPLETE
 
-Provide a supported WSL-to-Windows runner, persistent NTFS staging, EditMode/PlayMode execution, filtered tests, and observable result artifacts.
+Added the supported WSL-to-Windows broker, persistent NTFS staging, EditMode/PlayMode execution, filtered tests, and observable result artifacts.
+
+### Reliability hardening — CURRENT
+
+Move only empirically unreliable privileged seams behind typed host adapters. The Unity execution boundary and Git prepare/handoff boundary are host-owned; model implementation remains workspace-owned and PR merge remains human-owned.
 
 ### Phase 5 — controlled concurrency
 
@@ -224,6 +259,7 @@ The supervisor does not:
 - own RPG Kingdom architecture;
 - replace GitHub Issues or PRs;
 - merge autonomous changes;
+- expose a generic host command broker;
 - grant production-scene edit authority merely because Unity is available;
 - maximize token consumption or agent count;
 - silently escalate work to expensive models;

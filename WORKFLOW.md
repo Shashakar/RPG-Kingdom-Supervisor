@@ -49,25 +49,73 @@ No issue description was provided.
 
 ## Authority and trust boundaries
 
-1. Work only inside the provided RPG Kingdom workspace, except for invoking the supervisor's supported Unity runner when this dispatch owns the Unity resource.
+1. Work only inside the provided RPG Kingdom workspace, except for invoking the Supervisor's supported Unity runner and Git handoff client.
 2. RPG Kingdom's checked-in `AGENTS.md` and repository documentation are authoritative over this workflow and issue prose when they conflict.
 3. Read the repository-root `AGENTS.md` first. Read every additional document that `AGENTS.md` requires for this task, but do not broaden context beyond those requirements and the files actually relevant to the issue.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
-5. Do not change the supervisor repository from a worker session.
-6. The App Server runs under the supervisor's named Codex permission profile. The current RPG Kingdom workspace and its `.git` metadata are writable so normal fetch/switch/add/commit/push operations can complete; this does not grant write authority outside the current workspace or relax the Unity boundary below.
+5. Do not change the Supervisor repository from a worker session.
+6. The App Server runs under the Supervisor's named Codex permission profile so source files in the current issue workspace can be inspected and edited. Do not assume the model turn can reliably own `.git` metadata, GitHub DNS, or final push/PR state. The host-owned Git handoff interface below is the authoritative mutation path for branch preparation and final PR handoff.
 
 ## Phase 2 execution contract
 
 This worker is intentionally budgeted. A Codex turn is expected to perform substantial tool work, not one small conversational step.
 
-- Aim to finish the entire bounded issue in the current turn: inspect -> implement -> validate -> commit -> push -> PR -> dispatch-label handoff.
+- Aim to finish the entire bounded issue in the current turn: inspect -> prepare branch -> implement -> validate -> host Git handoff -> PR.
 - Do not spend a turn merely narrating a plan, restating instructions, or reporting progress when useful repository work can continue.
 - Keep the change bounded to the issue and the smallest complete implementation.
-- Before project changes, create or switch to a dedicated `codex/` branch as required by RPG Kingdom's `AGENTS.md`.
+- Before project changes, prepare the required dedicated `codex/` branch through the host Git handoff client described below. Read-only Git inspection remains fine, but do not spend turns trying to work around protected model-side `.git` metadata.
 - Respect all production-scene restrictions in RPG Kingdom. Unity access does not broaden scene-edit authority.
 - Add or update tests and documentation required by the RPG Kingdom repository contract.
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
 - Do not merge the pull request.
+
+## Host-owned Git handoff contract
+
+The model owns implementation decisions and source edits. The Supervisor host owns the bounded Git metadata/network operations that have proved unreliable inside model turns.
+
+Before making project changes, choose the issue's dedicated `codex/` branch and run:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" prepare \
+  --branch codex/<issue-or-feature-name>
+```
+
+`prepare` validates the GH workspace and RPG Kingdom origin, fetches host-side remote state, and creates/switches the requested `codex/*` branch without discarding a valid dirty worktree from a previous halted attempt. It will not switch across an unrelated active branch.
+
+After implementation and required validation are complete, perform exactly one final handoff request:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" handoff \
+  --branch codex/<issue-or-feature-name> \
+  --commit-message "<concise commit message>" \
+  --pr-title "<pull request title>" \
+  --pr-body "<summary, validation, setup, exclusions, and Closes #N>" \
+  --validation-run <successful-unity-run-id> \
+  [--validation-run <another-successful-run-id> ...]
+```
+
+For longer PR text, `--pr-body-file PATH` may be used instead of `--pr-body`.
+
+The host handoff:
+
+- validates that the request belongs to the current `GH-N` workspace and the configured RPG Kingdom origin;
+- allows only a bounded `codex/*` branch;
+- stages and commits the issue workspace while rejecting Supervisor runtime artifacts;
+- requires `origin/main` to be an ancestor of the handoff commit;
+- refuses a non-fast-forward update to an existing remote feature branch;
+- when `validation:unity-required` is present, requires supplied Unity run IDs to resolve to passing, non-zero Supervisor result summaries;
+- pushes without force;
+- opens or updates the PR against `main`;
+- removes `symphony:ready` only after the remote branch and reviewable PR are confirmed;
+- never merges the PR.
+
+Do not use direct `git push`, force-push, temporary Git metadata copies, or GitHub Git-object/branch API reconstruction as the normal completion path. If the host handoff returns a real blocker, preserve the workspace, leave a concise issue comment with the structured failure, and stop without claiming success.
+
+A read-only health check is also available:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" health
+```
 
 ## Unity scheduling and Phase 4 execution contract
 
@@ -91,10 +139,11 @@ Use the narrowest useful `--filter` first. The runner mirrors only `Assets`, `Pa
 Rules:
 
 - Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` only.
-- Do not mutate the Windows staging project directly; it is disposable validation state owned by the supervisor.
+- Do not mutate the Windows staging project directly; it is disposable validation state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
-- If `validation:unity-required` is present, do not complete the PR handoff without relevant Unity validation. If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.
+- If `validation:unity-required` is present, do not complete the PR handoff without relevant Unity validation. Supply the successful runner `runId` values to `git-handoff.sh handoff` so the host can verify that evidence exists and passed.
+- If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.
 - If broader Unity validation exposes unrelated failures after the issue's targeted contract is green, report them explicitly without silently expanding issue scope.
 
 The host holds the Unity resource lock for the worker lifetime and releases it during `after_run`. Resource ownership does not relax production-scene restrictions.
@@ -136,12 +185,11 @@ The `symphony:ready` label is the dispatch lease.
 - Leave `symphony:ready` on the issue while implementation is genuinely active.
 - Do not remove it merely to indicate that work started.
 - If a true external blocker prevents useful progress, leave a concise issue comment describing the blocker and stop without claiming success.
-- When implementation and available validation are complete, push the branch and open or update a pull request against `main`.
-- The PR description must summarize implementation, tests/validation run, anything not validated, architecture/doc changes, and intentionally deferred follow-up.
-- Confirm the PR exists and the remote branch is current before changing the dispatch label.
-- As the final orchestration mutation after the PR is ready for human review, use the injected `github_api` tool to remove `symphony:ready` from the issue. Do not close the issue and do not merge the PR.
+- When implementation and available validation are complete, use the host Git handoff operation. Its PR body must summarize implementation, tests/validation run, anything not validated, architecture/doc changes, and intentionally deferred follow-up.
+- Confirm the returned handoff result contains the expected remote branch SHA and PR URL/number before reporting success.
+- The host removes `symphony:ready` only after the PR exists. Do not remove the dispatch lease before handoff or merge the PR.
 
-Removing `symphony:ready` is intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present, the host also removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub mutation is temporarily unavailable.
+Removing `symphony:ready` remains intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present, the host also removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub mutation is temporarily unavailable.
 
 ## Completion criteria
 
@@ -150,10 +198,10 @@ Do not report success unless all of the following are true:
 - the implementation matches the issue and RPG Kingdom architecture;
 - repository-required tests/docs have been addressed;
 - available relevant validation has been run and failures are not hidden;
-- `validation:unity-required`, when present, has actual relevant Unity runner evidence rather than a manual assumption;
-- the branch is pushed;
-- a reviewable PR against `main` exists;
+- `validation:unity-required`, when present, has actual relevant Unity runner evidence and its successful `runId` values were supplied to the host handoff;
+- the host handoff reports the branch was pushed and verified at the expected commit SHA;
+- a reviewable PR against `main` exists and the handoff returns its URL/number;
 - remaining optional/manual validation is explicit rather than guessed;
-- `symphony:ready` has been removed only after the PR handoff is complete.
+- `symphony:ready` was removed only after the PR handoff completed.
 
 Your final response should report completed work, validation evidence, PR URL, and blockers or unvalidated items. Do not claim the change is merged.

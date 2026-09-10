@@ -2,18 +2,17 @@
 
 # Shared Codex permission profile for unattended RPG Kingdom workers.
 #
-# Do not inherit `:workspace` here. Codex's built-in workspace profile adds
-# protected read-only metadata rules for .git/.agents/.codex. A Symphony worker
-# must be able to perform normal local Git operations, so this profile states
-# the workspace policy explicitly and reopens only `.git` for writes.
+# Workers need ordinary source-file writes inside the active GH issue workspace,
+# read access to the host, temporary scratch space, and network for research or
+# package access. They do not need to own `.git` metadata: branch preparation,
+# commit, push, and PR handoff are provided by the bounded host Git broker.
 #
-# Everything outside the active workspace remains read-only. `.agents` and
-# `.codex` remain protected because they have no narrower write grant. /tmp is
-# writable for ordinary tool scratch space. Network is enabled because workers
-# need GitHub and package access.
+# Do not inherit `:workspace` here because Symphony must select this named
+# profile deterministically. Codex's protected metadata rules keep .git/.agents/
+# .codex outside the worker's ordinary source-write authority.
 
 RPGK_CODEX_PERMISSION_PROFILE="rpgk_supervisor_workspace"
-RPGK_CODEX_PERMISSION_PROFILE_TOML='{filesystem={":root"="read",":workspace_roots"={"."="write",".git"="write"},":slash_tmp"="write",":tmpdir"="write"},network={enabled=true}}'
+RPGK_CODEX_PERMISSION_PROFILE_TOML='{filesystem={":root"="read",":workspace_roots"={"."="write"},":slash_tmp"="write",":tmpdir"="write"},network={enabled=true}}'
 
 RPGK_CODEX_PERMISSION_ARGS=(
   --config "default_permissions=\"$RPGK_CODEX_PERMISSION_PROFILE\""

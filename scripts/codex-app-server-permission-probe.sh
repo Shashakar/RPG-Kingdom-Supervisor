@@ -16,11 +16,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v git >/dev/null 2>&1; then
-  echo "RPG Kingdom Codex App Server permission probe: git is not installed or not on PATH" >&2
-  exit 1
-fi
-
 export RPGK_CODEX_PERMISSION_PROFILE
 export RPGK_CODEX_PERMISSION_PROFILE_TOML
 

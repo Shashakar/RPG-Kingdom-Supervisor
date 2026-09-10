@@ -4,9 +4,11 @@
 This probe is intentionally model-free. It performs the App Server initialize +
 ephemeral thread/start handshake to prove the selected profile identity, then
 uses App Server command/exec with the same named permission profile to perform
-real Git metadata writes in a disposable repository.
+an ordinary source-file write inside a disposable workspace.
 
-No turn/start request is sent, so the probe does not consume model allowance.
+Final Git metadata/network handoff is host-owned and is not a worker permission
+requirement. No turn/start request is sent, so the probe does not consume model
+allowance.
 """
 
 from __future__ import annotations
@@ -74,22 +76,12 @@ def read_response(
         return result
 
 
-def git_write_probe_script() -> str:
-    # Exercise the exact metadata paths that blocked GH-97 plus ordinary Git
-    # index/object/ref writes. The repository is disposable, so a probe commit
-    # is both safe and substantially stronger than checking profile identity.
+def workspace_write_probe_script() -> str:
     return r"""set -euo pipefail
-: > .git/FETCH_HEAD
-printf 'probe\n' > .git/rpgk-write-probe
-rm .git/rpgk-write-probe
-git config user.email rpgk-probe@local.invalid
-git config user.name 'RPG Kingdom Permission Probe'
-printf 'probe\n' > probe.txt
-git add probe.txt
-git commit -q -m 'permission probe'
-test -f .git/index
-git rev-parse --verify HEAD >/dev/null
-printf 'app-server-git-write-ok\n'
+printf 'probe\n' > rpgk-source-write-probe.txt
+test "$(cat rpgk-source-write-probe.txt)" = probe
+rm rpgk-source-write-probe.txt
+printf 'app-server-workspace-write-ok\n'
 """
 
 
@@ -104,8 +96,8 @@ def main() -> int:
         return 64
 
     with tempfile.TemporaryDirectory(prefix="rpgk-app-server-permission-") as temp_dir:
-        repo = Path(temp_dir) / "repo"
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        workspace = Path(temp_dir) / "workspace"
+        workspace.mkdir()
 
         command = [
             "codex",
@@ -135,7 +127,7 @@ def main() -> int:
                         "clientInfo": {
                             "name": "rpgk-supervisor-permission-probe",
                             "title": "RPG Kingdom Supervisor Permission Probe",
-                            "version": "1.1.0",
+                            "version": "1.2.0",
                         },
                     },
                 },
@@ -149,7 +141,7 @@ def main() -> int:
                     "method": "thread/start",
                     "id": 2,
                     "params": {
-                        "cwd": str(repo),
+                        "cwd": str(workspace),
                         "permissions": profile,
                         "ephemeral": True,
                     },
@@ -179,8 +171,8 @@ def main() -> int:
                     "method": "command/exec",
                     "id": 3,
                     "params": {
-                        "command": ["bash", "-lc", git_write_probe_script()],
-                        "cwd": str(repo),
+                        "command": ["bash", "-lc", workspace_write_probe_script()],
+                        "cwd": str(workspace),
                         "permissionProfile": profile,
                         "timeoutMs": 20000,
                     },
@@ -192,12 +184,12 @@ def main() -> int:
             stderr = command_result.get("stderr", "")
             if exit_code != 0:
                 fail(
-                    "command/exec could not write Git metadata "
+                    "command/exec could not perform ordinary workspace writes "
                     f"(exit={exit_code}, stderr={stderr!r}, stdout={stdout!r})"
                 )
-            if "app-server-git-write-ok" not in stdout:
+            if "app-server-workspace-write-ok" not in stdout:
                 fail(
-                    "command/exec exited successfully but did not complete the Git write proof "
+                    "command/exec exited successfully but did not complete the workspace write proof "
                     f"(stdout={stdout!r}, stderr={stderr!r})"
                 )
         except Exception as exc:
@@ -216,7 +208,7 @@ def main() -> int:
 
     print(
         "RPG Kingdom Codex App Server permission probe: "
-        f"PASS (active={profile}, git_write=ok)"
+        f"PASS (active={profile}, workspace_write=ok)"
     )
     return 0
 
