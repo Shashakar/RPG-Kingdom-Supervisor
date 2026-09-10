@@ -9,29 +9,17 @@ fi
 issue_number="$1"
 issue_identifier="GH-$issue_number"
 repo="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
-workspace_root="${RPGK_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
-workspace="$workspace_root/$issue_identifier"
-marker="$workspace/.symphony-attempt-complete"
-state_root="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
-unity_lock="$state_root/locks/unity-editor.lock"
 
 labels="$(gh issue view "$issue_number" --repo "$repo" --json labels --jq '.labels[].name')"
 if grep -Fxiq 'symphony:halted' <<<"$labels"; then
   gh issue edit "$issue_number" --repo "$repo" --remove-label 'symphony:halted' >/dev/null
 fi
 
-rm -f "$marker"
+# Rearm is intentionally remote-first so the same one-shot contract can be requested by a
+# human/ChatGPT review tool that cannot touch Supervisor host state. Add rearm before ready so
+# Symphony cannot observe the dispatch lease without the corresponding continuation approval.
+gh issue edit "$issue_number" --repo "$repo" \
+  --add-label 'symphony:rearm' \
+  --add-label 'symphony:ready' >/dev/null
 
-# A hard-killed host can leave the Phase 3 directory lock behind because after_run never executes.
-# Explicit rearm is the human-approved recovery point, but only clear a lock owned by this issue.
-if [[ -d "$unity_lock" && -f "$unity_lock/owner" ]]; then
-  lock_owner="$(cat "$unity_lock/owner")"
-  if [[ "$lock_owner" == "$issue_identifier" ]]; then
-    rm -rf -- "$unity_lock"
-    echo "Cleared stale unity-editor lock owned by $issue_identifier."
-  fi
-fi
-
-gh issue edit "$issue_number" --repo "$repo" --add-label 'symphony:ready' >/dev/null
-
-echo "Rearmed $issue_identifier for one bounded Symphony worker lifetime."
+echo "Requested one bounded continuation for $issue_identifier. Host preflight will consume symphony:rearm and recover same-issue stale state before Codex starts."
