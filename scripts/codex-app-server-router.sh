@@ -32,6 +32,11 @@ if [[ "${RPGK_ROUTER_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
+# Symphony itself owns the tracker credential and the host Git broker inherits it
+# from the launcher. The Codex child must not inherit that secret even though its
+# normal shell environment policy otherwise inherits the router environment.
+unset SYMPHONY_GITHUB_TOKEN
+
 exec codex \
   --config shell_environment_policy.inherit=all \
   "${RPGK_CODEX_PERMISSION_ARGS[@]}" \
