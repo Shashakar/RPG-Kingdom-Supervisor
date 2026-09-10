@@ -17,6 +17,7 @@ create_label() {
 
 create_label "symphony:ready" "0E8A16" "Dispatch lease for unattended Symphony implementation"
 create_label "symphony:halted" "D93F0B" "Automatic redispatch stopped; human/ChatGPT review required"
+create_label "symphony:rearm" "BFDADC" "One-shot approval for a reviewed continuation; consumed by host preflight"
 
 create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to Luna / low"
 create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to Luna / medium"
