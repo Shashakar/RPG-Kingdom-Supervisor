@@ -9,6 +9,30 @@ MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 
+ensure_marker_git_excluded() {
+  local marker_path="${MARKER#./}"
+  local exclude_file
+  local pattern
+
+  # The attempt marker is Supervisor-owned workspace state, not repository source. Keep the
+  # default/root-relative marker out of ordinary Git staging without changing the project's
+  # checked-in .gitignore. If a custom marker points outside the workspace, leave it alone.
+  if [[ "$MARKER" = /* || "$marker_path" == ".." || "$marker_path" == ../* || "$marker_path" == */../* || "$marker_path" == */.. ]]; then
+    return 0
+  fi
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  exclude_file="$(git rev-parse --git-path info/exclude)"
+  pattern="/$marker_path"
+  mkdir -p "$(dirname "$exclude_file")"
+  touch "$exclude_file"
+  if ! grep -Fxq -- "$pattern" "$exclude_file"; then
+    printf '%s\n' "$pattern" >> "$exclude_file"
+  fi
+}
+
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   if [[ -e "$MARKER" ]]; then
@@ -19,6 +43,11 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 issue_identifier="GH-$issue_number"
+
+# Register the Supervisor-owned marker as local-only state before any worker can reach Git
+# handoff. Git's local exclude does not hide a tracked or explicitly force-staged marker, so the
+# handoff's ForbiddenPath validation remains the final safety backstop for repository pollution.
+ensure_marker_git_excluded
 
 lock_owner=""
 if [[ -d "$LOCK_DIR" && -f "$LOCK_DIR/owner" ]]; then
