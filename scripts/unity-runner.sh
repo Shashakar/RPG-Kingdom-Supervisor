@@ -127,9 +127,24 @@ fi
 if [[ -n "$stderr" ]]; then
   printf '%s\n' "$stderr" >&2
 fi
-if [[ "$status" == "NoTestsMatched" ]]; then
-  echo "RPG Kingdom Unity runner: NoTestsMatched" >&2
-fi
+
+case "$status" in
+  NoTestsMatched)
+    echo "RPG Kingdom Unity runner: NoTestsMatched" >&2
+    ;;
+  HostBusy)
+    echo "RPG Kingdom Unity runner: HostBusy" >&2
+    ;;
+  TimedOut)
+    echo "RPG Kingdom Unity runner: TimedOut" >&2
+    ;;
+  StaleRequest)
+    echo "RPG Kingdom Unity runner: StaleRequest" >&2
+    ;;
+  BrokerStopped)
+    echo "RPG Kingdom Unity runner: BrokerStopped" >&2
+    ;;
+esac
 
 if [[ ! "$exit_code" =~ ^[0-9]+$ ]]; then
   echo "RPG Kingdom Unity runner: broker returned an invalid exit code" >&2
