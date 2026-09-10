@@ -33,6 +33,38 @@ ensure_marker_git_excluded() {
   fi
 }
 
+sanitize_marker_git_index() {
+  local marker_path="${MARKER#./}"
+
+  # Only sanitize a workspace-relative Supervisor marker. Never make assumptions about custom
+  # paths that escape the issue workspace.
+  if [[ "$MARKER" = /* || "$marker_path" == ".." || "$marker_path" == ../* || "$marker_path" == */../* || "$marker_path" == */.. ]]; then
+    return 0
+  fi
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # A marker committed to repository history is not stale runtime residue. Fail closed rather than
+  # silently rewriting repository state or hiding a source-controlled path.
+  if git ls-tree -r --name-only HEAD -- "$marker_path" 2>/dev/null | grep -Fxq -- "$marker_path"; then
+    echo "RPG Kingdom budget guard: Supervisor attempt marker '$marker_path' is tracked in HEAD; refusing to sanitize repository-owned state" >&2
+    exit 73
+  fi
+
+  # A previous failed handoff may have left the untracked runtime marker staged in the index before
+  # local Git exclusion was installed. Remove only that index entry and preserve the marker on disk.
+  # If the marker is force-staged again after preflight, git-handoff-host.py still rejects it via
+  # ForbiddenPath.
+  if git diff --cached --name-only -- "$marker_path" | grep -Fxq -- "$marker_path"; then
+    if ! git rm --cached -f --quiet --ignore-unmatch -- "$marker_path"; then
+      echo "RPG Kingdom budget guard: failed to unstage stale Supervisor attempt marker '$marker_path'" >&2
+      exit 73
+    fi
+    echo "RPG Kingdom budget guard: unstaged stale Supervisor attempt marker '$marker_path' while preserving the runtime marker"
+  fi
+}
+
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   if [[ -e "$MARKER" ]]; then
@@ -45,9 +77,10 @@ issue_number="${BASH_REMATCH[1]}"
 issue_identifier="GH-$issue_number"
 
 # Register the Supervisor-owned marker as local-only state before any worker can reach Git
-# handoff. Git's local exclude does not hide a tracked or explicitly force-staged marker, so the
-# handoff's ForbiddenPath validation remains the final safety backstop for repository pollution.
+# handoff, then clean up any stale index entry left by a handoff that failed before this exclusion
+# existed. The marker itself remains durable on disk.
 ensure_marker_git_excluded
+sanitize_marker_git_index
 
 lock_owner=""
 if [[ -d "$LOCK_DIR" && -f "$LOCK_DIR/owner" ]]; then
