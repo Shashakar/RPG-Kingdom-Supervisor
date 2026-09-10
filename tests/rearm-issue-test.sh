@@ -12,31 +12,25 @@ printf 'used\n' > "$TMP/workspaces/GH-123/.symphony-attempt-complete"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "${FAKE_GH_LOG:?}"
 if [[ "$1 $2" == "issue view" ]]; then
   printf 'symphony:halted\n'
-  exit 0
 fi
 exit 0
 EOF
 chmod +x "$TMP/bin/gh"
 
+FAKE_GH_LOG="$TMP/gh.log" \
 PATH="$TMP/bin:$PATH" \
 RPGK_WORKSPACE_ROOT="$TMP/workspaces" \
 RPGK_SUPERVISOR_STATE_ROOT="$TMP/state" \
 bash "$ROOT/scripts/rearm-issue.sh" 123 >/dev/null
 
-[[ ! -e "$TMP/workspaces/GH-123/.symphony-attempt-complete" ]] || { echo "rearm did not clear attempt marker" >&2; exit 1; }
-[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "rearm did not clear lock owned by the issue" >&2; exit 1; }
-
-mkdir -p "$TMP/state/locks/unity-editor.lock"
-printf 'GH-999\n' > "$TMP/state/locks/unity-editor.lock/owner"
-
-PATH="$TMP/bin:$PATH" \
-RPGK_WORKSPACE_ROOT="$TMP/workspaces" \
-RPGK_SUPERVISOR_STATE_ROOT="$TMP/state" \
-bash "$ROOT/scripts/rearm-issue.sh" 123 >/dev/null
-
-[[ -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "rearm incorrectly cleared another issue's Unity lock" >&2; exit 1; }
-[[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-999" ]] || { echo "rearm changed another issue's Unity lock owner" >&2; exit 1; }
+# The operator helper now requests the same remote one-shot contract used by review tooling. Host
+# preflight owns local marker/lock recovery; the caller does not mutate those files directly.
+[[ -e "$TMP/workspaces/GH-123/.symphony-attempt-complete" ]] || { echo "rearm helper unexpectedly cleared the attempt marker locally" >&2; exit 1; }
+[[ -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "rearm helper unexpectedly cleared the Unity lock locally" >&2; exit 1; }
+grep -Fq 'issue edit 123 --repo Shashakar/RPG-Kingdom --remove-label symphony:halted' "$TMP/gh.log" || { echo "rearm helper did not remove halted label" >&2; exit 1; }
+grep -Fq -- '--add-label symphony:rearm --add-label symphony:ready' "$TMP/gh.log" || { echo "rearm helper did not request rearm before ready" >&2; exit 1; }
 
 echo "rearm-issue-test: PASS"
