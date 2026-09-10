@@ -95,6 +95,6 @@ fi
 
 bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
-python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
+python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' "$ROOT/scripts/unity-host-broker.py"
 
 echo "unity-broker-test: PASS"
