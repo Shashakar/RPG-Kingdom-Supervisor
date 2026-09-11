@@ -49,7 +49,7 @@ GitHub labels provide the current operator-visible state:
 
 Run `scripts/install-labels.sh` after deploying this feature so the RPG Kingdom repository has those labels plus the `repair-route:*` labels.
 
-The orchestrator scans both `agent-review` and `rework` issues. A persisted rework decision whose label transition was interrupted by a Supervisor restart is resumed rather than charged as another review/repair cycle. The `.symphony-attempt-complete` timestamp distinguishes an interrupted transition from a genuinely completed repair lifetime that requires fresh re-review.
+The orchestrator scans only `symphony:agent-review`. That label remains present until a replacement repair dispatch is fully established, so an interrupted persisted rework transition can be resumed after restart without polling active `symphony:rework` lifetimes. This avoids redispatch races during the legitimate gap after a repair handoff removes `symphony:ready` and before `after_run` queues the next review. The `.symphony-attempt-complete` timestamp distinguishes an interrupted transition from a genuinely completed repair lifetime that requires fresh re-review.
 
 ## Approval
 
