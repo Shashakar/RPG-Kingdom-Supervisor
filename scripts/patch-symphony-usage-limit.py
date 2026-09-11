@@ -49,7 +49,7 @@ def main() -> int:
         app_server,
         '''  defp emit_turn_event(on_message, event, payload, payload_string, port, payload_details) do
 ''',
-        '''  defp usage_limit_details(payload) do
+        r'''  defp usage_limit_details(payload) do
     case find_usage_limit(payload) do
       nil ->
         nil
