@@ -7,6 +7,7 @@ API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 USAGE_LIMIT_MARKER="${RPGK_USAGE_LIMIT_MARKER:-.symphony-usage-limit.json}"
+REVIEW_STATE_WRITER="${RPGK_REVIEW_STATE_WRITER:-$(dirname "${BASH_SOURCE[0]}")/queue-agent-review.py}"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -66,10 +67,8 @@ enqueue_agent_review() {
 
   # Persist a fresh review boundary before label mutation. This supersedes any prior terminal
   # human-review state after an explicitly requested new worker lifetime while preserving history.
-  python3 "$(dirname "${BASH_SOURCE[0]}")/queue-agent-review.py" "$issue_number" "$pr_number" "$pr_head"
+  python3 "$REVIEW_STATE_WRITER" "$issue_number" "$pr_number" "$pr_head"
 
-  # A successful implementation or repair handoff has already removed the dispatch lease.
-  # Clear transient repair-routing state and enqueue the independent review stage.
   for label in symphony%3Arework repair-route%3Aluna repair-route%3Aterra repair-route%3Asol repair-route%3Aastra; do
     api DELETE "/issues/$issue_number/labels/$label" >/dev/null 2>&1 || true
   done
