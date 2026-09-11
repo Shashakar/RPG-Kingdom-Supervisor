@@ -15,6 +15,7 @@ SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 SCHEMA="$SUPERVISOR_ROOT/schemas/review-verdict.schema.json"
 LOCK_FILE="$STATE_ROOT/locks/codex-session.lock"
+RUN_LOG="${output_file}.codex.log"
 
 [[ -f "$prompt_file" ]] || { echo "Review prompt missing: $prompt_file" >&2; exit 64; }
 [[ -f "$SCHEMA" ]] || { echo "Review schema missing: $SCHEMA" >&2; exit 64; }
@@ -26,6 +27,7 @@ unset SYMPHONY_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 exec 9>"$LOCK_FILE"
 flock 9
 
+set +e
 codex exec \
   -C "$workspace" \
   --skip-git-repo-check \
@@ -36,9 +38,30 @@ codex exec \
   --config 'web_search="disabled"' \
   --config "model=\"$model\"" \
   --config "model_reasoning_effort=$effort" \
-  "$(cat "$prompt_file")"
+  "$(cat "$prompt_file")" >"$RUN_LOG" 2>&1
+status=$?
+set -e
 
-python3 - "$output_file" "$SCHEMA" <<'PY'
+if (( status != 0 )); then
+  summary="Independent reviewer execution failed; human attention is required before retrying automated review."
+  if grep -Eqi 'usage_limit_exceeded|usage limit|try again at' "$RUN_LOG"; then
+    summary="Independent reviewer could not run because Codex usage quota is unavailable; human attention is required before requeueing review after quota resets."
+  fi
+  python3 - "$output_file" "$summary" <<'PY'
+import json, sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({
+    "verdict": "blocked_or_ambiguous",
+    "summary": sys.argv[2],
+    "findings": [],
+    "routing_recommendation": "unchanged",
+    "requires_human": True,
+    "reason": "other"
+}, separators=(",", ":")), encoding="utf-8")
+PY
+fi
+
+python3 - "$output_file" <<'PY'
 import json, sys
 from pathlib import Path
 output = Path(sys.argv[1])
