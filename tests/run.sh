@@ -29,6 +29,7 @@ python3 -m py_compile \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
   "$ROOT/scripts/review-orchestrator.py" \
+  "$ROOT/scripts/review_state.py" \
   "$ROOT/scripts/unity_run_history.py" \
   "$ROOT/scripts/supervisor_dashboard.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
