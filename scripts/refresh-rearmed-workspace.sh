@@ -4,6 +4,7 @@ set -euo pipefail
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 EXPECTED_OWNER="${RPGK_REPO_OWNER:-Shashakar}"
 EXPECTED_REPO="${RPGK_REPO_NAME:-RPG-Kingdom}"
+EXPECTED_ORIGIN_URL="${RPGK_EXPECTED_ORIGIN_URL:-}"
 
 fail() {
   echo "RPG Kingdom continuation refresh: $*" >&2
@@ -20,10 +21,14 @@ workspace_name="$(basename "$PWD")"
 [[ "$workspace_name" =~ ^GH-[0-9]+$ ]] || fail "workspace '$workspace_name' is not a GH issue workspace"
 
 origin_url="$(git remote get-url origin 2>/dev/null || true)"
-case "$origin_url" in
-  "https://github.com/$EXPECTED_OWNER/$EXPECTED_REPO.git"|"https://github.com/$EXPECTED_OWNER/$EXPECTED_REPO"|"git@github.com:$EXPECTED_OWNER/$EXPECTED_REPO.git") ;;
-  *) fail "origin '$origin_url' is not the expected $EXPECTED_OWNER/$EXPECTED_REPO repository" ;;
-esac
+if [[ -n "$EXPECTED_ORIGIN_URL" ]]; then
+  [[ "$origin_url" == "$EXPECTED_ORIGIN_URL" ]] || fail "origin '$origin_url' does not match configured expected origin '$EXPECTED_ORIGIN_URL'"
+else
+  case "$origin_url" in
+    "https://github.com/$EXPECTED_OWNER/$EXPECTED_REPO.git"|"https://github.com/$EXPECTED_OWNER/$EXPECTED_REPO"|"git@github.com:$EXPECTED_OWNER/$EXPECTED_REPO.git") ;;
+    *) fail "origin '$origin_url' is not the expected $EXPECTED_OWNER/$EXPECTED_REPO repository" ;;
+  esac
+fi
 
 current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
 [[ -n "$current_branch" ]] || fail "rearmed workspace is detached; refusing to refresh ambiguous Git state"
