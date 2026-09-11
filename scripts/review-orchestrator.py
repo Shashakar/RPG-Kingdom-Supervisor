@@ -65,8 +65,6 @@ def post_comment(number: int, text: str) -> None:
 
 
 def latest_state(number: int) -> dict[str, Any]:
-    # Review state is durable GitHub issue state. Fetch all comment pages so long-running issues
-    # such as GH-98 do not lose cycle accounting once they exceed one page of discussion.
     page = 1
     newest: dict[str, Any] = {}
     while page <= 20:
@@ -97,6 +95,34 @@ def persist_state(issue_number: int, state: dict[str, Any], human_text: str) -> 
     state["updatedAt"] = datetime.now(timezone.utc).isoformat()
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":"))
     post_comment(issue_number, f"{human_text}\n\n{MARKER}{encoded}\n-->")
+
+
+def parse_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        result = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if result.tzinfo is None:
+        result = result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
+
+
+def attempt_completed_at(workspace: Path) -> datetime | None:
+    marker = workspace / ".symphony-attempt-complete"
+    try:
+        line = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    prefix = f"completed worker lifetime for {workspace.name} at "
+    return parse_time(line[len(prefix):]) if line.startswith(prefix) else None
+
+
+def repair_completed_since_state(workspace: Path, state: dict[str, Any]) -> bool:
+    completed = attempt_completed_at(workspace)
+    updated = parse_time(state.get("updatedAt"))
+    return bool(completed and updated and completed > updated)
 
 
 def run_git(workspace: Path, *args: str) -> str:
@@ -205,15 +231,13 @@ def human_review_packet(issue: dict[str, Any], pr: dict[str, Any], state: dict[s
     history = state.get("history") or []
     repaired = [item for item in history[:-1] if item.get("verdict") == "changes_required"]
     lines = [
-        "## Human Review packet",
-        "",
+        "## Human Review packet", "",
         f"- Issue: GH-{issue['number']} — {issue.get('title','')}",
         f"- PR: #{pr['number']} — {pr.get('title','')}",
         f"- Head: `{pr['head']['sha']}`",
         f"- Automated review passes: {len(history)}",
         f"- Automatic repairs consumed: {state['repairAttempts']} / {state['maxRepairAttempts']}",
-        "- Integration: **human approval required; no automated merge is permitted**",
-        "",
+        "- Integration: **human approval required; no automated merge is permitted**", "",
         "### Files changed",
     ]
     lines.extend(f"- `{name}`" for name in files[:100])
@@ -231,9 +255,10 @@ def human_review_packet(issue: dict[str, Any], pr: dict[str, Any], state: dict[s
     return "\n".join(lines)
 
 
-def clear_lifecycle_labels(number: int) -> None:
+def remove_lifecycle_except(number: int, keep: set[str]) -> None:
     for name in ("symphony:agent-review", "symphony:rework", "symphony:human-review", "symphony:human-attention"):
-        remove_label(number, name)
+        if name not in keep:
+            remove_label(number, name)
 
 
 def set_repair_route(number: int, recommendation: str) -> None:
@@ -245,15 +270,50 @@ def set_repair_route(number: int, recommendation: str) -> None:
 
 def history_entry(state: dict[str, Any], verdict: dict[str, Any]) -> dict[str, Any]:
     return {
-        "cycle": state["reviewCycle"],
-        "head": verdict["reviewedHead"],
-        "verdict": verdict["verdict"],
-        "summary": verdict["summary"],
-        "findings": verdict.get("findings") or [],
-        "routingRecommendation": verdict["routing_recommendation"],
-        "reviewerRoute": verdict["reviewerRoute"],
+        "cycle": state["reviewCycle"], "head": verdict["reviewedHead"], "verdict": verdict["verdict"],
+        "summary": verdict["summary"], "findings": verdict.get("findings") or [],
+        "routingRecommendation": verdict["routing_recommendation"], "reviewerRoute": verdict["reviewerRoute"],
         "reason": verdict.get("reason", "none"),
     }
+
+
+def dispatch_rework(number: int, state: dict[str, Any]) -> None:
+    # Keep at least one durable lifecycle label throughout the transition. Add rework first,
+    # then one-shot rearm, then the dispatch lease; remove agent-review only after dispatch exists.
+    add_labels(number, "symphony:rework")
+    set_repair_route(number, str(state.get("routingRecommendation") or "unchanged"))
+    add_labels(number, "symphony:rearm")
+    add_labels(number, "symphony:ready")
+    remove_lifecycle_except(number, {"symphony:rework"})
+
+
+def reconcile_prior_state(issue: dict[str, Any], workspace: Path, prior: dict[str, Any]) -> bool:
+    number = int(issue["number"])
+    current = labels(issue)
+    state = prior.get("state")
+    if state == "human_review":
+        add_labels(number, "symphony:human-review")
+        set_repair_route(number, "unchanged")
+        remove_lifecycle_except(number, {"symphony:human-review"})
+        return True
+    if state == "human_attention":
+        add_labels(number, "symphony:human-attention")
+        set_repair_route(number, "unchanged")
+        remove_lifecycle_except(number, {"symphony:human-attention"})
+        return True
+    if state == "rework":
+        if "symphony:ready" in current or "symphony:rearm" in current:
+            # Repair is already queued/running; just converge labels after a restart.
+            add_labels(number, "symphony:rework")
+            remove_label(number, "symphony:agent-review")
+            return True
+        if not repair_completed_since_state(workspace, prior):
+            # Durable verdict exists but dispatch transition did not complete before restart.
+            dispatch_rework(number, prior)
+            return True
+        # The attempt marker is newer than the persisted rework decision: a repair lifetime
+        # completed, so the current agent-review label legitimately requests a fresh re-review.
+    return False
 
 
 def process(issue: dict[str, Any]) -> None:
@@ -266,21 +326,19 @@ def process(issue: dict[str, Any]) -> None:
     if not pr:
         state = {"state":"human_attention","reason":"missing_pr","reviewCycle":0,"repairAttempts":0,"maxRepairAttempts":MAX_REPAIRS,"history":[]}
         persist_state(number, state, "Automated review halted because no open PR matches the issue workspace branch.")
-        clear_lifecycle_labels(number)
         add_labels(number, "symphony:human-attention")
+        remove_lifecycle_except(number, {"symphony:human-attention"})
         return
 
     prior = latest_state(number)
+    if prior and reconcile_prior_state(issue, workspace, prior):
+        return
+
     repairs = int(prior.get("repairAttempts", 0))
     prior_history = prior.get("history") if isinstance(prior.get("history"), list) else []
     state = {
-        "state": "agent_review",
-        "issue": number,
-        "prNumber": int(pr["number"]),
-        "prHeadSha": pr["head"]["sha"],
-        "reviewCycle": repairs + 1,
-        "repairAttempts": repairs,
-        "maxRepairAttempts": MAX_REPAIRS,
+        "state": "agent_review", "issue": number, "prNumber": int(pr["number"]), "prHeadSha": pr["head"]["sha"],
+        "reviewCycle": repairs + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
         "history": list(prior_history),
     }
     verdict = run_reviewer(issue, pr, state)
@@ -296,45 +354,48 @@ def process(issue: dict[str, Any]) -> None:
     if verdict["verdict"] == "approved" and not verdict.get("requires_human"):
         state["state"] = "human_review"
         persist_state(number, state, review_text + "\n\nAutomated review passed. Human approval is now required for merge.")
-        clear_lifecycle_labels(number)
-        set_repair_route(number, "unchanged")
         add_labels(number, "symphony:human-review")
+        set_repair_route(number, "unchanged")
+        remove_lifecycle_except(number, {"symphony:human-review"})
         post_comment(int(pr["number"]), human_review_packet(issue, pr, state))
         return
 
     if verdict["verdict"] == "blocked_or_ambiguous" or verdict.get("requires_human"):
         state["state"] = "human_attention"
         persist_state(number, state, review_text + "\n\nAutomation stopped for human attention; no repair was dispatched.")
-        clear_lifecycle_labels(number)
-        set_repair_route(number, "unchanged")
         add_labels(number, "symphony:human-attention")
+        set_repair_route(number, "unchanged")
+        remove_lifecycle_except(number, {"symphony:human-attention"})
         return
 
     if repairs >= MAX_REPAIRS:
         state["state"] = "human_attention"
         state["reason"] = "review_loop_exhausted"
         persist_state(number, state, review_text + f"\n\nAutomatic repair budget exhausted ({MAX_REPAIRS}); human attention is required.")
-        clear_lifecycle_labels(number)
-        set_repair_route(number, "unchanged")
         add_labels(number, "symphony:human-attention")
+        set_repair_route(number, "unchanged")
+        remove_lifecycle_except(number, {"symphony:human-attention"})
         return
 
     state["state"] = "rework"
     state["repairAttempts"] = repairs + 1
-    # Persist authoritative findings/cycle accounting before any dispatch mutation. If Supervisor
-    # restarts during the label transition, the next process can recover the repair budget/context.
     persist_state(number, state, review_text + f"\n\nAutomatic repair {state['repairAttempts']} of {MAX_REPAIRS} approved for dispatch against the existing PR/branch.")
-    clear_lifecycle_labels(number)
-    add_labels(number, "symphony:rework")
-    set_repair_route(number, verdict["routing_recommendation"])
-    add_labels(number, "symphony:rearm")
-    add_labels(number, "symphony:ready")
+    dispatch_rework(number, state)
+
+
+def lifecycle_issues(label: str) -> list[dict[str, Any]]:
+    q = parse.urlencode({"state":"open", "labels":label, "per_page":50})
+    values = api("GET", f"/issues?{q}") or []
+    return [item for item in values if "pull_request" not in item]
 
 
 def reviewable_issues() -> list[dict[str, Any]]:
-    q = parse.urlencode({"state":"open", "labels":"symphony:agent-review", "per_page":50})
-    values = api("GET", f"/issues?{q}") or []
-    return [item for item in values if "pull_request" not in item]
+    combined: dict[int, dict[str, Any]] = {}
+    # Rework issues are included so a restart can finish an interrupted persisted transition.
+    for label in ("symphony:agent-review", "symphony:rework"):
+        for item in lifecycle_issues(label):
+            combined[int(item["number"])] = item
+    return list(combined.values())
 
 
 def once() -> None:
