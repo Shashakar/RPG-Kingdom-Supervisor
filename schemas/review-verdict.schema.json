@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approved", "changes_required", "blocked_or_ambiguous"]
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "severity": {"type": "string", "enum": ["blocker", "major", "minor"]},
+          "category": {"type": "string", "enum": ["correctness", "architecture", "regression", "tests", "docs", "scope", "other"]},
+          "description": {"type": "string", "minLength": 1},
+          "path": {"type": ["string", "null"]},
+          "suggested_action": {"type": "string", "minLength": 1}
+        },
+        "required": ["severity", "category", "description", "path", "suggested_action"]
+      }
+    },
+    "routing_recommendation": {
+      "type": "string",
+      "enum": ["luna", "terra", "sol", "astra", "unchanged"]
+    },
+    "requires_human": {"type": "boolean"},
+    "reason": {
+      "type": "string",
+      "enum": ["none", "scope_change_required", "product_decision_required", "insufficient_evidence", "review_loop_exhausted", "other"]
+    }
+  },
+  "required": ["verdict", "summary", "findings", "routing_recommendation", "requires_human", "reason"]
+}
