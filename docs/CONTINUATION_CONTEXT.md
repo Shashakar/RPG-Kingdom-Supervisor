@@ -24,17 +24,19 @@ Tracker credentials remain host-side. The context is rendered before the router 
 
 A reviewed continuation must also start from repository state that includes changes merged to `main` while the prior worker was halted. After `scripts/before-run-guard.sh` verifies and consumes `symphony:rearm`, it runs `scripts/refresh-rearmed-workspace.sh` before Unity preflight or Codex startup.
 
-The refresh is deliberately conservative:
+The issue-side refresh script performs only read-only branch discovery and submits the existing `git-handoff.sh prepare` request. `scripts/run-symphony.sh` launches the Git broker through `scripts/git-handoff-host-wrapper.py`; for a rearmed workspace already on its durable `codex/*` branch, that host wrapper reconciles the checkout before delegating to the normal handoff host. This is required because Symphony/Codex workspace permissions intentionally protect `.git` metadata from issue-side processes.
 
-- it runs only when the durable `.symphony-attempt-complete` marker exists;
-- it verifies the GH issue workspace and RPG Kingdom origin;
-- it refuses to discard uncommitted source changes, local-only commits, divergent local/remote branches, or detached state;
-- it fetches current remote refs host-side;
-- if the durable remote feature branch is behind `origin/main`, it merges `origin/main` locally so the eventual handoff remains a fast-forward update to the existing remote feature branch;
-- if that merge conflicts, it aborts the merge and fails closed before Codex starts rather than launching against stale assets;
-- when `.gitattributes` declares Git LFS filters, it fetches `main`/feature LFS objects and runs `git lfs checkout` before Unity validation.
+The host-owned reconciliation is deliberately conservative:
 
-This keeps Git metadata/network synchronization host-owned while preserving work that has not yet reached the remote branch. A conflicting stale PR is therefore a human/review decision: supersede or resolve that branch, then explicitly rearm again.
+- it runs only when the durable `.symphony-attempt-complete` marker exists and the checkout is already on the requested durable `codex/*` branch;
+- it refuses to discard uncommitted source changes, local-only commits, or divergent local/remote branch history;
+- it fetches current remote refs with host-owned Git/network permissions;
+- when the local continuation is behind its durable remote branch, it fast-forwards to that remote branch;
+- if the durable branch is behind `origin/main`, it merges current `origin/main` locally so final handoff can remain a fast-forward update;
+- if that merge conflicts, it aborts and fails closed before Codex starts;
+- when `.gitattributes` uses Git LFS, it fetches the current main/feature objects and hydrates the checkout before Unity validation.
+
+This preserves the protected model-side Git boundary while ensuring reviewed workers do not validate stale repository or asset state. A dirty, unpushed, divergent, or conflicting continuation remains a human/review decision instead of being silently rewritten.
 
 ## Validation
 
@@ -48,4 +50,4 @@ This keeps Git metadata/network synchronization host-owned while preserving work
 - the generated override is ignored by Git;
 - a fresh workspace removes the generated override.
 
-`tests/rearmed-workspace-refresh-test.sh` uses local Git repositories to verify that a clean durable continuation absorbs current `main`, while dirty work, unpushed commits, and merge conflicts are preserved/fail closed rather than being silently rewritten.
+`tests/git-handoff-host-wrapper-test.py` uses local Git repositories to reproduce the GH-98 shape: a stale local feature checkout whose durable remote branch has already advanced to include newer `main`. It verifies that host preparation fast-forwards to the durable branch and preserves/fails closed on dirty or local-only work.
