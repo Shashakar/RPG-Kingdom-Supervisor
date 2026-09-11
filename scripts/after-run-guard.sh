@@ -50,13 +50,23 @@ ready_present() {
 }
 
 enqueue_agent_review() {
-  local branch encoded_branch pulls pr_number
+  local branch encoded_branch pulls pr_number pr_head
   branch="$(git branch --show-current 2>/dev/null || true)"
   [[ -n "$branch" ]] || return 0
   encoded_branch="$(jq -rn --arg value "$branch" '$value|@uri')"
   pulls="$(api GET "/pulls?state=open&head=$RPGK_REPO_OWNER:$encoded_branch&base=main&per_page=10")"
   pr_number="$(jq -r '.[0].number // empty' <<<"$pulls")"
-  [[ -n "$pr_number" ]] || return 0
+  pr_head="$(jq -r '.[0].head.sha // empty' <<<"$pulls")"
+  [[ -n "$pr_number" && -n "$pr_head" ]] || return 0
+
+  if [[ "${RPGK_GUARD_DRY_RUN:-0}" == "1" ]]; then
+    echo "RPG Kingdom review workflow: would queue GH-$issue_number / PR #$pr_number at $pr_head for independent review" >&2
+    return 0
+  fi
+
+  # Persist a fresh review boundary before label mutation. This supersedes any prior terminal
+  # human-review state after an explicitly requested new worker lifetime while preserving history.
+  python3 "$(dirname "${BASH_SOURCE[0]}")/queue-agent-review.py" "$issue_number" "$pr_number" "$pr_head"
 
   # A successful implementation or repair handoff has already removed the dispatch lease.
   # Clear transient repair-routing state and enqueue the independent review stage.
