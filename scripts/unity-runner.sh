@@ -81,20 +81,30 @@ broker_dir="$project/Logs/SymphonyUnity/.broker"
 request_dir="$broker_dir/requests"
 ack_dir="$broker_dir/acks"
 response_dir="$broker_dir/responses"
-mkdir -p "$request_dir" "$ack_dir" "$response_dir"
+history_request_dir="$broker_dir/history/requests"
+mkdir -p "$request_dir" "$ack_dir" "$response_dir" "$history_request_dir"
 
 request_id="${workspace_name}-${command}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
 request_path="$request_dir/$request_id.json"
 ack_path="$ack_dir/$request_id.json"
 response_path="$response_dir/$request_id.json"
+history_request_path="$history_request_dir/$request_id.json"
+temp_history="$history_request_path.tmp.$$"
 temp_request="$request_path.tmp.$$"
+requested_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Keep the immutable request envelope beside broker responses. The transient request
+# is consumed by the broker, while this copy lets diagnostics reconstruct filters and
+# timing even when Unity fails before summary.json/results.xml are produced.
 jq -cn \
   --arg requestId "$request_id" \
   --arg operation "$command" \
   --arg testFilter "$test_filter" \
-  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter}' \
-  > "$temp_request"
+  --arg requestedAt "$requested_at" \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,requestedAt:$requestedAt}' \
+  > "$temp_history"
+mv "$temp_history" "$history_request_path"
+cp "$history_request_path" "$temp_request"
 mv "$temp_request" "$request_path"
 
 ack_deadline=$((SECONDS + ACK_TIMEOUT_SECONDS))
