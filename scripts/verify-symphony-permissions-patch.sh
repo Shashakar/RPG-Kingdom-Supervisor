@@ -8,8 +8,9 @@ PIN="8001b52e3062495a16e520e4ceaf8f9de868c4d0"
 schema="$SYMPHONY_ROOT/lib/symphony_elixir/config/schema.ex"
 config="$SYMPHONY_ROOT/lib/symphony_elixir/config.ex"
 app_server="$SYMPHONY_ROOT/lib/symphony_elixir/codex/app_server.ex"
+agent_runner="$SYMPHONY_ROOT/lib/symphony_elixir/agent_runner.ex"
 
-for file in "$schema" "$config" "$app_server"; do
+for file in "$schema" "$config" "$app_server" "$agent_runner"; do
   if [[ ! -f "$file" ]]; then
     echo "ERROR: expected patched Symphony source is missing: $file" >&2
     exit 1
@@ -52,4 +53,19 @@ if ! grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$app_serv
   exit 1
 fi
 
-echo "RPG Kingdom Symphony named-permissions compatibility: PASS"
+if ! grep -Fq '{:usage_limit_exceeded, details}' "$app_server"; then
+  echo "ERROR: Symphony App Server client does not classify usage_limit_exceeded as a terminal turn result" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'write_usage_limit_marker(workspace, details)' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not persist usage-limit metadata for the host guard" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'ending worker lifetime without continuation turns' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not terminate the worker lifetime on usage_limit_exceeded" >&2
+  exit 1
+fi
+
+echo "RPG Kingdom Symphony compatibility: PASS"

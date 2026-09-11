@@ -46,8 +46,8 @@ grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$TRANSFORM" ||
   exit 1
 }
 
-grep -Fq 'python3 "$TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
-  echo "symphony-permissions-compat-test: installer must use the deterministic pinned-source transform" >&2
+grep -Fq 'python3 "$PERMISSIONS_TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must use the deterministic pinned-source permissions transform" >&2
   exit 1
 }
 
