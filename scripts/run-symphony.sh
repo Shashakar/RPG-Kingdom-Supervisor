@@ -23,6 +23,9 @@ GIT_BROKER_HOST_TIMEOUT_SECONDS="${RPGK_GIT_BROKER_HOST_TIMEOUT_SECONDS:-300}"
 GIT_BROKER_KILL_GRACE_SECONDS="${RPGK_GIT_BROKER_KILL_GRACE_SECONDS:-5}"
 GIT_BROKER_STARTED=0
 GIT_BROKER_PID=""
+REVIEW_LOG="$STATE_ROOT/review-orchestrator.log"
+REVIEW_STARTED=0
+REVIEW_PID=""
 ALT_SCREEN_ACTIVE=0
 
 if [[ -f "$SECRETS_FILE" ]]; then
@@ -41,8 +44,8 @@ if ! command -v mise >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
-  echo "ERROR: python3 and jq are required for the host brokers." >&2
+if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! command -v flock >/dev/null 2>&1; then
+  echo "ERROR: python3, jq, and flock are required for Supervisor host services." >&2
   exit 1
 fi
 
@@ -57,7 +60,7 @@ if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
 fi
 
 if ! bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh"; then
-  echo "ERROR: the pinned Symphony checkout does not support named Codex permission profiles." >&2
+  echo "ERROR: the pinned Symphony checkout does not support required RPG Kingdom compatibility policy." >&2
   echo "Run: bash $SUPERVISOR_ROOT/scripts/apply-symphony-permissions-patch.sh" >&2
   exit 1
 fi
@@ -92,8 +95,17 @@ stop_git_broker() {
   fi
 }
 
+stop_review_orchestrator() {
+  if (( REVIEW_STARTED == 1 )) && [[ -n "$REVIEW_PID" ]]; then
+    kill "$REVIEW_PID" 2>/dev/null || true
+    wait "$REVIEW_PID" 2>/dev/null || true
+    REVIEW_STARTED=0
+  fi
+}
+
 cleanup_all() {
   cleanup_screen
+  stop_review_orchestrator
   stop_unity_broker
   stop_git_broker
 }
@@ -114,7 +126,6 @@ start_unity_broker() {
         return 0
       fi
       echo "ERROR: an incompatible Unity broker is already running as PID $existing_pid." >&2
-      echo "Stop that broker before starting Symphony with this Supervisor checkout." >&2
       return 1
     fi
   fi
@@ -167,7 +178,6 @@ start_git_broker() {
         return 0
       fi
       echo "ERROR: an incompatible Git handoff broker is already running as PID $existing_pid." >&2
-      echo "Stop that broker before starting Symphony with this Supervisor checkout." >&2
       return 1
     fi
   fi
@@ -205,11 +215,27 @@ start_git_broker() {
   return 1
 }
 
+start_review_orchestrator() {
+  mkdir -p "$STATE_ROOT"
+  python3 -u "$SUPERVISOR_ROOT/scripts/review-orchestrator.py" >>"$REVIEW_LOG" 2>&1 &
+  REVIEW_PID=$!
+  REVIEW_STARTED=1
+  sleep 0.2
+  if ! kill -0 "$REVIEW_PID" 2>/dev/null; then
+    echo "ERROR: review orchestrator exited during startup. Recent log:" >&2
+    tail -n 40 "$REVIEW_LOG" >&2 2>/dev/null || true
+    return 1
+  fi
+  echo "RPG Kingdom review orchestrator: ready (PID $REVIEW_PID)"
+}
+
 if ! start_unity_broker; then
   exit 1
 fi
-
 if ! start_git_broker; then
+  exit 1
+fi
+if ! start_review_orchestrator; then
   exit 1
 fi
 
