@@ -11,16 +11,42 @@ cat > "$TMP/bin/curl" <<'MOCK'
 set -euo pipefail
 printf '%s\n' "$*" >> "$RPGK_TEST_CURL_LOG"
 if [[ "$*" == *'/issues/123/labels?per_page=100'* ]]; then
-  printf '[{"name":"symphony:ready"}]\n'
+  if [[ "${RPGK_TEST_READY:-1}" == "1" ]]; then
+    printf '[{"name":"symphony:ready"}]\n'
+  else
+    printf '[]\n'
+  fi
+elif [[ "$*" == *'/pulls?state=open&head=Shashakar:codex%2Ffixture&base=main&per_page=10'* ]]; then
+  printf '[{"number":77,"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]\n'
 else
   printf '{}\n'
 fi
 MOCK
 chmod +x "$TMP/bin/curl"
 
+cat > "$TMP/bin/git" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == 'branch --show-current' ]]; then
+  printf 'codex/fixture\n'
+else
+  exec /usr/bin/git "$@"
+fi
+MOCK
+chmod +x "$TMP/bin/git"
+
+cat > "$TMP/queue-agent-review.py" <<'PY'
+import os, sys
+with open(os.environ["RPGK_TEST_REVIEW_STATE_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(" ".join(sys.argv[1:]) + "\n")
+PY
+
 export PATH="$TMP/bin:$PATH"
 export RPGK_TEST_CURL_LOG="$TMP/curl.log"
+export RPGK_TEST_REVIEW_STATE_LOG="$TMP/review-state.log"
+export RPGK_REVIEW_STATE_WRITER="$TMP/queue-agent-review.py"
 export SYMPHONY_GITHUB_TOKEN="test-token"
+export RPGK_TEST_READY=1
 
 cd "$TMP/GH-123"
 
@@ -55,6 +81,20 @@ grep -Fq 'usage_limit_exceeded' "$RPGK_TEST_CURL_LOG"
 grep -Fq 'Sep 11th, 2026 12:11 AM' "$RPGK_TEST_CURL_LOG"
 if grep -Fq 'Phase 2 budget guard stopped automatic redispatch' "$RPGK_TEST_CURL_LOG"; then
   echo "Quota halt incorrectly used the generic max-turn/budget comment" >&2
+  exit 1
+fi
+
+# A successful Git handoff removes symphony:ready. after_run must persist the new review head
+# before it queues independent review, and must not halt or immediately re-dispatch implementation.
+export RPGK_TEST_READY=0
+: > "$RPGK_TEST_CURL_LOG"
+: > "$RPGK_TEST_REVIEW_STATE_LOG"
+bash "$ROOT/scripts/after-run-guard.sh"
+grep -Fq '/pulls?state=open&head=Shashakar:codex%2Ffixture&base=main&per_page=10' "$RPGK_TEST_CURL_LOG"
+grep -Fxq '123 77 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RPGK_TEST_REVIEW_STATE_LOG"
+grep -Fq 'symphony:agent-review' "$RPGK_TEST_CURL_LOG"
+if grep -Fq 'symphony:halted' "$RPGK_TEST_CURL_LOG"; then
+  echo "Successful handoff was incorrectly halted" >&2
   exit 1
 fi
 
