@@ -82,12 +82,9 @@ def read_text(path: Path, max_bytes: int = MAX_TEXT_BYTES) -> str:
 
 
 def response_artifact_path(response: dict[str, Any], workspace: Path) -> Path | None:
-    summary = response.get("summary")
-    if isinstance(summary, dict):
-        raw = summary.get("artifactPath")
-        if isinstance(raw, str) and raw.strip():
-            path = Path(raw.strip()).expanduser()
-            return path if path.is_absolute() else (workspace / path).resolve()
+    # The PowerShell summary records SourceOutput in Windows/UNC syntax. The host
+    # shell always prints the corresponding WSL artifact path after a test run, so
+    # prefer that local path when reconstructing history.
     stdout = str(response.get("stdout") or "")
     found = None
     for match in ARTIFACT_LINE.finditer(stdout):
@@ -95,6 +92,19 @@ def response_artifact_path(response: dict[str, Any], workspace: Path) -> Path | 
     if found:
         path = Path(found).expanduser()
         return path if path.is_absolute() else (workspace / path).resolve()
+
+    summary = response.get("summary")
+    if isinstance(summary, dict):
+        run_id = summary.get("runId")
+        if isinstance(run_id, str) and run_id.strip():
+            inferred = workspace / "Logs" / "SymphonyUnity" / run_id.strip()
+            if inferred.exists():
+                return inferred.resolve()
+        raw = summary.get("artifactPath")
+        if isinstance(raw, str) and raw.strip():
+            path = Path(raw.strip()).expanduser()
+            if path.is_absolute():
+                return path
     return None
 
 
@@ -218,7 +228,7 @@ def diagnose_run(
                 "testsStarted": results_exist,
             }
 
-    if status == "NoTestsMatched" or (isinstance(summary, dict) and int(summary.get("total") or 0) == 0):
+    if status == "NoTestsMatched" or (isinstance(summary, dict) and "total" in summary and int(summary.get("total") or 0) == 0):
         return {
             "category": "no_tests",
             "title": "No tests matched",
