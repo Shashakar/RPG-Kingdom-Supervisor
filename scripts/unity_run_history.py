@@ -41,6 +41,7 @@ INFRA_STATUSES = {
     "StaleRequest": ("stale_request", "Stale broker request", True),
     "BrokerStopped": ("broker_stopped", "Unity broker stopped", True),
 }
+INFRA_EXIT_CODES = {70, 80, 81, 82, 83, 84, 85, 86, 89, 90}
 
 
 def utc_now() -> datetime:
@@ -166,6 +167,16 @@ def diagnose_run(
     if compiled:
         return compiled
 
+    exit_code = response.get("exitCode")
+    if isinstance(exit_code, int) and exit_code in INFRA_EXIT_CODES:
+        return {
+            "category": "infrastructure",
+            "title": "Unity host/infrastructure failure",
+            "message": str(response.get("stderr") or f"Unity host operation failed with exit code {exit_code}.").strip(),
+            "retryable": exit_code in {70, 80, 84, 85, 86, 89, 90},
+            "testsStarted": False,
+        }
+
     if failed_tests:
         first = failed_tests[0]
         extra = len(failed_tests) - 1
@@ -180,6 +191,20 @@ def diagnose_run(
             "retryable": False,
             "testsStarted": True,
         }
+
+    if isinstance(summary, dict):
+        try:
+            failed_count = int(summary.get("failed") or 0)
+        except (TypeError, ValueError):
+            failed_count = 0
+        if failed_count > 0:
+            return {
+                "category": "test_failure",
+                "title": f"{failed_count} Unity test{'s' if failed_count != 1 else ''} failed",
+                "message": "The summary reports failed tests; detailed names/assertions were unavailable from results.xml.",
+                "retryable": False,
+                "testsStarted": True,
+            }
 
     lower_log = editor_log.lower()
     for term, title in STARTUP_TERMS:
