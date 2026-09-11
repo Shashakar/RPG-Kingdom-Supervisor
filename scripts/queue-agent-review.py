@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.util
 import sys
-from datetime import datetime, timezone
+from pathlib import Path
 
-import review_orchestrator as review
+ORCHESTRATOR = Path(__file__).with_name("review-orchestrator.py")
+SPEC = importlib.util.spec_from_file_location("rpgk_review_orchestrator", ORCHESTRATOR)
+if not SPEC or not SPEC.loader:
+    raise RuntimeError(f"could not load review orchestrator: {ORCHESTRATOR}")
+review = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(review)
 
 
 def main() -> int:
@@ -26,7 +32,6 @@ def main() -> int:
             "maxRepairAttempts": int(prior.get("maxRepairAttempts", review.MAX_REPAIRS)),
             "history": prior.get("history") if isinstance(prior.get("history"), list) else [],
             "reason": "none",
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
         }
     )
     review.persist_state(
