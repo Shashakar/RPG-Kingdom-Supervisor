@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/GH-456"
+mkdir -p "$TMP/bin" "$TMP/GH-456" "$TMP/fake-supervisor/scripts"
 git -C "$TMP/GH-456" init -q
 git -C "$TMP/GH-456" config user.name "Test User"
 git -C "$TMP/GH-456" config user.email "test@example.invalid"
@@ -35,11 +35,22 @@ printf '{}\n'
 EOF
 chmod +x "$TMP/bin/curl"
 
+# before-run's continuation refresh now routes through the host Git broker. This unit test is about
+# rearm/marker semantics, so stub that broker boundary; host synchronization behavior has dedicated
+# coverage in git-handoff-host-wrapper-test.py.
+cat > "$TMP/fake-supervisor/scripts/git-handoff.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "prepare" ]] || exit 64
+exit 0
+EOF
+chmod +x "$TMP/fake-supervisor/scripts/git-handoff.sh"
+
 export PATH="$TMP/bin:$PATH"
 export FAKE_CURL_LOG="$TMP/curl.log"
 export SYMPHONY_GITHUB_TOKEN="test-token"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
-export RPGK_EXPECTED_ORIGIN_URL="$TMP/remote.git"
+export RPGK_SUPERVISOR_ROOT="$TMP/fake-supervisor"
 
 run_guard() {
   (cd "$TMP/GH-456" && FAKE_LABELS_JSON="${FAKE_LABELS_JSON:-[]}" bash "$ROOT/scripts/before-run-guard.sh")
@@ -83,9 +94,12 @@ git -C "$TMP/GH-456" diff --cached --name-only | grep -Fxq '.symphony-attempt-co
   exit 1
 }
 
+# Rearmed continuations are expected to be on their durable codex/* branch before host refresh.
+git -C "$TMP/GH-456" switch -qc codex/gh-456-test
+git -C "$TMP/GH-456" push -q -u origin codex/gh-456-test
+
 # Explicit rearm authorizes exactly this before_run invocation. The marker remains as the durable
-# lifetime boundary, stale index residue is removed, a stale same-issue Unity lock is cleared, and
-# the host refresh preflight sees a real clean remote-backed workspace.
+# lifetime boundary, stale index residue is removed, and a stale same-issue Unity lock is cleared.
 mkdir -p "$TMP/state/locks/unity-editor.lock"
 printf 'GH-456\n' > "$TMP/state/locks/unity-editor.lock/owner"
 printf '%s\n' "$TMP/GH-456" > "$TMP/state/locks/unity-editor.lock/workspace"
