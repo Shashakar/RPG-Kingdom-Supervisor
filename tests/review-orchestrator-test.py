@@ -22,6 +22,8 @@ class FakeGitHub:
     def api(self, method: str, path: str, body=None):
         if path.startswith("/issues/123/comments") and method == "GET":
             return self.comments[123]
+        if path == "/pulls/77/files?per_page=100" and method == "GET":
+            return [{"filename": "Assets/Scripts/Fixture.cs"}, {"filename": "Assets/Tests/FixtureTests.cs"}]
         if path.startswith("/issues/123/labels/") and method == "DELETE":
             name = path.rsplit("/", 1)[-1].replace("%3A", ":")
             self.issue_labels[123].discard(name)
@@ -54,7 +56,7 @@ def pr() -> dict:
     return {
         "number": 77,
         "title": "Fixture PR",
-        "body": "Fixture implementation",
+        "body": "Validation: fixture tests pass.",
         "head": {"ref": "codex/fixture", "sha": "a" * 40},
     }
 
@@ -89,7 +91,7 @@ def latest_state_from(fake: FakeGitHub) -> dict:
     return {}
 
 
-def configure(temp: Path, fake: FakeGitHub, output: dict) -> None:
+def configure(temp: Path, fake: FakeGitHub, output: dict) -> Path:
     workspace = temp / "GH-123"
     workspace.mkdir(parents=True, exist_ok=True)
     review.WORKSPACE_ROOT = temp
@@ -98,10 +100,17 @@ def configure(temp: Path, fake: FakeGitHub, output: dict) -> None:
     review.open_pr = lambda branch: pr()
     review.run_git = lambda workspace, *args: "codex/fixture" if args[:2] == ("branch", "--show-current") else "a" * 40
     review.run_reviewer = lambda issue_value, pr_value, state_value: dict(output)
+    return workspace
+
+
+def write_attempt(workspace: Path, timestamp: str) -> None:
+    (workspace / ".symphony-attempt-complete").write_text(
+        f"completed worker lifetime for GH-123 at {timestamp}\n", encoding="utf-8"
+    )
 
 
 def main() -> int:
-    # Clean approval -> human review, never automatic merge/rearm.
+    # Clean approval -> human review, never automatic merge/rearm, with integration packet.
     with tempfile.TemporaryDirectory() as raw:
         fake = FakeGitHub()
         configure(Path(raw), fake, verdict("approved"))
@@ -113,6 +122,11 @@ def main() -> int:
         state = latest_state_from(fake)
         assert state["state"] == "human_review"
         assert state["reviewCycle"] == 1
+        assert len(state["history"]) == 1
+        packet = fake.comments[77][-1]["body"]
+        assert "Human Review packet" in packet
+        assert "Assets/Scripts/Fixture.cs" in packet
+        assert "human approval required" in packet
 
     # Review failure -> same issue enters bounded rework; recommendation is fresh routing evidence.
     with tempfile.TemporaryDirectory() as raw:
@@ -120,19 +134,19 @@ def main() -> int:
         configure(Path(raw), fake, verdict("changes_required", route="sol"))
         review.process(issue(fake))
         assert "symphony:rework" in fake.issue_labels[123]
+        assert "symphony:agent-review" not in fake.issue_labels[123]
         assert "repair-route:sol" in fake.issue_labels[123]
         assert "symphony:rearm" in fake.issue_labels[123]
         assert "symphony:ready" in fake.issue_labels[123]
         state = latest_state_from(fake)
         assert state["state"] == "rework"
         assert state["repairAttempts"] == 1
-        # Rearm must precede the dispatch lease.
+        assert state["history"][0]["verdict"] == "changes_required"
         adds = [name for op, _, name in fake.operations if op == "add"]
         assert adds.index("symphony:rearm") < adds.index("symphony:ready")
 
-    # Human/operator model override remains higher precedence than repair route.
+    # Human/operator model override precedence is executable-covered by routing-policy-test.sh.
     labels_text = "\n".join(["risk:normal", "symphony:rework", "repair-route:sol", "model:terra"])
-    # Covered executable behavior lives in routing-policy-test.sh; keep the lifecycle fixture focused.
     assert "model:terra" in labels_text
 
     # Ambiguity/scope expansion halts instead of dispatching speculative repair.
@@ -144,16 +158,39 @@ def main() -> int:
         assert "symphony:ready" not in fake.issue_labels[123]
         assert latest_state_from(fake)["reason"] == "scope_change_required"
 
-    # Two automatic repairs consumed -> third failing review goes to human attention, not repair 3.
+    # Persisted rework with no newer worker-attempt marker resumes dispatch after restart without
+    # spending another review cycle or repair budget.
     with tempfile.TemporaryDirectory() as raw:
         fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
         prior = {
-            "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "b" * 40,
-            "reviewCycle": 2, "repairAttempts": 2, "maxRepairAttempts": 2,
-            "lastVerdict": "changes_required",
+            "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 1, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "sol", "history": [],
+            "updatedAt": "2026-09-11T10:00:00+00:00",
         }
         fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
-        configure(Path(raw), fake, verdict("changes_required", route="luna"))
+        write_attempt(workspace, "2026-09-11T09:00:00Z")
+        review.run_reviewer = lambda *_: (_ for _ in ()).throw(AssertionError("review should not rerun"))
+        review.process(issue(fake))
+        assert "symphony:rework" in fake.issue_labels[123]
+        assert "symphony:ready" in fake.issue_labels[123]
+        assert "repair-route:sol" in fake.issue_labels[123]
+        assert latest_state_from(fake)["repairAttempts"] == 1
+
+    # Two automatic repairs consumed and a newer repair lifetime completed -> third failing review
+    # goes to human attention rather than dispatching repair 3.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("changes_required", route="luna"))
+        prior = {
+            "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 2, "repairAttempts": 2, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "luna", "history": [],
+            "updatedAt": "2026-09-11T10:00:00+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-09-11T11:00:00Z")
         review.process(issue(fake))
         state = latest_state_from(fake)
         assert state["state"] == "human_attention"
