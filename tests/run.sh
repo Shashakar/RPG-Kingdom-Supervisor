@@ -16,6 +16,7 @@ bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
 bash "$ROOT/tests/unity-runner-host-syntax-test.sh"
 bash "$ROOT/tests/unity-broker-test.sh"
+python3 "$ROOT/tests/unity-run-history-test.py"
 bash "$ROOT/tests/git-handoff-broker-test.sh"
 python3 "$ROOT/tests/git-handoff-host-test.py"
 python3 "$ROOT/tests/git-handoff-host-wrapper-test.py"
@@ -25,7 +26,9 @@ bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
-  "$ROOT/scripts/patch-symphony-usage-limit.py"
+  "$ROOT/scripts/patch-symphony-usage-limit.py" \
+  "$ROOT/scripts/unity_run_history.py" \
+  "$ROOT/scripts/supervisor_dashboard.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
