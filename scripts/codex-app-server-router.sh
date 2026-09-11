@@ -32,11 +32,11 @@ if [[ "${RPGK_ROUTER_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Build reviewed-continuation context while the host-side tracker credential is still available.
-# On fresh issues the builder removes any stale override and exits without adding context. On a
-# rearmed workspace it creates an ignored AGENTS.override.md containing the checked-in AGENTS.md
-# plus current PR review feedback and comments newer than the previous worker lifetime.
-bash "$SUPERVISOR_ROOT/scripts/build-continuation-context.sh"
+# Build reviewed-continuation context before Codex starts. Symphony may omit its tracker-token
+# environment variable from this command process, so the host-only wrapper may fall back to the
+# machine's authenticated gh credential. That credential exists only in the wrapper/builder process
+# and is not inherited by Codex.
+bash "$SUPERVISOR_ROOT/scripts/build-continuation-context-with-auth.sh"
 
 # Symphony itself owns the tracker credential and the host Git broker inherits it
 # from the launcher. The Codex child must not inherit that secret even though its
