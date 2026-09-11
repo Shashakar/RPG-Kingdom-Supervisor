@@ -60,25 +60,33 @@ def main() -> int:
         workspace_root = root / "workspaces"
         state_root = root / "state"
 
+        # Health responses have structured JSON but no test count; they are successful, not zero-test failures.
+        _, broker = request_fixture(root, "health", operation="health", test_filter="")
+        response(
+            broker, "health", operation="health",
+            summary={"status": "ready", "unityVersion": "test"},
+            stdout='{"status":"ready","unityVersion":"test"}',
+        )
+
         workspace, broker = request_fixture(root, "pass")
         artifact = workspace / "Logs" / "SymphonyUnity" / "run-pass"
         artifact.mkdir(parents=True)
         summary = {
             "result": "Passed", "total": 2, "passed": 2, "failed": 0, "skipped": 0,
-            "runId": "run-pass", "artifactPath": str(artifact), "testFilter": "Focused.Tests",
+            "runId": "run-pass", "artifactPath": r"\\wsl.localhost\Ubuntu\home\runner\run-pass", "testFilter": "Focused.Tests",
         }
         write_json(artifact / "summary.json", summary)
         (artifact / "results.xml").write_text(
             '<test-run total="2" passed="2" failed="0" skipped="0" result="Passed"/>', encoding="utf-8"
         )
-        response(broker, "pass", summary=summary, stdout=json.dumps(summary))
+        response(broker, "pass", summary=summary, stdout=json.dumps(summary) + f"\nRPG Kingdom Unity runner: artifacts -> {artifact}\n")
 
         workspace, broker = request_fixture(root, "test-failure")
         artifact = workspace / "Logs" / "SymphonyUnity" / "run-test-failure"
         artifact.mkdir(parents=True)
         summary = {
             "result": "Failed", "total": 2, "passed": 1, "failed": 1, "skipped": 0,
-            "runId": "run-test-failure", "artifactPath": str(artifact), "testFilter": "Focused.Tests",
+            "runId": "run-test-failure", "artifactPath": r"\\wsl.localhost\Ubuntu\home\runner\run-test-failure", "testFilter": "Focused.Tests",
         }
         write_json(artifact / "summary.json", summary)
         (artifact / "results.xml").write_text(
@@ -87,7 +95,7 @@ def main() -> int:
             '<failure><message>Expected: 1 But was: 0</message><stack-trace>at Tests.DoesThing()</stack-trace></failure>'
             '</test-case></test-suite></test-run>', encoding="utf-8"
         )
-        response(broker, "test-failure", status="failed", exitCode=1, summary=summary, stdout=json.dumps(summary))
+        response(broker, "test-failure", status="failed", exitCode=1, summary=summary, stdout=json.dumps(summary) + f"\nRPG Kingdom Unity runner: artifacts -> {artifact}\n")
 
         workspace, broker = request_fixture(root, "compile-failure")
         artifact = workspace / "Logs" / "SymphonyUnity" / "run-compile-failure"
@@ -126,8 +134,11 @@ def main() -> int:
                 workspace_root=workspace_root, state_root=state_root, retention_days=3650, limit=100
             )
         }
+        assert runs["health"]["finalStatus"] == "passed"
+        assert runs["health"]["diagnosis"]["category"] == "passed"
         assert runs["pass"]["finalStatus"] == "passed"
         assert runs["pass"]["durationSeconds"] == 5.0
+        assert runs["pass"]["artifactPath"].endswith("run-pass")
 
         failed = runs["test-failure"]
         assert failed["diagnosis"]["category"] == "test_failure"
@@ -171,6 +182,10 @@ def main() -> int:
         assert dashboard.normalize_issue("gh-98") == "GH-98"
         assert "/api/unity/runs" in dashboard.PAGE
         assert "/api/unity/run/" in dashboard.PAGE
+
+        runner_text = (SCRIPTS / "unity-runner.sh").read_text(encoding="utf-8")
+        assert "history/requests" in runner_text
+        assert "requestedAt" in runner_text
 
     print("unity-run-history-test: PASS")
     return 0
