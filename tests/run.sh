@@ -19,6 +19,7 @@ bash "$ROOT/tests/git-handoff-broker-test.sh"
 python3 "$ROOT/tests/git-handoff-host-test.py"
 bash "$ROOT/tests/rearm-issue-test.sh"
 bash "$ROOT/tests/continuation-context-test.sh"
+bash "$ROOT/tests/continuation-context-policy-test.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
 
 echo "supervisor-tests: PASS"
