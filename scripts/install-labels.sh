@@ -18,6 +18,15 @@ create_label() {
 create_label "symphony:ready" "0E8A16" "Dispatch lease for unattended Symphony implementation"
 create_label "symphony:halted" "D93F0B" "Automatic redispatch stopped; human/ChatGPT review required"
 create_label "symphony:rearm" "BFDADC" "One-shot approval for a reviewed continuation; consumed by host preflight"
+create_label "symphony:agent-review" "1D76DB" "Implementation handoff complete; independent automated review pending"
+create_label "symphony:rework" "FBCA04" "Automated review requested bounded repair on the existing PR"
+create_label "symphony:human-review" "0E8A16" "Automated review passed; human integration decision required"
+create_label "symphony:human-attention" "B60205" "Automation halted for ambiguity, scope change, or exhausted repair budget"
+
+create_label "repair-route:luna" "EDEDED" "Reviewer advisory route for current bounded repair: Luna"
+create_label "repair-route:terra" "DDEEFF" "Reviewer advisory route for current bounded repair: Terra"
+create_label "repair-route:sol" "FFD966" "Reviewer advisory route for current bounded repair: Sol"
+create_label "repair-route:astra" "8B5CF6" "Reviewer advisory route for current bounded repair: Astra"
 
 create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to Luna / low"
 create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to Luna / medium"
