@@ -20,6 +20,22 @@ The generated `AGENTS.override.md` is Supervisor-owned runtime state. The builde
 
 Tracker credentials remain host-side. The context is rendered before the router unsets `SYMPHONY_GITHUB_TOKEN`; the Codex child receives the rendered instructions but not the GitHub tracker credential.
 
+## Rearmed workspace refresh
+
+A reviewed continuation must also start from repository state that includes changes merged to `main` while the prior worker was halted. After `scripts/before-run-guard.sh` verifies and consumes `symphony:rearm`, it runs `scripts/refresh-rearmed-workspace.sh` before Unity preflight or Codex startup.
+
+The refresh is deliberately conservative:
+
+- it runs only when the durable `.symphony-attempt-complete` marker exists;
+- it verifies the GH issue workspace and RPG Kingdom origin;
+- it refuses to discard uncommitted source changes, local-only commits, divergent local/remote branches, or detached state;
+- it fetches current remote refs host-side;
+- if the durable remote feature branch is behind `origin/main`, it merges `origin/main` locally so the eventual handoff remains a fast-forward update to the existing remote feature branch;
+- if that merge conflicts, it aborts the merge and fails closed before Codex starts rather than launching against stale assets;
+- when `.gitattributes` declares Git LFS filters, it fetches `main`/feature LFS objects and runs `git lfs checkout` before Unity validation.
+
+This keeps Git metadata/network synchronization host-owned while preserving work that has not yet reached the remote branch. A conflicting stale PR is therefore a human/review decision: supersede or resolve that branch, then explicitly rearm again.
+
 ## Validation
 
 `tests/continuation-context-test.sh` uses a fake GitHub CLI to verify that:
@@ -31,3 +47,5 @@ Tracker credentials remain host-side. The context is rendered before the router 
 - only issue and PR conversation comments newer than the previous attempt marker are included;
 - the generated override is ignored by Git;
 - a fresh workspace removes the generated override.
+
+`tests/rearmed-workspace-refresh-test.sh` uses local Git repositories to verify that a clean durable continuation absorbs current `main`, while dirty work, unpushed commits, and merge conflicts are preserved/fail closed rather than being silently rewritten.
