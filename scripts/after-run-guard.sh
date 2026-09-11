@@ -15,9 +15,6 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 
-# Persist the local execution boundary before making any network-dependent tracker mutation.
-# Upstream Symphony preserves the issue workspace across worker lifetimes, so before_run can use
-# this marker to reject any accidental fresh Codex session even if GitHub is temporarily unavailable.
 printf 'completed worker lifetime for GH-%s at %s\n' "$issue_number" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
 
 quota_json=""
@@ -35,10 +32,7 @@ api() {
   local path="$2"
   local body="${3:-}"
   local args=(
-    -fsS
-    --retry 3
-    --retry-all-errors
-    -X "$method"
+    -fsS --retry 3 --retry-all-errors -X "$method"
     -H "Authorization: Bearer $TOKEN"
     -H "Accept: application/vnd.github+json"
     -H "X-GitHub-Api-Version: 2022-11-28"
@@ -55,10 +49,27 @@ ready_present() {
   jq -e '.[] | select((.name | ascii_downcase) == "symphony:ready")' >/dev/null <<<"$labels_json"
 }
 
+enqueue_agent_review() {
+  local branch encoded_branch pulls pr_number
+  branch="$(git branch --show-current 2>/dev/null || true)"
+  [[ -n "$branch" ]] || return 0
+  encoded_branch="$(jq -rn --arg value "$branch" '$value|@uri')"
+  pulls="$(api GET "/pulls?state=open&head=$RPGK_REPO_OWNER:$encoded_branch&base=main&per_page=10")"
+  pr_number="$(jq -r '.[0].number // empty' <<<"$pulls")"
+  [[ -n "$pr_number" ]] || return 0
+
+  # A successful implementation or repair handoff has already removed the dispatch lease.
+  # Clear transient repair-routing state and enqueue the independent review stage.
+  for label in symphony%3Arework repair-route%3Aluna repair-route%3Aterra repair-route%3Asol repair-route%3Aastra; do
+    api DELETE "/issues/$issue_number/labels/$label" >/dev/null 2>&1 || true
+  done
+  api POST "/issues/$issue_number/labels" '{"labels":["symphony:agent-review"]}' >/dev/null
+  echo "RPG Kingdom review workflow: queued GH-$issue_number / PR #$pr_number for independent review" >&2
+}
+
 if ! ready_present; then
-  # Successful workers remove the dispatch lease before the attempt ends. Keep the local marker so
-  # any later re-dispatch of this same issue must be an explicit rearm rather than an accidental one.
   rm -f -- "$USAGE_LIMIT_MARKER"
+  enqueue_agent_review
   exit 0
 fi
 
@@ -71,19 +82,16 @@ if [[ "${RPGK_GUARD_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Give the agent's final GitHub mutation a short consistency window before revoking the lease.
 for _ in 1 2; do
   sleep 1
   if ! ready_present; then
     rm -f -- "$USAGE_LIMIT_MARKER"
+    enqueue_agent_review
     exit 0
   fi
 done
 
-# Remove the lease first so a subsequent polling tick cannot dispatch another routable issue.
 api DELETE "/issues/$issue_number/labels/symphony%3Aready" >/dev/null
-
-# The halted label is informational. The local marker plus absence of the ready lease are the actual gates.
 api POST "/issues/$issue_number/labels" '{"labels":["symphony:halted"]}' >/dev/null
 
 if [[ -n "$quota_json" ]] && jq -e '.reason == "usage_limit_exceeded"' >/dev/null 2>&1 <<<"$quota_json"; then
