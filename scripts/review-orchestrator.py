@@ -278,8 +278,8 @@ def history_entry(state: dict[str, Any], verdict: dict[str, Any]) -> dict[str, A
 
 
 def dispatch_rework(number: int, state: dict[str, Any]) -> None:
-    # Keep at least one durable lifecycle label throughout the transition. Add rework first,
-    # then one-shot rearm, then the dispatch lease; remove agent-review only after dispatch exists.
+    # Keep agent-review until the replacement dispatch lease exists. If Supervisor dies before
+    # that point, the next poll can resume the persisted transition. Remove agent-review last.
     add_labels(number, "symphony:rework")
     set_repair_route(number, str(state.get("routingRecommendation") or "unchanged"))
     add_labels(number, "symphony:rearm")
@@ -292,27 +292,27 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, prior: dict[st
     current = labels(issue)
     state = prior.get("state")
     if state == "human_review":
+        if repair_completed_since_state(workspace, prior):
+            return False
         add_labels(number, "symphony:human-review")
         set_repair_route(number, "unchanged")
         remove_lifecycle_except(number, {"symphony:human-review"})
         return True
     if state == "human_attention":
+        if repair_completed_since_state(workspace, prior):
+            return False
         add_labels(number, "symphony:human-attention")
         set_repair_route(number, "unchanged")
         remove_lifecycle_except(number, {"symphony:human-attention"})
         return True
     if state == "rework":
         if "symphony:ready" in current or "symphony:rearm" in current:
-            # Repair is already queued/running; just converge labels after a restart.
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
             return True
         if not repair_completed_since_state(workspace, prior):
-            # Durable verdict exists but dispatch transition did not complete before restart.
             dispatch_rework(number, prior)
             return True
-        # The attempt marker is newer than the persisted rework decision: a repair lifetime
-        # completed, so the current agent-review label legitimately requests a fresh re-review.
     return False
 
 
@@ -338,7 +338,7 @@ def process(issue: dict[str, Any]) -> None:
     prior_history = prior.get("history") if isinstance(prior.get("history"), list) else []
     state = {
         "state": "agent_review", "issue": number, "prNumber": int(pr["number"]), "prHeadSha": pr["head"]["sha"],
-        "reviewCycle": repairs + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
+        "reviewCycle": len(prior_history) + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
         "history": list(prior_history),
     }
     verdict = run_reviewer(issue, pr, state)
@@ -390,12 +390,10 @@ def lifecycle_issues(label: str) -> list[dict[str, Any]]:
 
 
 def reviewable_issues() -> list[dict[str, Any]]:
-    combined: dict[int, dict[str, Any]] = {}
-    # Rework issues are included so a restart can finish an interrupted persisted transition.
-    for label in ("symphony:agent-review", "symphony:rework"):
-        for item in lifecycle_issues(label):
-            combined[int(item["number"])] = item
-    return list(combined.values())
+    # Agent-review stays present until a replacement rework dispatch is fully established, so it
+    # is sufficient for restart recovery. Do not poll rework labels: there is a legitimate short
+    # interval after implementation handoff removes ready and before after_run queues re-review.
+    return lifecycle_issues("symphony:agent-review")
 
 
 def once() -> None:
