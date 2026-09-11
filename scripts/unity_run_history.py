@@ -258,13 +258,13 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
         bool(results_path and results_path.is_file()),
     )
 
-    accepted_at = request.get("requestedAt") or ack.get("acceptedAt")
+    started_at = response.get("startedAt") or ack.get("acceptedAt") or request.get("requestedAt")
     completed_at = response.get("completedAt")
-    accepted_dt = parse_time(accepted_at)
+    started_dt = parse_time(started_at)
     completed_dt = parse_time(completed_at)
     duration = None
-    if accepted_dt and completed_dt:
-        duration = max(0.0, (completed_dt - accepted_dt).total_seconds())
+    if started_dt and completed_dt:
+        duration = max(0.0, (completed_dt - started_dt).total_seconds())
 
     operation = str(request.get("operation") or response.get("operation") or "unknown")
     test_filter = request.get("testFilter")
@@ -300,7 +300,7 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
         "testFilter": str(test_filter or ""),
         "requestedAt": request.get("requestedAt"),
         "acceptedAt": ack.get("acceptedAt"),
-        "startedAt": response.get("startedAt") or ack.get("acceptedAt") or request.get("requestedAt"),
+        "startedAt": started_at,
         "completedAt": completed_at,
         "durationSeconds": duration,
         "status": response.get("status"),
