@@ -3,6 +3,8 @@ set -euo pipefail
 
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 RPGK_REPO="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
+STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+CODEX_LOCK="$STATE_ROOT/locks/codex-session.lock"
 
 # shellcheck source=routing-policy.sh
 source "$SUPERVISOR_ROOT/scripts/routing-policy.sh"
@@ -32,16 +34,15 @@ if [[ "${RPGK_ROUTER_DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Build reviewed-continuation context before Codex starts. Symphony may omit its tracker-token
-# environment variable from this command process, so the host-only wrapper may fall back to the
-# machine's authenticated gh credential. That credential exists only in the wrapper/builder process
-# and is not inherited by Codex.
 bash "$SUPERVISOR_ROOT/scripts/build-continuation-context-with-auth.sh"
 
-# Symphony itself owns the tracker credential and the host Git broker inherits it
-# from the launcher. The Codex child must not inherit that secret even though its
-# normal shell environment policy otherwise inherits the router environment.
 unset SYMPHONY_GITHUB_TOKEN
+
+# Implementation and independent review share one host-level Codex session slot. This preserves
+# the current max-one-agent budget even though review is driven by a Supervisor sidecar.
+mkdir -p "$(dirname "$CODEX_LOCK")"
+exec 9>"$CODEX_LOCK"
+flock 9
 
 exec codex \
   --config shell_environment_policy.inherit=all \
