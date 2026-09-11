@@ -6,6 +6,16 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/GH-456"
 git -C "$TMP/GH-456" init -q
+git -C "$TMP/GH-456" config user.name "Test User"
+git -C "$TMP/GH-456" config user.email "test@example.invalid"
+printf 'base\n' > "$TMP/GH-456/README.md"
+git -C "$TMP/GH-456" add README.md
+git -C "$TMP/GH-456" commit -qm "base"
+git -C "$TMP/GH-456" branch -M main
+git init --bare -q "$TMP/remote.git"
+git -C "$TMP/GH-456" remote add origin "$TMP/remote.git"
+git -C "$TMP/GH-456" push -q -u origin main
+git -C "$TMP/remote.git" symbolic-ref HEAD refs/heads/main
 
 cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -29,6 +39,7 @@ export PATH="$TMP/bin:$PATH"
 export FAKE_CURL_LOG="$TMP/curl.log"
 export SYMPHONY_GITHUB_TOKEN="test-token"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
+export RPGK_EXPECTED_ORIGIN_URL="$TMP/remote.git"
 
 run_guard() {
   (cd "$TMP/GH-456" && FAKE_LABELS_JSON="${FAKE_LABELS_JSON:-[]}" bash "$ROOT/scripts/before-run-guard.sh")
@@ -73,7 +84,8 @@ git -C "$TMP/GH-456" diff --cached --name-only | grep -Fxq '.symphony-attempt-co
 }
 
 # Explicit rearm authorizes exactly this before_run invocation. The marker remains as the durable
-# lifetime boundary, stale index residue is removed, and a stale same-issue Unity lock is cleared.
+# lifetime boundary, stale index residue is removed, a stale same-issue Unity lock is cleared, and
+# the host refresh preflight sees a real clean remote-backed workspace.
 mkdir -p "$TMP/state/locks/unity-editor.lock"
 printf 'GH-456\n' > "$TMP/state/locks/unity-editor.lock/owner"
 printf '%s\n' "$TMP/GH-456" > "$TMP/state/locks/unity-editor.lock/workspace"
