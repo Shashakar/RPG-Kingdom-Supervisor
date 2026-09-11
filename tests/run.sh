@@ -12,6 +12,7 @@ bash "$ROOT/tests/diagnostics-policy-test.sh"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 python3 "$ROOT/tests/review-orchestrator-test.py"
+bash "$ROOT/tests/review-workflow-policy-test.sh"
 bash "$ROOT/tests/unity-resource-policy-test.sh"
 bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
