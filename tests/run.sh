@@ -11,6 +11,7 @@ python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
+python3 "$ROOT/tests/review-orchestrator-test.py"
 bash "$ROOT/tests/unity-resource-policy-test.sh"
 bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
@@ -27,10 +28,13 @@ bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
+  "$ROOT/scripts/review-orchestrator.py" \
   "$ROOT/scripts/unity_run_history.py" \
   "$ROOT/scripts/supervisor_dashboard.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
+bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
+python3 -m json.tool "$ROOT/schemas/review-verdict.schema.json" >/dev/null
 
 echo "supervisor-tests: PASS"
