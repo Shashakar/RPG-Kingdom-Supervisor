@@ -7,6 +7,7 @@ bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/codex-router-test.sh" >/dev/null
 bash "$ROOT/tests/codex-permissions-policy-test.sh"
 bash "$ROOT/tests/symphony-permissions-compat-test.sh"
+python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
@@ -22,7 +23,10 @@ bash "$ROOT/tests/rearm-issue-test.sh"
 bash "$ROOT/tests/continuation-context-test.sh"
 bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
-python3 -m py_compile "$ROOT/scripts/git-handoff-host-wrapper.py"
+python3 -m py_compile \
+  "$ROOT/scripts/git-handoff-host-wrapper.py" \
+  "$ROOT/scripts/patch-symphony-usage-limit.py"
+bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
 
