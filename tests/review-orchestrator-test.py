@@ -178,6 +178,28 @@ def main() -> int:
         assert "repair-route:sol" in fake.issue_labels[123]
         assert latest_state_from(fake)["repairAttempts"] == 1
 
+    # A human-requested worker lifetime after prior automated approval gets a fresh review rather
+    # than restoring the old terminal human-review state. Review cycle advances from history.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "approved", "history": [{
+                "cycle": 1, "head": "9" * 40, "verdict": "approved", "summary": "prior approval",
+                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "terra", "reason": "none"
+            }],
+            "updatedAt": "2026-09-11T10:00:00+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-09-11T11:00:00Z")
+        review.process(issue(fake))
+        state = latest_state_from(fake)
+        assert state["state"] == "human_review"
+        assert state["reviewCycle"] == 2
+        assert len(state["history"]) == 2
+
     # Two automatic repairs consumed and a newer repair lifetime completed -> third failing review
     # goes to human attention rather than dispatching repair 3.
     with tempfile.TemporaryDirectory() as raw:
@@ -186,7 +208,10 @@ def main() -> int:
         prior = {
             "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
             "reviewCycle": 2, "repairAttempts": 2, "maxRepairAttempts": 2,
-            "lastVerdict": "changes_required", "routingRecommendation": "luna", "history": [],
+            "lastVerdict": "changes_required", "routingRecommendation": "luna", "history": [
+                {"cycle": 1, "head": "8" * 40, "verdict": "changes_required", "summary": "first", "findings": [], "routingRecommendation": "sol", "reviewerRoute": "terra", "reason": "none"},
+                {"cycle": 2, "head": "9" * 40, "verdict": "changes_required", "summary": "second", "findings": [], "routingRecommendation": "luna", "reviewerRoute": "terra", "reason": "none"},
+            ],
             "updatedAt": "2026-09-11T10:00:00+00:00",
         }
         fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
@@ -195,8 +220,19 @@ def main() -> int:
         state = latest_state_from(fake)
         assert state["state"] == "human_attention"
         assert state["reason"] == "review_loop_exhausted"
+        assert state["reviewCycle"] == 3
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:human-attention" in fake.issue_labels[123]
+
+    # Polling only agent-review avoids racing active rework lifetimes after handoff removes ready.
+    seen: list[str] = []
+    original_lifecycle_issues = review.lifecycle_issues
+    review.lifecycle_issues = lambda label: seen.append(label) or []
+    try:
+        assert review.reviewable_issues() == []
+    finally:
+        review.lifecycle_issues = original_lifecycle_issues
+    assert seen == ["symphony:agent-review"]
 
     source = (ROOT / "scripts/review-orchestrator.py").read_text(encoding="utf-8")
     assert "/merge" not in source
