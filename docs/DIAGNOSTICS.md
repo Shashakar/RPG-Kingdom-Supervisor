@@ -2,22 +2,14 @@
 
 ## Why this exists
 
-GH-97 exposed a diagnostic gap between host/App Server preflights and the actual model-backed turn environment.
-
-The Supervisor can prove all of the following without starting a model:
-
-- Symphony forwards the named Codex permission profile;
-- App Server selects `rpgk_supervisor_workspace`;
-- App Server `command/exec` can perform real `.git` writes under that profile.
-
-Even with those checks green, GH-97's model-backed shell still observed `.git` as read-only and WSL-to-Windows Unity invocation failed with `UtilBindVsockAnyPort: socket failed 1`. The remaining failure therefore has to be measured in the actual turn execution path rather than inferred from profile identity or `command/exec` behavior.
+GH-97 exposed a diagnostic gap between host/App Server preflights and the actual model-backed turn environment. GH-98 then exposed a second gap: Unity run evidence was durable on disk, but operators and continuation workers had to manually rediscover it from broker response JSON and `Editor.log` after a failed worker lifetime.
 
 This document defines two deliberately separate tools:
 
-1. a read-only issue diagnostics collector/dashboard for everyday visibility;
+1. a read-only issue diagnostics collector/dashboard for everyday visibility, including durable Unity run history;
 2. an explicit, tiny model-backed turn probe for reproducing the execution-environment boundary.
 
-Neither tool rearms issues, starts Symphony workers, edits GitHub labels, or merges code.
+Neither tool rearms issues, starts Symphony workers, edits GitHub labels, runs Unity, or merges code.
 
 ## Read-only issue diagnostics
 
@@ -25,13 +17,13 @@ Neither tool rearms issues, starts Symphony workers, edits GitHub labels, or mer
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
-bash scripts/diagnose-issue.sh 97
+bash scripts/diagnose-issue.sh 98
 ```
 
 For machine-readable output:
 
 ```bash
-bash scripts/diagnose-issue.sh 97 --json
+bash scripts/diagnose-issue.sh 98 --json
 ```
 
 The collector combines:
@@ -41,9 +33,54 @@ The collector combines:
 - the latest Symphony session/turn identifiers found in local logs;
 - the matching Codex rollout, token snapshot, turn-context signals, and matched failure strings;
 - the Unity resource lock;
-- the latest returned Unity `summary.json`, when one exists.
+- the latest returned Unity `summary.json`, when one exists;
+- recent Unity broker runs reconstructed from durable acknowledgements, responses, and returned run artifacts.
 
 It reads existing state only. It does not call the Unity runner because repeatedly probing the Windows bridge from an auto-refreshing UI would itself become an active diagnostic operation.
+
+### Unity run history
+
+For each issue workspace, diagnostics reads:
+
+```text
+Logs/SymphonyUnity/.broker/acks/*.json
+Logs/SymphonyUnity/.broker/responses/*.json
+Logs/SymphonyUnity/<run>/Editor.log
+Logs/SymphonyUnity/<run>/results.xml
+Logs/SymphonyUnity/<run>/summary.json
+```
+
+Those files survive the broker returning to `ready` and survive broker restarts, so historical runs remain inspectable without adding a second persistence database.
+
+Each normalized run includes, when evidence is available:
+
+- broker request ID and Unity run ID;
+- operation (`health`, `editmode`, `playmode`);
+- requested test filter;
+- accepted/completed timestamps and duration;
+- normalized status and raw broker status;
+- exit code;
+- artifact directory plus `Editor.log`, `results.xml`, and `summary.json` paths;
+- a derived primary diagnosis for failures.
+
+The failure classifier deliberately prefers the strongest evidence:
+
+1. compiler errors parsed from `Editor.log`;
+2. failed tests and assertion messages parsed from `results.xml` / `summary.json`;
+3. no-tests-matched outcomes;
+4. broker/host timeout or infrastructure failures;
+5. Unity startup/runner failure as a fallback when no stronger evidence exists.
+
+A compilation failure before tests start therefore appears as something similar to:
+
+```text
+failed playmode GH-98-playmode-...
+  Script compilation: Assets\RPGKingdom\Tests\Example.cs:54:50 CS1061: ...
+```
+
+rather than only the generic runner message that Unity exited without producing test results.
+
+The JSON form exposes the same normalized `unity_runs` data to other local tooling or future Symphony continuation-context enrichment. This is intentionally read-only; workers should consume prior evidence rather than rerun expensive diagnostics simply to rediscover an existing failure.
 
 ### Localhost dashboard
 
@@ -57,7 +94,16 @@ Then open:
 http://127.0.0.1:8765
 ```
 
-The page defaults to GH-97, accepts another issue number, and refreshes every five seconds. The server uses Python's standard library only, binds to `127.0.0.1`, and exposes only read-only local diagnostic data.
+The page accepts an issue number and refreshes every five seconds. Alongside the existing GitHub/workspace/Symphony/Codex cards, it now shows recent Unity run history. Runs can be filtered client-side by operation and status, and each run expands to show:
+
+- concise failure diagnosis and retryability classification;
+- compiler errors or failed test names/messages;
+- requested test filter;
+- start/end timestamps, duration, and exit code;
+- artifact paths for deeper inspection;
+- broker stderr when useful.
+
+The dashboard also shows a currently active broker request as `running` with elapsed time when that request belongs to the selected issue.
 
 Use a different port with:
 
@@ -94,7 +140,7 @@ bash scripts/codex-turn-environment-probe.sh --run --model gpt-5.6-terra
 
 The probe creates a disposable Git repository, starts an ephemeral App Server thread under `rpgk_supervisor_workspace`, then starts one tiny turn whose only instruction is to execute `bash ./probe-actions.sh`.
 
-The deterministic script records two independent checks:
+The deterministic script records two independent checks.
 
 ### `git_write`
 
@@ -104,8 +150,6 @@ The model-turn shell attempts to:
 - configure Git identity;
 - `git add` a file;
 - make a real local commit.
-
-This is the same class of metadata access that blocked GH-97.
 
 ### `wsl_interop`
 
@@ -123,18 +167,11 @@ The probe prints JSON evidence followed by one summary line. A healthy result is
 RPG Kingdom Codex model-turn environment probe: PASS (model=gpt-5.6-luna, git_write=ok, wsl_interop=ok)
 ```
 
-A result such as:
-
-```text
-git_write=failed
-wsl_interop=failed
-```
-
-proves the remaining boundary is the model-turn execution sandbox rather than Symphony routing, the named profile definition, App Server profile selection, or Unity itself.
+The probe is explicit because it consumes allowance. It must never be added to automatic startup or the ordinary deterministic test suite.
 
 ## What to do with the result
 
-Do not keep broadening the Codex sandbox simply to make the probe green.
+Do not keep broadening the Codex sandbox simply to make a probe green.
 
 If the model turn cannot safely own `.git` or Windows interop, the preferred architecture is to move those capabilities behind narrow host-owned Supervisor seams instead of granting `danger-full-access`:
 
@@ -142,10 +179,4 @@ If the model turn cannot safely own `.git` or Windows interop, the preferred arc
 - a host-owned Unity validation bridge callable through a bounded orchestration/tool interface;
 - model workspace writes remain limited to source/test/doc files.
 
-That design would make the security boundary explicit rather than depending on model-shell access to host metadata and WSL interop.
-
-## GH-97 retry rule
-
-Do not rearm GH-97 merely because the model-free probes are green.
-
-Before another expensive implementation attempt, run the model-turn environment probe once and use its evidence to choose the next architecture change. If either `git_write` or `wsl_interop` fails, fix or bypass that boundary first.
+When Unity validation itself fails, inspect the dashboard history before spending another worker turn. If the failure is already classified as compilation, test, timeout, or infrastructure, continuation context should carry that concrete evidence forward rather than asking the next worker to rediscover it.
