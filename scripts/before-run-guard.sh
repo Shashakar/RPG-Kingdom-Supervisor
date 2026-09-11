@@ -142,6 +142,11 @@ if (( rearm_requested == 1 )); then
   # The halted label is informational; remove it when present without making absence an error.
   api DELETE "/issues/$issue_number/labels/symphony%3Ahalted" >/dev/null 2>&1 || true
   echo "RPG Kingdom budget guard: consumed one-shot rearm approval for $issue_identifier"
+
+  # A reviewed continuation must not launch against a checkout that predates changes merged to
+  # main while the prior worker was halted. Refresh here, while Git metadata/network access is
+  # still host-owned, and fail closed rather than asking Codex to rebase protected .git state.
+  bash "$(dirname "${BASH_SOURCE[0]}")/refresh-rearmed-workspace.sh"
 fi
 
 exit 0
