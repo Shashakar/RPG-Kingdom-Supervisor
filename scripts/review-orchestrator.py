@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -64,26 +65,36 @@ def post_comment(number: int, text: str) -> None:
 
 
 def latest_state(number: int) -> dict[str, Any]:
-    comments = api("GET", f"/issues/{number}/comments?per_page=100") or []
-    for comment in reversed(comments):
-        body = str(comment.get("body") or "")
-        start = body.find(MARKER)
-        if start < 0:
-            continue
-        end = body.find("\n-->", start)
-        if end < 0:
-            continue
-        raw = body[start + len(MARKER):end]
-        try:
-            value = json.loads(raw)
+    # Review state is durable GitHub issue state. Fetch all comment pages so long-running issues
+    # such as GH-98 do not lose cycle accounting once they exceed one page of discussion.
+    page = 1
+    newest: dict[str, Any] = {}
+    while page <= 20:
+        comments = api("GET", f"/issues/{number}/comments?per_page=100&page={page}") or []
+        if not comments:
+            break
+        for comment in comments:
+            body = str(comment.get("body") or "")
+            start = body.find(MARKER)
+            if start < 0:
+                continue
+            end = body.find("\n-->", start)
+            if end < 0:
+                continue
+            try:
+                value = json.loads(body[start + len(MARKER):end])
+            except json.JSONDecodeError:
+                continue
             if isinstance(value, dict):
-                return value
-        except json.JSONDecodeError:
-            continue
-    return {}
+                newest = value
+        if len(comments) < 100:
+            break
+        page += 1
+    return newest
 
 
 def persist_state(issue_number: int, state: dict[str, Any], human_text: str) -> None:
+    state["updatedAt"] = datetime.now(timezone.utc).isoformat()
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":"))
     post_comment(issue_number, f"{human_text}\n\n{MARKER}{encoded}\n-->")
 
@@ -98,6 +109,11 @@ def open_pr(branch: str) -> dict[str, Any] | None:
     query = parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "base": "main", "per_page": 10})
     values = api("GET", f"/pulls?{query}") or []
     return values[0] if values else None
+
+
+def changed_files(pr_number: int) -> list[str]:
+    values = api("GET", f"/pulls/{pr_number}/files?per_page=100") or []
+    return [str(item.get("filename")) for item in values if item.get("filename")]
 
 
 def reviewer_route(issue_labels: set[str]) -> tuple[str, str, str]:
@@ -131,14 +147,15 @@ Current PR description:
 
 Review requirements:
 1. Read repository-root AGENTS.md and only the architecture/system docs it requires for the changed scope.
-2. Inspect the actual current diff with `git diff origin/main...HEAD` and changed-file list. The repository state, not prior worker prose, is authoritative.
+2. Inspect the actual current diff with `git diff origin/main...HEAD` and changed-file list. Repository state, not prior worker prose or hidden reasoning, is authoritative.
 3. Inspect relevant tests and the latest Supervisor Unity artifacts under Logs/SymphonyUnity when validation is material.
 4. Check correctness, architecture/system boundaries, regression risk, persistence/save contracts, tests, docs, and whether validation actually proves the changed behavior.
-5. Do not manufacture blockers. Minor non-blocking suggestions may be findings, but `changes_required` should mean the PR should not enter human integration review yet.
+5. Do not manufacture blockers. Minor non-blocking suggestions may be findings, but `changes_required` means the PR should not enter human integration review yet.
 6. If the correct fix requires material work outside the approved issue scope, choose `blocked_or_ambiguous`, set requires_human=true, and reason=scope_change_required rather than silently expanding scope.
 7. If product/design intent is genuinely ambiguous, choose `blocked_or_ambiguous` and require human attention.
-8. `routing_recommendation` is advisory for a repair task. Recommend the cheapest route that is likely to resolve the actual findings; use `unchanged` when no repair is required.
+8. `routing_recommendation` is advisory for a repair task. Recommend the cheapest route likely to resolve the actual findings; use `unchanged` when no repair is required.
 9. Approval means the current PR/head is technically ready for a human integration decision; it never authorizes merge.
+10. Do not weaken or reinterpret the issue acceptance criteria merely to approve the current implementation.
 
 Return only the structured verdict required by the provided output schema.
 """
@@ -172,22 +189,45 @@ def run_reviewer(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any
 
 
 def state_comment(state: dict[str, Any], verdict: dict[str, Any]) -> str:
-    lines = [
-        f"### Automated review cycle {state['reviewCycle']}: `{verdict['verdict']}`",
-        "",
-        verdict["summary"],
-    ]
+    lines = [f"### Automated review cycle {state['reviewCycle']}: `{verdict['verdict']}`", "", verdict["summary"]]
     findings = verdict.get("findings") or []
     if findings:
         lines += ["", "Findings:"]
         for finding in findings:
             path = f" (`{finding['path']}`)" if finding.get("path") else ""
             lines.append(f"- **{finding['severity']} / {finding['category']}**{path}: {finding['description']} — {finding['suggested_action']}")
-    lines += [
+    lines += ["", f"Repair routing recommendation: `{verdict['routing_recommendation']}`.", f"Reviewed head: `{verdict['reviewedHead']}`."]
+    return "\n".join(lines)
+
+
+def human_review_packet(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any]) -> str:
+    files = changed_files(int(pr["number"]))
+    history = state.get("history") or []
+    repaired = [item for item in history[:-1] if item.get("verdict") == "changes_required"]
+    lines = [
+        "## Human Review packet",
         "",
-        f"Repair routing recommendation: `{verdict['routing_recommendation']}`.",
-        f"Reviewed head: `{verdict['reviewedHead']}`.",
+        f"- Issue: GH-{issue['number']} — {issue.get('title','')}",
+        f"- PR: #{pr['number']} — {pr.get('title','')}",
+        f"- Head: `{pr['head']['sha']}`",
+        f"- Automated review passes: {len(history)}",
+        f"- Automatic repairs consumed: {state['repairAttempts']} / {state['maxRepairAttempts']}",
+        "- Integration: **human approval required; no automated merge is permitted**",
+        "",
+        "### Files changed",
     ]
+    lines.extend(f"- `{name}`" for name in files[:100])
+    if not files:
+        lines.append("- unavailable")
+    lines += ["", "### Review history"]
+    for item in history:
+        lines.append(f"- Cycle {item['cycle']} — `{item['verdict']}` on `{item['head'][:12]}` via `{item['reviewerRoute']}`: {item['summary']}")
+    if repaired:
+        lines += ["", "### Findings repaired during the automated loop"]
+        for item in repaired:
+            for finding in item.get("findings") or []:
+                lines.append(f"- Cycle {item['cycle']}: {finding['description']}")
+    lines += ["", "### Validation / implementation notes", pr.get("body") or "PR description unavailable."]
     return "\n".join(lines)
 
 
@@ -203,6 +243,19 @@ def set_repair_route(number: int, recommendation: str) -> None:
         add_labels(number, f"repair-route:{recommendation}")
 
 
+def history_entry(state: dict[str, Any], verdict: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cycle": state["reviewCycle"],
+        "head": verdict["reviewedHead"],
+        "verdict": verdict["verdict"],
+        "summary": verdict["summary"],
+        "findings": verdict.get("findings") or [],
+        "routingRecommendation": verdict["routing_recommendation"],
+        "reviewerRoute": verdict["reviewerRoute"],
+        "reason": verdict.get("reason", "none"),
+    }
+
+
 def process(issue: dict[str, Any]) -> None:
     number = int(issue["number"])
     workspace = WORKSPACE_ROOT / f"GH-{number}"
@@ -211,13 +264,15 @@ def process(issue: dict[str, Any]) -> None:
     branch = run_git(workspace, "branch", "--show-current")
     pr = open_pr(branch)
     if not pr:
+        state = {"state":"human_attention","reason":"missing_pr","reviewCycle":0,"repairAttempts":0,"maxRepairAttempts":MAX_REPAIRS,"history":[]}
+        persist_state(number, state, "Automated review halted because no open PR matches the issue workspace branch.")
         clear_lifecycle_labels(number)
         add_labels(number, "symphony:human-attention")
-        persist_state(number, {"state":"human_attention","reason":"missing_pr","reviewCycle":0,"repairAttempts":0,"maxRepairAttempts":MAX_REPAIRS}, "Automated review halted because no open PR matches the issue workspace branch.")
         return
 
     prior = latest_state(number)
     repairs = int(prior.get("repairAttempts", 0))
+    prior_history = prior.get("history") if isinstance(prior.get("history"), list) else []
     state = {
         "state": "agent_review",
         "issue": number,
@@ -226,49 +281,54 @@ def process(issue: dict[str, Any]) -> None:
         "reviewCycle": repairs + 1,
         "repairAttempts": repairs,
         "maxRepairAttempts": MAX_REPAIRS,
+        "history": list(prior_history),
     }
     verdict = run_reviewer(issue, pr, state)
     state["lastVerdict"] = verdict["verdict"]
     state["lastSummary"] = verdict["summary"]
     state["routingRecommendation"] = verdict["routing_recommendation"]
     state["reason"] = verdict.get("reason", "none")
+    state["history"].append(history_entry(state, verdict))
 
-    # Publish the independent review to the PR conversation and durable issue state.
     review_text = state_comment(state, verdict)
     post_comment(int(pr["number"]), review_text)
 
     if verdict["verdict"] == "approved" and not verdict.get("requires_human"):
         state["state"] = "human_review"
+        persist_state(number, state, review_text + "\n\nAutomated review passed. Human approval is now required for merge.")
         clear_lifecycle_labels(number)
         set_repair_route(number, "unchanged")
         add_labels(number, "symphony:human-review")
-        persist_state(number, state, review_text + "\n\nAutomated review passed. Human approval is now required for merge.")
+        post_comment(int(pr["number"]), human_review_packet(issue, pr, state))
         return
 
     if verdict["verdict"] == "blocked_or_ambiguous" or verdict.get("requires_human"):
         state["state"] = "human_attention"
-        clear_lifecycle_labels(number)
-        add_labels(number, "symphony:human-attention")
         persist_state(number, state, review_text + "\n\nAutomation stopped for human attention; no repair was dispatched.")
+        clear_lifecycle_labels(number)
+        set_repair_route(number, "unchanged")
+        add_labels(number, "symphony:human-attention")
         return
 
     if repairs >= MAX_REPAIRS:
         state["state"] = "human_attention"
         state["reason"] = "review_loop_exhausted"
-        clear_lifecycle_labels(number)
-        add_labels(number, "symphony:human-attention")
         persist_state(number, state, review_text + f"\n\nAutomatic repair budget exhausted ({MAX_REPAIRS}); human attention is required.")
+        clear_lifecycle_labels(number)
+        set_repair_route(number, "unchanged")
+        add_labels(number, "symphony:human-attention")
         return
 
     state["state"] = "rework"
     state["repairAttempts"] = repairs + 1
+    # Persist authoritative findings/cycle accounting before any dispatch mutation. If Supervisor
+    # restarts during the label transition, the next process can recover the repair budget/context.
+    persist_state(number, state, review_text + f"\n\nAutomatic repair {state['repairAttempts']} of {MAX_REPAIRS} approved for dispatch against the existing PR/branch.")
     clear_lifecycle_labels(number)
     add_labels(number, "symphony:rework")
     set_repair_route(number, verdict["routing_recommendation"])
-    # Reviewed continuation contract: one-shot rearm first, dispatch lease last.
     add_labels(number, "symphony:rearm")
     add_labels(number, "symphony:ready")
-    persist_state(number, state, review_text + f"\n\nAutomatic repair {state['repairAttempts']} of {MAX_REPAIRS} dispatched against the existing PR/branch.")
 
 
 def reviewable_issues() -> list[dict[str, Any]]:
