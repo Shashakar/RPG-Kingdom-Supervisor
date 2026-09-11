@@ -175,7 +175,7 @@ start_git_broker() {
   python3 -u "$SUPERVISOR_ROOT/scripts/git-handoff-broker.py" \
     --workspace-root "$WORKSPACE_ROOT" \
     --state-root "$STATE_ROOT" \
-    --host-runner "$SUPERVISOR_ROOT/scripts/git-handoff-host.py" \
+    --host-runner "$SUPERVISOR_ROOT/scripts/git-handoff-host-wrapper.py" \
     --command-timeout-seconds "$GIT_BROKER_HOST_TIMEOUT_SECONDS" \
     --kill-grace-seconds "$GIT_BROKER_KILL_GRACE_SECONDS" \
     >>"$GIT_BROKER_LOG" 2>&1 &
