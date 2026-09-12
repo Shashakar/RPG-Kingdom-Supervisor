@@ -55,6 +55,7 @@ python3 -m py_compile \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
   "$ROOT/scripts/quota-refresh-service.py" \
   "$ROOT/scripts/quota-status.py" \
+  "$ROOT/scripts/quota_state.py" \
   "$ROOT/scripts/queue-agent-review.py" \
   "$ROOT/scripts/reconcile-report-completion.py" \
   "$ROOT/scripts/report-complete-host.py" \
