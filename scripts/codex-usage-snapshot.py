@@ -25,6 +25,15 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 
+DEFAULT_STALE_AFTER_SECONDS = 600
+
+
+def stale_after_seconds() -> int:
+    try:
+        return max(60, int(os.environ.get("RPGK_QUOTA_STALE_AFTER_SECONDS", str(DEFAULT_STALE_AFTER_SECONDS))))
+    except ValueError:
+        return DEFAULT_STALE_AFTER_SECONDS
+
 
 def write_message(proc: subprocess.Popen[str], payload: dict[str, Any]) -> None:
     if proc.stdin is None:
@@ -113,6 +122,7 @@ def normalize_snapshot(result: dict[str, Any]) -> dict[str, Any]:
             "protocolVersion": telemetry.PROTOCOL_VERSION,
             "status": "unavailable",
             "observedAt": observed,
+            "staleAfterSeconds": stale_after_seconds(),
             "reason": "Codex returned no rate-limit bucket",
         }
 
@@ -120,6 +130,7 @@ def normalize_snapshot(result: dict[str, Any]) -> dict[str, Any]:
         "protocolVersion": telemetry.PROTOCOL_VERSION,
         "status": "available",
         "observedAt": observed,
+        "staleAfterSeconds": stale_after_seconds(),
         "source": "codex-app-server:account/rateLimits/read",
         "accountId": result.get("accountId"),
         "ordinaryUsageAllowed": result.get("ordinaryUsageAllowed"),
@@ -195,8 +206,17 @@ def app_server_snapshot(timeout_seconds: float) -> dict[str, Any]:
             proc.wait(timeout=2)
 
 
-def persist(snapshot: dict[str, Any]) -> None:
+def persist(snapshot: dict[str, Any]) -> dict[str, Any]:
     root = telemetry.state_root() / "usage"
+    snapshot = dict(snapshot)
+    snapshot.setdefault("staleAfterSeconds", stale_after_seconds())
+    if snapshot.get("status") == "available":
+        telemetry.atomic_json(root / "last_success.json", snapshot)
+    else:
+        last_success = telemetry.read_json(root / "last_success.json")
+        if last_success.get("status") == "available":
+            snapshot["lastSuccessful"] = last_success
+    snapshot = telemetry.sanitize(snapshot)
     telemetry.atomic_json(root / "current.json", snapshot)
     telemetry.append_jsonl(root / "snapshots.jsonl", snapshot)
     telemetry.append_event(
@@ -204,7 +224,10 @@ def persist(snapshot: dict[str, Any]) -> None:
         status=snapshot.get("status"),
         rateLimits=snapshot.get("rateLimits"),
         ordinaryUsageAllowed=snapshot.get("ordinaryUsageAllowed"),
+        reason=snapshot.get("reason"),
+        hasLastSuccessful=isinstance(snapshot.get("lastSuccessful"), dict),
     )
+    return snapshot
 
 
 def main() -> int:
@@ -222,11 +245,12 @@ def main() -> int:
             "protocolVersion": telemetry.PROTOCOL_VERSION,
             "status": "unavailable",
             "observedAt": telemetry.iso_now(),
+            "staleAfterSeconds": stale_after_seconds(),
             "reason": str(exc),
         }
     snapshot = telemetry.sanitize(snapshot)
     if args.write:
-        persist(snapshot)
+        snapshot = persist(snapshot)
     if not args.quiet:
         print(json.dumps(snapshot, indent=2, sort_keys=True))
     if args.strict and snapshot.get("status") != "available":

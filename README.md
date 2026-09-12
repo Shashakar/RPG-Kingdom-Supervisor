@@ -88,6 +88,7 @@ The #46 operations-console work now includes the telemetry foundation, lifecycle
 - Symphony, review-orchestrator, Unity-broker, and Git-broker status are normalized into `healthy`, `busy`, `degraded`, `blocked`, `stopped`, or `unknown` without replacing their underlying authoritative status files;
 - implementation, repair, review, and report-only Codex lifetimes persist role/model/effort, duration, outcome, and uniquely attributable token counts;
 - a short-lived model-free App Server probe samples `account/rateLimits/read` before/after worker lifetimes so five-hour/weekly quota values and reset times remain server-authoritative;
+- Supervisor also samples quota at startup and every five minutes while idle by default, preserving the latest failed attempt separately from the last successful sample and exposing explicit fresh/stale/unavailable/not-sampled states;
 - quota percentage-point deltas are shown only when both authoritative samples exist and are never inferred from token counts;
 - telemetry persistence redacts credentials/authorization values before writing state or serving dashboard JSON;
 - the dashboard projects GitHub-authoritative work into implementation, agent-review, rework, human-review, human-attention, halted/quota, and report-complete queues;
@@ -97,7 +98,7 @@ The #46 operations-console work now includes the telemetry foundation, lifecycle
 - worker-lifetime drill-down correlates route, timing, outcome, token/quota telemetry, current lifecycle, review history, Unity runs, Git handoffs, artifacts, and chronological same-issue continuation context;
 - the localhost UI remains read-only and visually separates queues requiring human action.
 
-See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md), [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md), and [`docs/OPERATIONS_USAGE_ANALYSIS.md`](docs/OPERATIONS_USAGE_ANALYSIS.md).
+See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md), [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md), [`docs/OPERATIONS_USAGE_ANALYSIS.md`](docs/OPERATIONS_USAGE_ANALYSIS.md), and [`docs/QUOTA_REFRESH.md`](docs/QUOTA_REFRESH.md).
 
 Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
@@ -112,16 +113,20 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
-- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services, and publishes Symphony service state.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, refreshes quota, reconciles/prunes local telemetry, starts/reuses host services, and publishes Symphony service state.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
-- [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.
+- [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler with latest-attempt/last-success persistence.
+- [`scripts/quota-refresh-service.py`](scripts/quota-refresh-service.py) — host-owned periodic quota refresher used while Supervisor is alive or idle.
+- [`scripts/quota_state.py`](scripts/quota_state.py) — derived quota age/freshness semantics for operator presentation.
+- [`scripts/quota-status.py`](scripts/quota-status.py) — text/JSON current global quota diagnostic.
 - [`scripts/supervisor_telemetry.py`](scripts/supervisor_telemetry.py) — durable service/worker/quota correlation, redaction, history, and operations collector.
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
 - [`scripts/supervisor_maintenance.py`](scripts/supervisor_maintenance.py) — configurable local telemetry retention and stale active-worker restart reconciliation.
 - [`scripts/supervisor_detail.py`](scripts/supervisor_detail.py) — one-worker lifetime drill-down across lifecycle, usage, review, Unity, Git, and artifact sources.
 - [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only dashboard server and existing observability APIs.
 - [`scripts/supervisor_dashboard.html`](scripts/supervisor_dashboard.html) — dependency-free operator console presentation, navigation, drill-down, and progressive-disclosure UI.
+- [`scripts/supervisor_quota_ui.js`](scripts/supervisor_quota_ui.js) — explicit fresh/stale/unavailable/not-sampled quota presentation layered onto the operator console.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
 - [`scripts/git-handoff-broker.py`](scripts/git-handoff-broker.py) — host-owned Git request broker and structured status producer.
@@ -139,7 +144,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary, performs report reconciliation or tracker cleanup/halt handoff, then finalizes worker telemetry.
 - [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing, continuation, completion, and Unity scheduling labels.
 - [`scripts/rearm-issue.sh`](scripts/rearm-issue.sh) — requests the one-shot remote continuation approval plus normal dispatch lease; host preflight owns local stale-state recovery.
-- [`scripts/diagnose-issue.sh`](scripts/diagnose-issue.sh) — read-only terminal summary for one dispatched issue.
+- [`scripts/diagnose-issue.sh`](scripts/diagnose-issue.sh) — read-only terminal summary for one dispatched issue, including separately labeled current global quota.
 - [`scripts/serve-diagnostics.sh`](scripts/serve-diagnostics.sh) — localhost-only, read-only operations/issue diagnostics dashboard.
 - [`scripts/codex-turn-environment-probe.sh`](scripts/codex-turn-environment-probe.sh) — explicit model-backed environment diagnostic; never run automatically because it consumes allowance.
 - [`AGENTS.md`](AGENTS.md) — rules for modifying this supervisor repository.
@@ -152,6 +157,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md) — service health, Codex quota, worker telemetry, lifecycle queues, activity correlation, redaction, and dashboard data contracts.
 - [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md) — configurable telemetry retention, stale-worker restart reconciliation, and worker-lifetime drill-down contracts.
 - [`docs/OPERATIONS_USAGE_ANALYSIS.md`](docs/OPERATIONS_USAGE_ANALYSIS.md) — comparative worker-usage coverage, grouped summaries, expensive lifetimes, and continuation-cost analysis.
+- [`docs/QUOTA_REFRESH.md`](docs/QUOTA_REFRESH.md) — startup/idle quota refresh, freshness, last-good preservation, and current-vs-historical semantics.
 - [`docs/DASHBOARD.md`](docs/DASHBOARD.md) — operator hierarchy, dashboard views, progressive disclosure, and read-only safety boundary.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
@@ -173,7 +179,7 @@ bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
-The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its sticky status strip and **Overview** view surface service health, active work, Codex quota, and human-action-required state first. **Work / Activity** contains GitHub-authoritative lifecycle queues, the unified activity timeline, and recent worker lifetimes; relevant issue references open focused **Issue detail** directly. Comparative usage and Unity history live in their own views, with detailed tables and raw diagnostics progressively disclosed rather than competing with the operator overview. See [`docs/DASHBOARD.md`](docs/DASHBOARD.md) for the presentation contract.
+The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its sticky status strip and **Overview** view surface service health, active work, Codex quota, and human-action-required state first. Quota is explicitly labeled fresh, stale, unavailable, or not sampled; failed latest probes retain last-known-good percentages only as historical operator context. **Work / Activity** contains GitHub-authoritative lifecycle queues, the unified activity timeline, and recent worker lifetimes; relevant issue references open focused **Issue detail** directly. Comparative usage and Unity history live in their own views, with detailed tables and raw diagnostics progressively disclosed rather than competing with the operator overview. See [`docs/DASHBOARD.md`](docs/DASHBOARD.md) for the presentation contract.
 
 When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 
@@ -187,6 +193,6 @@ That probe uses Luna / low by default and consumes a small amount of Codex allow
 
 Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, explicit human review boundaries, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires an explicit one-shot rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
 
-Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. Normal implementation stops at a reviewable PR; explicitly eligible report-only work stops at a host-verified `symphony:report-complete` issue state. Telemetry/activity/detail aggregation remains read-only with respect to RPG Kingdom/GitHub lifecycle; startup maintenance mutates only Supervisor-local telemetry and never grants model turns additional credentials or permissions. Merge and issue closure remain human decisions.
+Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. Normal implementation stops at a reviewable PR; explicitly eligible report-only work stops at a host-verified `symphony:report-complete` issue state. Telemetry/activity/detail aggregation remains read-only with respect to RPG Kingdom/GitHub lifecycle; startup maintenance and quota refresh mutate only Supervisor-local telemetry and never grant model turns additional credentials or permissions. Merge and issue closure remain human decisions.
 
 Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).

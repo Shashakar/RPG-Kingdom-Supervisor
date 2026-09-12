@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import diagnostics  # type: ignore  # noqa: E402
+import quota_state  # type: ignore  # noqa: E402
 import review_state  # type: ignore  # noqa: E402
 import supervisor_activity  # type: ignore  # noqa: E402
 import supervisor_detail  # type: ignore  # noqa: E402
@@ -26,7 +27,11 @@ import supervisor_usage_analysis  # type: ignore  # noqa: E402
 import unity_run_history  # type: ignore  # noqa: E402
 
 PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"
-PAGE = PAGE_PATH.read_text(encoding="utf-8")
+QUOTA_UI_PATH = SCRIPT_DIR / "supervisor_quota_ui.js"
+PAGE = PAGE_PATH.read_text(encoding="utf-8").replace(
+    "</body>", '<script src="/supervisor-quota-ui.js"></script>\n</body>', 1
+)
+QUOTA_UI = QUOTA_UI_PATH.read_text(encoding="utf-8")
 
 
 def normalize_issue(value: str | None) -> str | None:
@@ -40,6 +45,12 @@ def normalize_issue(value: str | None) -> str | None:
 
 def json_bytes(value: Any) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def operations_payload() -> dict[str, Any]:
+    payload = supervisor_telemetry.collect_operations()
+    payload["quota"] = quota_state.summarize(payload.get("quota"))
+    return payload
 
 
 def serve(port: int) -> None:
@@ -56,20 +67,27 @@ def serve(port: int) -> None:
             self.end_headers()
             self.wfile.write(body)
 
+        def send_text(self, value: str, content_type: str) -> None:
+            body = value.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if parsed.path == "/":
-                body = PAGE.encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.send_text(PAGE, "text/html; charset=utf-8")
+                return
+
+            if parsed.path == "/supervisor-quota-ui.js":
+                self.send_text(QUOTA_UI, "application/javascript; charset=utf-8")
                 return
 
             if parsed.path == "/api/operations":
-                self.send_json(supervisor_telemetry.collect_operations())
+                self.send_json(operations_payload())
                 return
 
             if parsed.path == "/api/maintenance":

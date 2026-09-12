@@ -14,6 +14,8 @@ python3 "$ROOT/tests/symphony-skill-roots-transform-test.py"
 python3 "$ROOT/tests/continuation-policy-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
+python3 "$ROOT/tests/quota-refresh-service-test.py"
+python3 "$ROOT/tests/quota-presentation-policy-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
 python3 "$ROOT/tests/supervisor-activity-test.py"
 python3 "$ROOT/tests/supervisor-maintenance-test.py"
@@ -51,6 +53,9 @@ python3 -m py_compile \
   "$ROOT/scripts/patch-symphony-continuation-policy.py" \
   "$ROOT/scripts/patch-symphony-skill-roots.py" \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
+  "$ROOT/scripts/quota-refresh-service.py" \
+  "$ROOT/scripts/quota-status.py" \
+  "$ROOT/scripts/quota_state.py" \
   "$ROOT/scripts/queue-agent-review.py" \
   "$ROOT/scripts/reconcile-report-completion.py" \
   "$ROOT/scripts/report-complete-host.py" \
@@ -66,6 +71,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/codex-app-server-router.sh"
+bash -n "$ROOT/scripts/diagnose-issue.sh"
 bash -n "$ROOT/scripts/git-handoff.sh"
 bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"

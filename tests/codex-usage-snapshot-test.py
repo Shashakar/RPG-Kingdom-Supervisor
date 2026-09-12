@@ -60,6 +60,7 @@ def main() -> int:
         env = os.environ.copy()
         env["RPGK_SUPERVISOR_STATE_ROOT"] = str(state)
         env["RPGK_CODEX_APP_SERVER_COMMAND"] = f"{sys.executable} {fake}"
+        env["RPGK_QUOTA_STALE_AFTER_SECONDS"] = "600"
         env["SYMPHONY_GITHUB_TOKEN"] = "must-not-leak"
 
         result = subprocess.run(
@@ -77,6 +78,7 @@ def main() -> int:
         assert payload["status"] == "available"
         assert payload["source"] == "codex-app-server:account/rateLimits/read"
         assert payload["accountId"] == "acct-fixture"
+        assert payload["staleAfterSeconds"] == 600
         assert payload["rateLimits"]["primary"]["usedPercent"] == 25
         assert payload["rateLimits"]["primary"]["remainingPercent"] == 75
         assert payload["rateLimits"]["secondary"]["remainingPercent"] == 82
@@ -86,8 +88,33 @@ def main() -> int:
         assert payload["credits"]["balance"] == "12.50"
         assert "must-not-leak" not in json.dumps(payload)
 
+        last_success_path = state / "usage" / "last_success.json"
+        last_success = json.loads(last_success_path.read_text(encoding="utf-8"))
+        assert last_success["status"] == "available"
+        assert last_success["rateLimits"]["primary"]["remainingPercent"] == 75
+
+        # A later probe failure remains the latest state for continuation safety, but it carries
+        # the last known good authoritative sample for operator display instead of replacing it.
+        env["RPGK_CODEX_APP_SERVER_COMMAND"] = f"{sys.executable} -c 'raise SystemExit(7)'"
+        failed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--write", "--timeout-seconds", "1"],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        assert failed.returncode == 0
+        latest = json.loads((state / "usage" / "current.json").read_text(encoding="utf-8"))
+        assert latest["status"] == "unavailable"
+        assert latest["reason"]
+        assert latest["lastSuccessful"]["status"] == "available"
+        assert latest["lastSuccessful"]["rateLimits"]["primary"]["remainingPercent"] == 75
+        preserved = json.loads(last_success_path.read_text(encoding="utf-8"))
+        assert preserved == last_success
+
         history = (state / "usage" / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()
-        assert len(history) == 1
+        assert len(history) == 2
         event_text = (state / "telemetry" / "events.jsonl").read_text(encoding="utf-8")
         assert "quota_snapshot" in event_text
         assert "must-not-leak" not in event_text
