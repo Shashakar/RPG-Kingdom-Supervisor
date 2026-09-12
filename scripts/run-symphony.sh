@@ -217,7 +217,7 @@ start_git_broker() {
 
 start_review_orchestrator() {
   mkdir -p "$STATE_ROOT"
-  python3 -u "$SUPERVISOR_ROOT/scripts/review-orchestrator.py" >>"$REVIEW_LOG" 2>&1 &
+  python3 -u "$SUPERVISOR_ROOT/scripts/review-orchestrator-service.py" >>"$REVIEW_LOG" 2>&1 &
   REVIEW_PID=$!
   REVIEW_STARTED=1
   sleep 0.2
