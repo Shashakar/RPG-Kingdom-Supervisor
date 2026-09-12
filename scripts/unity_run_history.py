@@ -394,6 +394,8 @@ def active_run(state_root: Path) -> dict[str, Any] | None:
     phase = str(active.get("phase") or "host_startup")
     last_progress = active.get("lastProgressAt") or active.get("startedAt")
     no_progress = active.get("noProgressSeconds")
+    last_result = status.get("lastResult") if isinstance(status.get("lastResult"), dict) else {}
+    last_details = last_result.get("details") if isinstance(last_result.get("details"), dict) else None
     if blocked:
         diagnosis = {
             "category": "stall_recovery_blocked",
@@ -436,12 +438,12 @@ def active_run(state_root: Path) -> dict[str, Any] | None:
         "status": run_status,
         "finalStatus": final_status,
         "result": result,
-        "exitCode": None,
+        "exitCode": last_result.get("exitCode") if blocked else None,
         "phase": phase,
         "lastProgressAt": last_progress,
         "noProgressSeconds": no_progress,
         "unityPid": active.get("unityPid"),
-        "recovery": None,
+        "recovery": last_details if blocked else None,
         "artifactPath": None,
         "paths": {},
         "summary": None,
@@ -483,6 +485,10 @@ def collect_runs(
     if include_active:
         active = active_run(state_root)
         if active:
+            # A recovery-blocked request has already written a terminal response for the worker
+            # while the host process intentionally remains owned by the broker. Show the live
+            # blocked state once instead of duplicating the same request in history.
+            runs = [run for run in runs if run.get("requestId") != active.get("requestId")]
             runs.append(active)
 
     def keep(run: dict[str, Any]) -> bool:
