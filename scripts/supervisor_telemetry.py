@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Durable, secret-safe operations telemetry for RPG Kingdom Supervisor.
-
-This module owns only local Supervisor telemetry. GitHub remains the lifecycle authority;
-Codex/App Server remains the authority for token/rate-limit data; broker/service status files
-remain the authority for their respective host processes.
-"""
+"""Durable, secret-safe operations telemetry for RPG Kingdom Supervisor."""
 from __future__ import annotations
 
 import argparse
@@ -26,20 +21,9 @@ DEFAULT_CODEX_HOME = Path.home() / ".codex"
 ISSUE_RE = re.compile(r"^GH-(\d+)$")
 LIFECYCLE_PREFIXES = ("symphony:", "completion:", "validation:", "risk:", "model:", "effort:")
 SENSITIVE_KEYS = {
-    "authorization",
-    "authentication",
-    "accesstoken",
-    "refreshtoken",
-    "idtoken",
-    "apikey",
-    "password",
-    "secret",
-    "clientsecret",
-    "githubtoken",
-    "symphonygithubtoken",
-    "openaikey",
-    "credential",
-    "credentials",
+    "authorization", "authentication", "accesstoken", "refreshtoken", "idtoken",
+    "apikey", "password", "secret", "clientsecret", "githubtoken",
+    "symphonygithubtoken", "openaikey", "credential", "credentials",
 }
 
 
@@ -62,14 +46,51 @@ def iso_now() -> str:
 def parse_time(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    text = value.strip().replace("Z", "+00:00")
     try:
-        parsed = datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _normalized_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", key.lower())
+
+
+def _known_secrets() -> list[str]:
+    return [
+        value
+        for name in ("SYMPHONY_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY")
+        if (value := os.environ.get(name, ""))
+    ]
+
+
+def sanitize(value: Any) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, child in value.items():
+            text_key = str(key)
+            normalized = _normalized_key(text_key)
+            if normalized in SENSITIVE_KEYS or any(term in normalized for term in ("authorization", "password", "clientsecret")):
+                result[text_key] = "[REDACTED]"
+            else:
+                result[text_key] = sanitize(child)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [sanitize(item) for item in value]
+    if isinstance(value, str):
+        text = re.sub(
+            r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}",
+            "Bearer [REDACTED]",
+            value,
+            flags=re.IGNORECASE,
+        )
+        for secret in _known_secrets():
+            text = text.replace(secret, "[REDACTED]")
+        return text
+    return value
 
 
 def atomic_json(path: Path, payload: Any) -> None:
@@ -108,47 +129,11 @@ def append_jsonl(path: Path, payload: Any) -> None:
             os.fsync(handle.fileno())
 
 
-def _normalized_key(key: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", key.lower())
-
-
-def _known_secrets() -> list[str]:
-    values = []
-    for name in ("SYMPHONY_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY"):
-        value = os.environ.get(name, "")
-        if value:
-            values.append(value)
-    return values
-
-
-def sanitize(value: Any) -> Any:
-    if isinstance(value, dict):
-        result: dict[str, Any] = {}
-        for key, child in value.items():
-            text_key = str(key)
-            normalized = _normalized_key(text_key)
-            if normalized in SENSITIVE_KEYS or "authorization" in normalized or "password" in normalized or "clientsecret" in normalized:
-                result[text_key] = "[REDACTED]"
-            else:
-                result[text_key] = sanitize(child)
-        return result
-    if isinstance(value, list):
-        return [sanitize(item) for item in value]
-    if isinstance(value, tuple):
-        return [sanitize(item) for item in value]
-    if isinstance(value, str):
-        text = value
-        if re.search(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}", text, re.IGNORECASE):
-            text = re.sub(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer [REDACTED]", text, flags=re.IGNORECASE)
-        for secret in _known_secrets():
-            text = text.replace(secret, "[REDACTED]")
-        return text
-    return value
-
-
 def append_event(event_type: str, **fields: Any) -> None:
-    payload = {"protocolVersion": PROTOCOL_VERSION, "eventType": event_type, "observedAt": iso_now(), **fields}
-    append_jsonl(state_root() / "telemetry" / "events.jsonl", payload)
+    append_jsonl(
+        state_root() / "telemetry" / "events.jsonl",
+        {"protocolVersion": PROTOCOL_VERSION, "eventType": event_type, "observedAt": iso_now(), **fields},
+    )
 
 
 def process_alive(pid: Any) -> bool:
@@ -161,20 +146,22 @@ def process_alive(pid: Any) -> bool:
     try:
         os.kill(number, 0)
         return True
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError:
         return False
+    except PermissionError:
+        return True
 
 
 def service_status_path(service: str) -> Path:
-    mapping = {
+    paths = {
         "symphony": state_root() / "symphony" / "status.json",
         "review": state_root() / "review-orchestrator" / "status.json",
         "unity": state_root() / "unity-broker" / "status.json",
         "git": state_root() / "git-broker" / "status.json",
     }
-    if service not in mapping:
+    if service not in paths:
         raise ValueError(f"unsupported service: {service}")
-    return mapping[service]
+    return paths[service]
 
 
 def write_service_status(service: str, state: str, pid: int | None = None, exit_code: int | None = None) -> dict[str, Any]:
@@ -191,7 +178,7 @@ def write_service_status(service: str, state: str, pid: int | None = None, exit_
     if state == "starting":
         payload["startedAt"] = now
     elif prior.get("startedAt"):
-        payload["startedAt"] = prior.get("startedAt")
+        payload["startedAt"] = prior["startedAt"]
     if exit_code is not None:
         payload["exitCode"] = exit_code
     if state in {"stopped", "failed"}:
@@ -203,72 +190,55 @@ def write_service_status(service: str, state: str, pid: int | None = None, exit_
 
 def _seconds_since(value: Any) -> float | None:
     parsed = parse_time(value)
-    if parsed is None:
-        return None
-    return max(0.0, (utc_now() - parsed).total_seconds())
+    return max(0.0, (utc_now() - parsed).total_seconds()) if parsed else None
 
 
 def normalize_service(service: str) -> dict[str, Any]:
     raw = read_json(service_status_path(service))
     if not raw:
         return {"service": service, "health": "stopped", "state": "missing", "reason": "no status record", "pid": None}
-
     pid = raw.get("pid")
     alive = process_alive(pid)
     state = str(raw.get("state") or "unknown")
     health = "unknown"
     reason = None
-
     if state in {"stopped", "failed"}:
-        health = "stopped"
-        reason = f"service recorded state={state}"
+        health, reason = "stopped", f"service recorded state={state}"
     elif pid is not None and not alive:
-        health = "stopped"
-        reason = "recorded PID is not alive"
+        health, reason = "stopped", "recorded PID is not alive"
     elif service == "review":
         if state == "blocked":
-            health = "blocked"
-            reason = raw.get("lastError") or "review service is blocked"
+            health, reason = "blocked", raw.get("lastError") or "review service is blocked"
         elif state == "degraded":
-            health = "degraded"
-            reason = raw.get("lastError") or "review poll is backing off"
+            health, reason = "degraded", raw.get("lastError") or "review poll is backing off"
         elif state in {"starting", "polling", "ready"} and alive:
             health = "healthy"
             age = _seconds_since(raw.get("lastSuccessfulPoll"))
             if state == "ready" and age is not None and age > 180:
-                health = "degraded"
-                reason = f"last successful poll was {int(age)}s ago"
+                health, reason = "degraded", f"last successful poll was {int(age)}s ago"
     elif service in {"unity", "git"}:
         if state == "running" and alive:
             health = "busy"
         elif state == "ready" and alive:
             health = "healthy"
         elif state in {"blocked", "degraded"} and alive:
-            health = state
-            reason = raw.get("lastError") or raw.get("reason")
+            health, reason = state, raw.get("lastError") or raw.get("reason")
         elif alive:
-            health = "unknown"
             reason = f"unrecognized broker state={state}"
     elif service == "symphony":
-        if state == "running" and alive:
+        if state in {"running", "starting"} and alive:
             health = "healthy"
-        elif state == "starting" and alive:
-            health = "healthy"
-        elif alive:
-            health = "unknown"
-        else:
-            health = "stopped"
-            reason = "Symphony launcher is not alive"
-
-    payload = {"service": service, "health": health, "state": state, "alive": alive, "reason": reason, **raw}
-    return sanitize(payload)
+        elif not alive:
+            health, reason = "stopped", "Symphony launcher is not alive"
+    return sanitize({"service": service, "health": health, "state": state, "alive": alive, "reason": reason, **raw})
 
 
 def current_quota() -> dict[str, Any]:
     payload = read_json(state_root() / "usage" / "current.json")
-    if not payload:
-        return {"status": "unavailable", "reason": "no authoritative Codex rate-limit snapshot has been recorded"}
-    return sanitize(payload)
+    return sanitize(payload) if payload else {
+        "status": "unavailable",
+        "reason": "no authoritative Codex rate-limit snapshot has been recorded",
+    }
 
 
 def _worker_active_dir() -> Path:
@@ -296,10 +266,16 @@ def worker_role_from_labels(labels: Iterable[str]) -> str:
     return "implementation"
 
 
-def worker_start(role: str, model: str, effort: str, route: str, workspace: Path | None = None) -> dict[str, Any]:
+def worker_start(
+    role: str,
+    model: str,
+    effort: str,
+    route: str,
+    workspace: Path | None = None,
+    pid: int | None = None,
+) -> dict[str, Any]:
     workspace = (workspace or Path.cwd()).resolve()
     issue_number, identifier = infer_issue(workspace)
-    started = iso_now()
     run_id = f"{identifier}-{role}-{utc_now().strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     payload = {
         "protocolVersion": PROTOCOL_VERSION,
@@ -311,8 +287,8 @@ def worker_start(role: str, model: str, effort: str, route: str, workspace: Path
         "effort": effort or None,
         "route": route or None,
         "workspace": str(workspace),
-        "pid": os.getpid(),
-        "startedAt": started,
+        "pid": pid if pid is not None else os.getpid(),
+        "startedAt": iso_now(),
         "quotaBefore": current_quota(),
     }
     active = _worker_active_dir() / f"{role}.json"
@@ -367,7 +343,7 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
         return {"status": "unavailable", "reason": "Codex sessions directory is unavailable"}
     started = parse_time(started_at)
     min_mtime = started.timestamp() - 120 if started else 0
-    candidates = []
+    candidates: list[Path] = []
     for path in sessions.glob("**/rollout-*.jsonl"):
         try:
             if path.stat().st_mtime >= min_mtime:
@@ -375,7 +351,6 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
         except OSError:
             continue
     candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
-
     workspace_text = str(workspace)
     fallback: list[tuple[Path, dict[str, int], str | None]] = []
     for path in candidates[:50]:
@@ -395,7 +370,7 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
                     if isinstance(payload, dict):
                         if payload.get("type") == "session_meta":
                             thread_id = str(payload.get("id") or payload.get("thread_id") or "") or thread_id
-                        if payload.get("type") == "token_count":
+                        elif payload.get("type") == "token_count":
                             parsed = _token_usage_from_info(payload.get("info"))
                             if parsed:
                                 latest_usage = parsed
@@ -405,7 +380,6 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
                 fallback.append((path, latest_usage, thread_id))
         except OSError:
             continue
-
     if len(fallback) == 1:
         path, usage, thread_id = fallback[0]
         return {"status": "available", "source": str(path), "threadId": thread_id, "attribution": "single-session-window", **usage}
@@ -414,9 +388,7 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
 
 def _quota_window(snapshot: dict[str, Any], name: str) -> dict[str, Any] | None:
     rate = snapshot.get("rateLimits") if isinstance(snapshot, dict) else None
-    if not isinstance(rate, dict):
-        return None
-    value = rate.get(name)
+    value = rate.get(name) if isinstance(rate, dict) else None
     return value if isinstance(value, dict) else None
 
 
@@ -428,21 +400,21 @@ def quota_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]
     result: dict[str, Any] = {"status": "available"}
     found = False
     for name in ("primary", "secondary"):
-        first = _quota_window(before, name)
-        second = _quota_window(after, name)
+        first, second = _quota_window(before, name), _quota_window(after, name)
         if not first or not second:
             result[name] = None
             continue
-        a = first.get("remainingPercent")
-        b = second.get("remainingPercent")
+        a, b = first.get("remainingPercent"), second.get("remainingPercent")
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            result[name] = {"beforeRemainingPercent": a, "afterRemainingPercent": b, "remainingPercentagePointDelta": b - a}
+            result[name] = {
+                "beforeRemainingPercent": a,
+                "afterRemainingPercent": b,
+                "remainingPercentagePointDelta": b - a,
+            }
             found = True
         else:
             result[name] = None
-    if not found:
-        return {"status": "unavailable", "reason": "quota percentages are unavailable in one or both samples"}
-    return result
+    return result if found else {"status": "unavailable", "reason": "quota percentages are unavailable in one or both samples"}
 
 
 def infer_github_lifecycle(issue_number: int) -> tuple[str, list[str]]:
@@ -475,29 +447,29 @@ def infer_github_lifecycle(issue_number: int) -> tuple[str, list[str]]:
     return outcome, safe_labels
 
 
-def _find_active(role: str | None, issue_number: int | None) -> tuple[Path, dict[str, Any]]:
+def _find_active(role: str | None, issue_number: int) -> tuple[Path, dict[str, Any]]:
     candidates = [_worker_active_dir() / f"{role}.json"] if role else sorted(_worker_active_dir().glob("*.json"))
-    matches: list[tuple[Path, dict[str, Any]]] = []
+    matches = []
     for path in candidates:
         payload = read_json(path)
-        if not payload:
-            continue
-        if issue_number is not None and payload.get("issue") != issue_number:
-            continue
-        matches.append((path, payload))
+        if payload and payload.get("issue") == issue_number:
+            matches.append((path, payload))
     if len(matches) != 1:
         raise RuntimeError(f"expected one active worker record, found {len(matches)}")
     return matches[0]
 
 
-def worker_end(role: str | None = None, workspace: Path | None = None, outcome: str | None = None, outcome_file: Path | None = None, infer_lifecycle: bool = False) -> dict[str, Any]:
+def worker_end(
+    role: str | None = None,
+    workspace: Path | None = None,
+    outcome: str | None = None,
+    outcome_file: Path | None = None,
+    infer_lifecycle: bool = False,
+) -> dict[str, Any]:
     workspace = (workspace or Path.cwd()).resolve()
     issue_number, _ = infer_issue(workspace)
     active_path, payload = _find_active(role, issue_number)
-    ended = iso_now()
     started = parse_time(payload.get("startedAt"))
-    duration = (utc_now() - started).total_seconds() if started else None
-
     resolved_outcome = outcome
     if outcome_file and outcome_file.is_file():
         try:
@@ -509,12 +481,12 @@ def worker_end(role: str | None = None, workspace: Path | None = None, outcome: 
     lifecycle_labels: list[str] = []
     if infer_lifecycle:
         lifecycle_outcome, lifecycle_labels = infer_github_lifecycle(issue_number)
-        resolved_outcome = lifecycle_outcome if resolved_outcome in (None, "", "unknown") else resolved_outcome
-
+        if resolved_outcome in (None, "", "unknown"):
+            resolved_outcome = lifecycle_outcome
     complete = {
         **payload,
-        "endedAt": ended,
-        "durationSeconds": duration,
+        "endedAt": iso_now(),
+        "durationSeconds": (utc_now() - started).total_seconds() if started else None,
         "outcome": resolved_outcome or "unknown",
         "lifecycleLabels": lifecycle_labels,
         "tokenUsage": find_rollout_usage(workspace, payload.get("startedAt")),
@@ -522,8 +494,7 @@ def worker_end(role: str | None = None, workspace: Path | None = None, outcome: 
     }
     complete["quotaDelta"] = quota_delta(payload.get("quotaBefore") or {}, complete["quotaAfter"])
     complete = sanitize(complete)
-    history_path = _worker_history_dir() / f"{complete['runId']}.json"
-    atomic_json(history_path, complete)
+    atomic_json(_worker_history_dir() / f"{complete['runId']}.json", complete)
     append_jsonl(state_root() / "workers" / "history.jsonl", complete)
     append_event("worker_completed", **complete)
     try:
@@ -543,26 +514,7 @@ def active_workers() -> list[dict[str, Any]]:
     return items
 
 
-def recent_workers(limit: int = 20) -> list[dict[str, Any]]:
-    history = state_root() / "workers" / "history.jsonl"
-    try:
-        lines = history.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    items = []
-    for raw in lines[-max(1, limit):]:
-        try:
-            value = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            items.append(sanitize(value))
-    items.reverse()
-    return items
-
-
-def recent_events(limit: int = 50) -> list[dict[str, Any]]:
-    path = state_root() / "telemetry" / "events.jsonl"
+def _read_jsonl_tail(path: Path, limit: int) -> list[dict[str, Any]]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -579,53 +531,59 @@ def recent_events(limit: int = 50) -> list[dict[str, Any]]:
     return items
 
 
+def recent_workers(limit: int = 20) -> list[dict[str, Any]]:
+    return _read_jsonl_tail(state_root() / "workers" / "history.jsonl", limit)
+
+
+def recent_events(limit: int = 50) -> list[dict[str, Any]]:
+    return _read_jsonl_tail(state_root() / "telemetry" / "events.jsonl", limit)
+
+
 def collect_operations() -> dict[str, Any]:
-    return sanitize(
-        {
-            "protocolVersion": PROTOCOL_VERSION,
-            "generatedAt": iso_now(),
-            "services": {name: normalize_service(name) for name in ("symphony", "review", "unity", "git")},
-            "quota": current_quota(),
-            "activeWorkers": active_workers(),
-            "recentWorkers": recent_workers(),
-            "recentEvents": recent_events(),
-        }
-    )
+    return sanitize({
+        "protocolVersion": PROTOCOL_VERSION,
+        "generatedAt": iso_now(),
+        "services": {name: normalize_service(name) for name in ("symphony", "review", "unity", "git")},
+        "quota": current_quota(),
+        "activeWorkers": active_workers(),
+        "recentWorkers": recent_workers(),
+        "recentEvents": recent_events(),
+    })
 
 
 def cli() -> int:
     parser = argparse.ArgumentParser(description="RPG Kingdom Supervisor telemetry")
     sub = parser.add_subparsers(dest="command", required=True)
-
     service = sub.add_parser("service-write")
     service.add_argument("--service", choices=("symphony",), required=True)
     service.add_argument("--state", required=True)
     service.add_argument("--pid", type=int)
     service.add_argument("--exit-code", type=int)
-
     start = sub.add_parser("worker-start")
     start.add_argument("--role", choices=("implementation", "repair", "review", "report-only"), required=True)
     start.add_argument("--model", default="")
     start.add_argument("--effort", default="")
     start.add_argument("--route", default="")
     start.add_argument("--workspace")
-
+    start.add_argument("--pid", type=int)
     end = sub.add_parser("worker-end")
     end.add_argument("--role", choices=("implementation", "repair", "review", "report-only"))
     end.add_argument("--workspace")
     end.add_argument("--outcome")
     end.add_argument("--outcome-file")
     end.add_argument("--infer-lifecycle", action="store_true")
-
     collect = sub.add_parser("collect")
     collect.add_argument("--pretty", action="store_true")
-
     args = parser.parse_args()
     try:
         if args.command == "service-write":
             result = write_service_status(args.service, args.state, args.pid, args.exit_code)
         elif args.command == "worker-start":
-            result = worker_start(args.role, args.model, args.effort, args.route, Path(args.workspace) if args.workspace else None)
+            result = worker_start(
+                args.role, args.model, args.effort, args.route,
+                Path(args.workspace) if args.workspace else None,
+                args.pid,
+            )
         elif args.command == "worker-end":
             result = worker_end(
                 args.role,
