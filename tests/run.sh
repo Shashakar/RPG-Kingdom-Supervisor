@@ -11,6 +11,7 @@ python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
+python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 bash "$ROOT/tests/report-completion-after-run-test.sh"
