@@ -7,6 +7,7 @@ API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 USAGE_LIMIT_MARKER="${RPGK_USAGE_LIMIT_MARKER:-.symphony-usage-limit.json}"
+CONTINUATION_STOP_MARKER="${RPGK_CONTINUATION_STOP_MARKER:-.symphony-continuation-stop.json}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 SCRIPT_ROOT="$(dirname "${BASH_SOURCE[0]}")"
 REVIEW_STATE_WRITER="${RPGK_REVIEW_STATE_WRITER:-$SCRIPT_ROOT/queue-agent-review.py}"
@@ -19,9 +20,6 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 
-# The App Server router creates a durable active-worker record after it acquires the Codex lock.
-# Finalize that record regardless of which lifecycle branch below exits. Quota sampling is
-# observability-only and fail-soft; the existing lifecycle result remains authoritative.
 finish_worker_telemetry() {
   local original_status=$?
   trap - EXIT
@@ -72,6 +70,10 @@ quota_json=""
 if [[ -f "$USAGE_LIMIT_MARKER" ]]; then
   quota_json="$(cat "$USAGE_LIMIT_MARKER")"
 fi
+continuation_json=""
+if [[ -f "$CONTINUATION_STOP_MARKER" ]]; then
+  continuation_json="$(cat "$CONTINUATION_STOP_MARKER")"
+fi
 
 if [[ -z "$TOKEN" ]]; then
   echo "RPG Kingdom budget guard: SYMPHONY_GITHUB_TOKEN is missing; local redispatch marker is active but tracker cleanup could not run" >&2
@@ -115,8 +117,6 @@ enqueue_agent_review() {
     return 0
   fi
 
-  # Persist a fresh review boundary before label mutation. This supersedes any prior terminal
-  # human-review state after an explicitly requested new worker lifetime while preserving history.
   python3 "$REVIEW_STATE_WRITER" "$issue_number" "$pr_number" "$pr_head"
 
   for label in symphony%3Arework repair-route%3Aluna repair-route%3Aterra repair-route%3Asol repair-route%3Aastra; do
@@ -126,10 +126,6 @@ enqueue_agent_review() {
   echo "RPG Kingdom review workflow: queued GH-$issue_number / PR #$pr_number for independent review" >&2
 }
 
-# A host-verified report-only completion has no PR to queue. Reconcile its trusted host-side
-# receipt before applying the generic "ready still present => halted" rule. Exit 2 means no
-# receipt belongs to this worker lifetime; any other failure is surfaced without mislabeling the
-# verified report as a normal implementation halt.
 if [[ "${RPGK_GUARD_DRY_RUN:-0}" != "1" && -f "$REPORT_RECONCILER" ]]; then
   set +e
   report_reconcile_output="$(python3 "$REPORT_RECONCILER" \
@@ -140,7 +136,7 @@ if [[ "${RPGK_GUARD_DRY_RUN:-0}" != "1" && -f "$REPORT_RECONCILER" ]]; then
   report_reconcile_status=$?
   set -e
   if [[ "$report_reconcile_status" -eq 0 ]]; then
-    rm -f -- "$USAGE_LIMIT_MARKER"
+    rm -f -- "$USAGE_LIMIT_MARKER" "$CONTINUATION_STOP_MARKER"
     [[ -z "$report_reconcile_output" ]] || echo "$report_reconcile_output" >&2
     echo "RPG Kingdom report workflow: reconciled GH-$issue_number as symphony:report-complete" >&2
     exit 0
@@ -153,7 +149,7 @@ if [[ "${RPGK_GUARD_DRY_RUN:-0}" != "1" && -f "$REPORT_RECONCILER" ]]; then
 fi
 
 if ! ready_present; then
-  rm -f -- "$USAGE_LIMIT_MARKER"
+  rm -f -- "$USAGE_LIMIT_MARKER" "$CONTINUATION_STOP_MARKER"
   enqueue_agent_review
   exit 0
 fi
@@ -161,6 +157,8 @@ fi
 if [[ "${RPGK_GUARD_DRY_RUN:-0}" == "1" ]]; then
   if [[ -n "$quota_json" ]]; then
     echo "RPG Kingdom budget guard: would halt GH-$issue_number because Codex usage quota was exhausted" >&2
+  elif [[ -n "$continuation_json" ]]; then
+    echo "RPG Kingdom budget guard: would halt GH-$issue_number because the continuation policy declined another automatic turn" >&2
   else
     echo "RPG Kingdom budget guard: would halt GH-$issue_number because symphony:ready remains after the worker attempt" >&2
   fi
@@ -170,7 +168,7 @@ fi
 for _ in 1 2; do
   sleep 1
   if ! ready_present; then
-    rm -f -- "$USAGE_LIMIT_MARKER"
+    rm -f -- "$USAGE_LIMIT_MARKER" "$CONTINUATION_STOP_MARKER"
     enqueue_agent_review
     exit 0
   fi
@@ -193,6 +191,36 @@ EOF
   api POST "/issues/$issue_number/comments" "$comment_json" >/dev/null
   rm -f -- "$USAGE_LIMIT_MARKER"
   echo "RPG Kingdom budget guard: halted GH-$issue_number for Codex usage quota and removed symphony:ready" >&2
+  exit 0
+fi
+
+if [[ -n "$continuation_json" ]] && jq -e '.decision == "stop"' >/dev/null 2>&1 <<<"$continuation_json"; then
+  route="$(jq -r '.route // "unknown"' <<<"$continuation_json")"
+  turn="$(jq -r '.turn // "?"' <<<"$continuation_json")"
+  hard_max="$(jq -r '.hardMaxTurns // "?"' <<<"$continuation_json")"
+  reason="$(jq -r '.reason // "continuation policy declined another turn"' <<<"$continuation_json")"
+  primary="$(jq -r '.quotaDecision.primaryRemainingPercent // "unavailable"' <<<"$continuation_json")"
+  weekly="$(jq -r '.quotaDecision.weeklyRemainingPercent // "unavailable"' <<<"$continuation_json")"
+  total_tokens="$(jq -r '.usage.totalTokens // "unavailable"' <<<"$continuation_json")"
+  unity_run="$(jq -r '.unity.runId // "none"' <<<"$continuation_json")"
+  unity_result="$(jq -r '.unity.result // "none"' <<<"$continuation_json")"
+
+  comment=$(cat <<EOF
+Symphony stopped automatic continuation after turn **$turn/$hard_max** because the Supervisor continuation policy declined another model turn.
+
+- Route: \`$route\`
+- Decision: \`continuation-budget-stop\`
+- Reason: $reason
+- Current authoritative quota at the decision: 5h **$primary%** remaining; weekly **$weekly%** remaining
+- Cumulative rollout tokens observed: **$total_tokens**
+- Latest Unity evidence: \`$unity_run\` — \`$unity_result\`
+
+Useful workspace changes and validation artifacts were preserved. This is distinct from Codex \`usage_limit_exceeded\` and from blindly reaching \`agent.max_turns\`. Review the preserved work before using the one-shot rearm path.
+EOF
+)
+  comment_json="$(jq -n --arg body "$comment" '{body:$body}')"
+  api POST "/issues/$issue_number/comments" "$comment_json" >/dev/null
+  echo "RPG Kingdom budget guard: halted GH-$issue_number at continuation-policy boundary and removed symphony:ready" >&2
   exit 0
 fi
 

@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT/WORKFLOW.md"
 TRANSFORM="$ROOT/scripts/patch-symphony-named-permissions.py"
+CONTINUATION_TRANSFORM="$ROOT/scripts/patch-symphony-continuation-policy.py"
 RUNNER="$ROOT/scripts/run-symphony.sh"
 APPLY="$ROOT/scripts/apply-symphony-permissions-patch.sh"
 VERIFY="$ROOT/scripts/verify-symphony-permissions-patch.sh"
 
-for file in "$WORKFLOW" "$TRANSFORM" "$RUNNER" "$APPLY" "$VERIFY"; do
+for file in "$WORKFLOW" "$TRANSFORM" "$CONTINUATION_TRANSFORM" "$RUNNER" "$APPLY" "$VERIFY"; do
   [[ -f "$file" ]] || {
     echo "symphony-permissions-compat-test: missing $file" >&2
     exit 1
@@ -51,6 +52,11 @@ grep -Fq 'python3 "$PERMISSIONS_TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
   exit 1
 }
 
+grep -Fq 'python3 "$CONTINUATION_TRANSFORM" "$SYMPHONY_ROOT"' "$APPLY" || {
+  echo "symphony-permissions-compat-test: installer must apply the deterministic continuation-policy transform" >&2
+  exit 1
+}
+
 grep -Fq 'git -C "$SYMPHONY_REPO_ROOT" reset --hard "$PIN"' "$APPLY" || {
   echo "symphony-permissions-compat-test: installer must be able to safely rebuild the dedicated generated compatibility branch from the evaluated pin" >&2
   exit 1
@@ -66,6 +72,11 @@ grep -Fq 'runtimeWorkspaceRoots' "$VERIFY" || {
   exit 1
 }
 
+grep -Fq 'continuation_policy(workspace, refreshed_issue, turn_number, max_turns)' "$VERIFY" || {
+  echo "symphony-permissions-compat-test: verifier must require the host continuation-policy seam" >&2
+  exit 1
+}
+
 grep -Fq 'verify-symphony-permissions-patch.sh' "$RUNNER" || {
   echo "symphony-permissions-compat-test: run-symphony must fail closed when the compatibility patch is absent" >&2
   exit 1
@@ -76,7 +87,7 @@ grep -Fq 'apply-symphony-permissions-patch.sh' "$RUNNER" || {
   exit 1
 }
 
-python3 -m py_compile "$TRANSFORM"
+python3 -m py_compile "$TRANSFORM" "$CONTINUATION_TRANSFORM"
 bash -n "$APPLY"
 bash -n "$VERIFY"
 bash -n "$RUNNER"

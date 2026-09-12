@@ -84,6 +84,28 @@ if grep -Fq 'Phase 2 budget guard stopped automatic redispatch' "$RPGK_TEST_CURL
   exit 1
 fi
 
+cat > .symphony-continuation-stop.json <<'JSON'
+{
+  "decision":"stop",
+  "route":"terra",
+  "turn":2,
+  "hardMaxTurns":4,
+  "reason":"route terra automatic turn limit reached (2 total turns)",
+  "quotaDecision":{"primaryRemainingPercent":61,"weeklyRemainingPercent":90},
+  "usage":{"totalTokens":4200000},
+  "unity":{"runId":"run-42","result":"Failed(Child)"}
+}
+JSON
+: > "$RPGK_TEST_CURL_LOG"
+bash "$ROOT/scripts/after-run-guard.sh"
+grep -Fq 'continuation-budget-stop' "$RPGK_TEST_CURL_LOG"
+grep -Fq 'automatic turn limit reached' "$RPGK_TEST_CURL_LOG"
+grep -Fq 'run-42' "$RPGK_TEST_CURL_LOG"
+if grep -Fq 'Phase 2 budget guard stopped automatic redispatch' "$RPGK_TEST_CURL_LOG"; then
+  echo "Continuation-policy halt incorrectly used the generic max-turn comment" >&2
+  exit 1
+fi
+
 # A successful Git handoff removes symphony:ready. after_run must persist the new review head
 # before it queues independent review, and must not halt or immediately re-dispatch implementation.
 export RPGK_TEST_READY=0
@@ -95,6 +117,11 @@ grep -Fxq '123 77 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$RPGK_TEST_REVIEW_S
 grep -Fq 'symphony:agent-review' "$RPGK_TEST_CURL_LOG"
 if grep -Fq 'symphony:halted' "$RPGK_TEST_CURL_LOG"; then
   echo "Successful handoff was incorrectly halted" >&2
+  exit 1
+fi
+
+if [[ -e .symphony-continuation-stop.json ]]; then
+  echo "Successful handoff did not clear stale continuation stop marker" >&2
   exit 1
 fi
 
