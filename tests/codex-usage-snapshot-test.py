@@ -51,6 +51,13 @@ for raw in sys.stdin:
 '''
 
 
+def invoke(env: dict[str, str], *, strict: bool = False) -> subprocess.CompletedProcess[str]:
+    args = [sys.executable, str(SCRIPT), "--write"]
+    if strict:
+        args.append("--strict")
+    return subprocess.run(args, env=env, text=True, capture_output=True, timeout=10, check=False)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rpgk-codex-usage-test-") as temp:
         root = Path(temp)
@@ -61,20 +68,17 @@ def main() -> int:
         env["RPGK_SUPERVISOR_STATE_ROOT"] = str(state)
         env["RPGK_CODEX_APP_SERVER_COMMAND"] = f"{sys.executable} {fake}"
         env["SYMPHONY_GITHUB_TOKEN"] = "must-not-leak"
+        env["RPGK_QUOTA_STALE_SECONDS"] = "600"
 
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--write", "--strict"],
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
+        result = invoke(env, strict=True)
         if result.returncode != 0:
             raise AssertionError(f"snapshot failed: stdout={result.stdout!r} stderr={result.stderr!r}")
 
-        payload = json.loads((state / "usage" / "current.json").read_text(encoding="utf-8"))
+        usage = state / "usage"
+        payload = json.loads((usage / "current.json").read_text(encoding="utf-8"))
         assert payload["status"] == "available"
+        assert payload["freshness"] == "fresh"
+        assert payload["staleAfterSeconds"] == 600
         assert payload["source"] == "codex-app-server:account/rateLimits/read"
         assert payload["accountId"] == "acct-fixture"
         assert payload["rateLimits"]["primary"]["usedPercent"] == 25
@@ -85,11 +89,31 @@ def main() -> int:
         assert payload["rateLimits"]["primary"]["resetsAtIso"]
         assert payload["credits"]["balance"] == "12.50"
         assert "must-not-leak" not in json.dumps(payload)
+        assert json.loads((usage / "last-successful.json").read_text(encoding="utf-8"))["status"] == "available"
+        assert json.loads((usage / "latest-attempt.json").read_text(encoding="utf-8"))["status"] == "available"
 
-        history = (state / "usage" / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()
-        assert len(history) == 1
+        # A later failed probe must preserve the successful percentages while clearly marking them
+        # stale and retaining the latest refresh error separately.
+        env["RPGK_CODEX_APP_SERVER_COMMAND"] = f"{sys.executable} {root / 'does-not-exist.py'}"
+        failed = invoke(env)
+        assert failed.returncode == 0, failed.stderr
+        stale = json.loads((usage / "current.json").read_text(encoding="utf-8"))
+        latest = json.loads((usage / "latest-attempt.json").read_text(encoding="utf-8"))
+        last_good = json.loads((usage / "last-successful.json").read_text(encoding="utf-8"))
+        assert stale["status"] == "stale"
+        assert stale["freshness"] == "stale"
+        assert stale["rateLimits"]["primary"]["remainingPercent"] == 75
+        assert stale["rateLimits"]["secondary"]["remainingPercent"] == 82
+        assert stale["lastSuccessfulObservedAt"] == last_good["observedAt"]
+        assert stale["latestRefresh"]["status"] == "unavailable"
+        assert "latest refresh failed" in stale["reason"]
+        assert latest["status"] == "unavailable"
+        assert last_good["status"] == "available"
+
+        history = (usage / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(history) == 2
         event_text = (state / "telemetry" / "events.jsonl").read_text(encoding="utf-8")
-        assert "quota_snapshot" in event_text
+        assert event_text.count("quota_snapshot") == 2
         assert "must-not-leak" not in event_text
 
     print("codex-usage-snapshot-test: PASS")
