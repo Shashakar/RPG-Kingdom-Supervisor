@@ -21,8 +21,6 @@ def configure_status(temp: Path) -> None:
     service.STATUS_DIR = temp / "review-orchestrator"
     service.STATUS_PATH = service.STATUS_DIR / "status.json"
     service.POLL_SECONDS = 0.01
-    # The service deliberately enforces a 100ms minimum retry backoff to avoid a tight retry loop.
-    # Keep the fixture inside that supported range rather than depending on an impossible 10ms retry.
     service.BACKOFF_INITIAL_SECONDS = 0.1
     service.BACKOFF_MAX_SECONDS = 0.2
 
@@ -32,7 +30,6 @@ def status() -> dict:
 
 
 def main() -> int:
-    # Transient DNS/network failure does not terminate the service; the next poll succeeds.
     with tempfile.TemporaryDirectory() as raw:
         configure_status(Path(raw))
         calls = 0
@@ -58,16 +55,15 @@ def main() -> int:
         assert result["lastError"] is None
         assert sleeps and sleeps[0] == 0.1
 
-    # 5xx/rate-limit shaped failures are retryable.
     for code in (408, 429, 500, 502, 503, 504):
         assert service.classify_failure(RuntimeError(f"GitHub GET /issues failed: {code} fixture")) == "transient"
+    assert service.classify_failure(RuntimeError("GitHub GET /issues failed: 403 API rate limit exceeded")) == "transient"
+    assert service.classify_failure(RuntimeError("GitHub GET /issues failed: 403 You have exceeded a secondary rate limit")) == "transient"
 
-    # Authentication/configuration failures are permanent and must not be treated like transient DNS.
     for code in (401, 403):
         assert service.classify_failure(RuntimeError(f"GitHub GET /issues failed: {code} fixture")) == "permanent"
     assert service.classify_failure(RuntimeError("SYMPHONY_GITHUB_TOKEN is required")) == "permanent"
 
-    # Unknown programming failures are visible as degraded/retryable rather than killing the sidecar.
     assert service.classify_failure(ValueError("fixture programming failure")) == "unexpected"
     with tempfile.TemporaryDirectory() as raw:
         configure_status(Path(raw))
@@ -88,7 +84,6 @@ def main() -> int:
         assert calls == 2
         assert status()["state"] == "ready"
 
-    # Status writes are durable JSON and contain no credential/token payload.
     with tempfile.TemporaryDirectory() as raw:
         configure_status(Path(raw))
         service.write_status("degraded", lastError="fixture", lastErrorKind="transient")
