@@ -113,6 +113,8 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
         "generatedAt": supervisor_activity.iso_now(),
         "workerState": worker_state,
         "worker": worker,
+        "currentQuota": supervisor_telemetry.current_quota(),
+        "quotaSemantics": "currentQuota is current global state; worker.quotaBefore/quotaAfter/quotaDelta are historical lifetime evidence",
         "currentLifecycle": current,
         "continuationLineage": _lineage(issue_workers, run_id),
         "activity": worker_activity,
