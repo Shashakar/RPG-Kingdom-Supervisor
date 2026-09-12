@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import json
 import os
 from pathlib import Path
 import signal
@@ -21,10 +20,18 @@ import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 
 MIN_INTERVAL_SECONDS = 60
 DEFAULT_INTERVAL_SECONDS = 300
+DEFAULT_STALE_AFTER_SECONDS = 600
 
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def stale_after_seconds() -> int:
+    try:
+        return max(60, int(os.environ.get("RPGK_QUOTA_STALE_AFTER_SECONDS", str(DEFAULT_STALE_AFTER_SECONDS))))
+    except ValueError:
+        return DEFAULT_STALE_AFTER_SECONDS
 
 
 def status_path() -> Path:
@@ -59,25 +66,33 @@ def refresh(timeout_seconds: float) -> int:
     for name in ("SYMPHONY_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY"):
         env.pop(name, None)
     started = iso_now()
-    proc = subprocess.run(
-        snapshot_command(timeout_seconds),
-        env=env,
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        timeout=max(5.0, timeout_seconds + 5.0),
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            snapshot_command(timeout_seconds),
+            env=env,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=max(5.0, timeout_seconds + 5.0),
+            check=False,
+        )
+        exit_code = proc.returncode
+        stderr = proc.stderr.strip()
+    except subprocess.TimeoutExpired as exc:
+        exit_code = 124
+        stderr = f"quota snapshot subprocess timed out after {exc.timeout}s"
     latest = telemetry.current_quota()
     write_status(
-        state="ready" if proc.returncode == 0 else "degraded",
+        state="ready" if exit_code == 0 else "degraded",
+        intervalSeconds=None,
+        staleAfterSeconds=stale_after_seconds(),
         lastAttemptAt=started,
         lastCompletedAt=iso_now(),
-        lastExitCode=proc.returncode,
+        lastExitCode=exit_code,
         lastSnapshotStatus=latest.get("status"),
-        lastError=(proc.stderr.strip()[:1000] if proc.stderr.strip() else latest.get("reason")),
+        lastError=(stderr[:1000] if stderr else latest.get("reason")),
     )
-    return proc.returncode
+    return exit_code
 
 
 def run_loop(interval_seconds: int, timeout_seconds: float, initial_refresh: bool) -> int:
@@ -90,10 +105,12 @@ def run_loop(interval_seconds: int, timeout_seconds: float, initial_refresh: boo
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    write_status(state="starting", intervalSeconds=interval_seconds, staleAfterSeconds=telemetry.quota_stale_after_seconds())
+    write_status(state="starting", intervalSeconds=interval_seconds, staleAfterSeconds=stale_after_seconds())
 
     if initial_refresh and not stopped:
         refresh(timeout_seconds)
+        current = telemetry.read_json(status_path())
+        write_status(**{**current, "state": current.get("state", "ready"), "intervalSeconds": interval_seconds})
 
     while not stopped:
         deadline = time.monotonic() + interval_seconds
@@ -102,8 +119,10 @@ def run_loop(interval_seconds: int, timeout_seconds: float, initial_refresh: boo
         if stopped:
             break
         refresh(timeout_seconds)
+        current = telemetry.read_json(status_path())
+        write_status(**{**current, "state": current.get("state", "ready"), "intervalSeconds": interval_seconds})
 
-    write_status(state="stopped", completedAt=iso_now(), intervalSeconds=interval_seconds)
+    write_status(state="stopped", completedAt=iso_now(), intervalSeconds=interval_seconds, staleAfterSeconds=stale_after_seconds())
     return 0
 
 
