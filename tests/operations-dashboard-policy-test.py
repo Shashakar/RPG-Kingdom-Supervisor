@@ -29,6 +29,21 @@ assert 'r"/api/unity/run/([^/]+)"' in python_text
 assert 'PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"' in python_text
 assert 'PAGE_PATH.read_text(encoding="utf-8")' in python_text
 
+# Quota UX distinguishes fresh, stale, unavailable, and not-yet-sampled state without inferring
+# quota from token telemetry. Worker detail keeps global current quota explicitly separate from
+# historical quotaBefore/quotaAfter fields stored on the worker.
+for text in (
+    "Quota <strong>stale · last",
+    "Quota <strong>not sampled yet</strong>",
+    "Quota <strong>unavailable</strong>",
+    "latest refresh failed:",
+    "5h reset",
+    "currentGlobalQuota",
+    "supervisor_telemetry.current_quota()",
+):
+    assert text in python_text, text
+assert "tokenUsage" not in python_text.split("QUOTA_FRESHNESS_SCRIPT", 1)[1].split('"""', 1)[0]
+
 # Initial overview answers operator questions before deeper diagnostics.
 for text in (
     "System overview",
