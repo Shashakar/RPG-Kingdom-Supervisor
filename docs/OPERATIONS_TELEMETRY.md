@@ -1,8 +1,8 @@
 # Supervisor Operations Telemetry
 
-This document defines the durable telemetry and service-health foundation for Supervisor issue #46.
+This document defines the durable telemetry, service-health, lifecycle-queue, and activity-correlation contracts for Supervisor issue #46.
 
-The goal is to make the dashboard consume structured Supervisor-owned state instead of reconstructing operations from terminals or screenshots. This first slice deliberately favors reliable raw records and simple tables/cards over charts.
+The goal is to make the dashboard consume structured Supervisor-owned state and authoritative GitHub lifecycle data instead of reconstructing operations from terminals or screenshots. The console deliberately favors reliable raw records and simple tables/cards over speculative charts.
 
 ## Authority boundaries
 
@@ -11,11 +11,11 @@ Telemetry does not become a second lifecycle authority.
 - **GitHub labels/issues/PRs** remain authoritative for work lifecycle.
 - **Codex App Server** remains authoritative for account rate-limit snapshots.
 - **Codex rollout/session metadata** remains authoritative for per-thread token counts when those records are available and uniquely attributable.
-- **Unity/Git broker status files** remain authoritative for broker state.
-- **Review orchestrator `status.json`** remains authoritative for review-service poll health.
-- **Supervisor telemetry** correlates those records into worker lifetimes and dashboard views.
+- **Unity/Git broker status and durable response files** remain authoritative for broker work/results.
+- **Review orchestrator structured issue comments and `status.json`** remain authoritative for review state and review-service poll health.
+- **Supervisor telemetry/activity aggregation** correlates those records into worker lifetimes, queues, and dashboard views.
 
-If an authoritative source does not expose a field, Supervisor records that field as unavailable. It does not derive quota percentage from token count.
+If an authoritative source does not expose a field, Supervisor records that field as unavailable. It does not derive quota percentage from token count and does not persist a parallel lifecycle state machine.
 
 ## State layout
 
@@ -44,6 +44,8 @@ telemetry/events.jsonl
 
 JSON snapshots are written atomically. JSONL history writes use a local file lock so review/implementation telemetry cannot interleave partial records.
 
+Lifecycle queues are **not** persisted under this state root. They are a live read-only projection of current GitHub issue labels plus structured review metadata.
+
 ## Service health semantics
 
 The operations collector normalizes each service to one of these health values:
@@ -57,7 +59,7 @@ The operations collector normalizes each service to one of these health values:
 
 The collector does not treat `PID exists` as sufficient for review health: durable review poll state (`ready`, `degraded`, `blocked`, last successful poll, last error/backoff) is preserved and surfaced. Broker `running` state is normalized to `busy` and retains its active request metadata.
 
-`run-symphony.sh` now writes a Supervisor-owned Symphony status record for launcher startup/running/stopped state. This is intentionally a process/lifecycle signal, not a claim that the upstream Symphony internals have a heartbeat they do not expose.
+`run-symphony.sh` writes a Supervisor-owned Symphony status record for launcher startup/running/stopped state. This is intentionally a process/lifecycle signal, not a claim that upstream Symphony internals expose a heartbeat they do not provide.
 
 ## Codex quota snapshots
 
@@ -118,6 +120,52 @@ The stored token fields are:
 
 These token values are not converted into quota percentages.
 
+## Lifecycle queues
+
+`scripts/supervisor_activity.py` projects current open RPG Kingdom issues into these dashboard buckets:
+
+- `implementing` — `symphony:ready` when no more specific lifecycle label wins;
+- `agent_review` — `symphony:agent-review`;
+- `rework` — `symphony:rework` (including the intentional overlap where `symphony:ready` is also present for the repair dispatch lease);
+- `human_review` — `symphony:human-review`;
+- `human_attention` — `symphony:human-attention`;
+- `halted` — `symphony:halted`, including quota-blocked workers when the durable issue comment identifies `usage_limit_exceeded`;
+- `report_complete` — `symphony:report-complete`.
+
+Lifecycle precedence is explicit so transient handoff overlaps cannot make an issue appear to be in two queues. In particular, `rework` takes precedence over both `agent-review` and `ready`.
+
+Each queue row correlates current labels with the latest structured review marker and active/recent worker telemetry to show, where available:
+
+- issue and PR;
+- lifecycle state and time in that state;
+- actual active worker model/effort or label-derived route for queued work;
+- review cycle;
+- automatic repairs consumed / maximum;
+- latest verdict and summary;
+- halt/review reason;
+- current reviewed head SHA;
+- whether human action is required.
+
+The label-derived route is a presentation of the same precedence used by `scripts/routing-policy.sh`; an already-running worker's recorded model/effort wins because it is runtime truth. Conflicting route labels are shown as invalid rather than silently choosing one.
+
+State age uses the latest relevant GitHub `labeled` issue event when available. If GitHub event history cannot identify that transition, the collector falls back to structured review/update timestamps and makes no stronger claim.
+
+## Unified activity timeline
+
+The same collector merges recent events from authoritative/durable sources into one reverse-chronological feed:
+
+- GitHub lifecycle label transitions;
+- structured automated-review verdicts/cycles;
+- Supervisor `worker_started` / `worker_completed` telemetry;
+- Unity run history, including compile/test/infrastructure diagnosis;
+- Git prepare/handoff broker response history.
+
+The feed keeps source identifiers such as issue number, PR number/head SHA, worker run ID, Unity request ID, and Git request ID. Completed worker lifetimes are correlated to Unity requests for the same issue when the Unity run falls inside the worker lifetime (with a small boundary tolerance), allowing the dashboard to jump from implementation/review context into the existing Unity run detail.
+
+This is correlation, not event-sourcing: the activity view does not mutate or replace any source system. GitHub remains authoritative for lifecycle even when local telemetry is missing.
+
+The collector uses a short in-process cache (10 seconds by default, configurable with `RPGK_ACTIVITY_CACHE_SECONDS`) because the dashboard refreshes frequently and GitHub lifecycle/event reads are remote. Partial GitHub read failures are surfaced in the response rather than silently replaced with stale invented state.
+
 ## Secret handling
 
 Telemetry is local operational state and must not become a credential sink.
@@ -133,20 +181,19 @@ Before persistence or dashboard output, the telemetry layer redacts:
 
 Token **counts** such as `inputTokens` and `totalTokens` are not credentials and are retained.
 
-The quota snapshot process explicitly removes GitHub/OpenAI environment secrets before spawning its read-only App Server probe.
+The quota snapshot process explicitly removes GitHub/OpenAI environment secrets before spawning its read-only App Server probe. Activity output passes through the same telemetry sanitizer before it is served.
 
 ## Dashboard
 
-The existing localhost-only dashboard adds `/api/operations` and displays:
+The localhost-only dashboard exposes:
 
-- Symphony, review, Unity, and Git service health;
-- active broker request metadata where available;
-- current authoritative Codex quota snapshot;
-- active Codex worker records;
-- recent completed worker lifetimes with token totals and quota deltas;
-- the existing per-issue diagnostics and Unity history.
+- `/api/operations` for service health, quota, active workers, and recent worker lifetimes;
+- `/api/lifecycle` for GitHub lifecycle queues and the unified cross-system activity timeline;
+- existing per-issue diagnostics and Unity history/detail endpoints.
 
-The dashboard remains read-only and bound to `127.0.0.1`.
+The top-level UI visually separates human-review, human-attention, halted/quota, and report-complete work from automated queues. It provides only read-only navigation to issues/PRs and existing Unity run detail. It does not add lifecycle mutation, merge, process-kill, force-unlock, or other privileged controls.
+
+The dashboard remains bound to `127.0.0.1`.
 
 ## Validation
 
@@ -161,7 +208,13 @@ The deterministic suite covers:
 - secret redaction;
 - App Server rate-limit normalization through a fake JSON-RPC server;
 - reviewer telemetry integration;
-- Python/shell syntax for all new runtime seams.
+- lifecycle queue precedence, including `rework + ready` overlap;
+- human-review, human-attention, halted/quota, and active implementation fixtures;
+- review-cycle/repair/PR/head correlation;
+- route projection and conflicting-label behavior;
+- unified worker/review/lifecycle/Unity/Git activity;
+- worker-to-Unity request correlation;
+- dashboard read-only policy and Python/shell syntax.
 
 Run:
 
@@ -171,4 +224,4 @@ bash tests/run.sh
 
 ## Remaining #46 work
 
-This foundation intentionally does not close issue #46. Follow-up slices still need to add the broader GitHub lifecycle queues/activity correlation and higher-level usage analysis/retention controls described by the umbrella issue. Those views should build on these durable records rather than introducing parallel telemetry formats.
+46A delivered the telemetry/service-health foundation and 46B adds lifecycle queues plus the unified activity timeline. The remaining umbrella work is intentionally separate: retention/reconciliation controls, richer worker/run detail, and comparative usage analysis for later #34 plugin/context-efficiency experiments. Those slices should continue building on the same authority boundaries rather than adding parallel state formats.

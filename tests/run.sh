@@ -11,6 +11,7 @@ python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
+python3 "$ROOT/tests/supervisor-activity-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
@@ -45,6 +46,7 @@ python3 -m py_compile \
   "$ROOT/scripts/review-orchestrator.py" \
   "$ROOT/scripts/review-orchestrator-service.py" \
   "$ROOT/scripts/review_state.py" \
+  "$ROOT/scripts/supervisor_activity.py" \
   "$ROOT/scripts/supervisor_dashboard.py" \
   "$ROOT/scripts/supervisor_telemetry.py" \
   "$ROOT/scripts/unity_run_history.py"
