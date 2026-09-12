@@ -68,4 +68,19 @@ if ! grep -Fq 'ending worker lifetime without continuation turns' "$agent_runner
   exit 1
 fi
 
+if ! grep -Fq 'reset_continuation_policy!(workspace)' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not reset the host continuation policy at worker start" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'continuation_policy(workspace, refreshed_issue, turn_number, max_turns)' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not consult the host continuation policy between normal turns" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Continuation policy stopped automatic turn' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not stop a normal continuation when the host policy declines it" >&2
+  exit 1
+fi
+
 echo "RPG Kingdom Symphony compatibility: PASS"
