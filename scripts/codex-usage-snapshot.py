@@ -25,6 +25,8 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 
+DEFAULT_STALE_AFTER_SECONDS = 600
+
 
 def write_message(proc: subprocess.Popen[str], payload: dict[str, Any]) -> None:
     if proc.stdin is None:
@@ -119,8 +121,10 @@ def normalize_snapshot(result: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {
         "protocolVersion": telemetry.PROTOCOL_VERSION,
         "status": "available",
+        "freshness": "fresh",
         "observedAt": observed,
         "source": "codex-app-server:account/rateLimits/read",
+        "staleAfterSeconds": int(os.environ.get("RPGK_QUOTA_STALE_SECONDS", str(DEFAULT_STALE_AFTER_SECONDS))),
         "accountId": result.get("accountId"),
         "ordinaryUsageAllowed": result.get("ordinaryUsageAllowed"),
         "rateLimits": {
@@ -195,15 +199,48 @@ def app_server_snapshot(timeout_seconds: float) -> dict[str, Any]:
             proc.wait(timeout=2)
 
 
+def unavailable_current(latest: dict[str, Any], last_good: dict[str, Any] | None) -> dict[str, Any]:
+    stale_after = int(os.environ.get("RPGK_QUOTA_STALE_SECONDS", str(DEFAULT_STALE_AFTER_SECONDS)))
+    if not last_good:
+        return {
+            **latest,
+            "freshness": "unavailable",
+            "staleAfterSeconds": stale_after,
+            "latestRefresh": latest,
+        }
+    current = {
+        **last_good,
+        "status": "stale",
+        "freshness": "stale",
+        "staleAfterSeconds": stale_after,
+        "reason": f"latest refresh failed: {latest.get('reason') or 'unknown reason'}",
+        "latestRefresh": latest,
+        "lastSuccessfulObservedAt": last_good.get("observedAt"),
+    }
+    return telemetry.sanitize(current)
+
+
 def persist(snapshot: dict[str, Any]) -> None:
     root = telemetry.state_root() / "usage"
-    telemetry.atomic_json(root / "current.json", snapshot)
-    telemetry.append_jsonl(root / "snapshots.jsonl", snapshot)
+    latest = telemetry.sanitize(snapshot)
+    telemetry.atomic_json(root / "latest-attempt.json", latest)
+    telemetry.append_jsonl(root / "snapshots.jsonl", latest)
+
+    if latest.get("status") == "available":
+        current = latest
+        telemetry.atomic_json(root / "last-successful.json", latest)
+    else:
+        last_good = telemetry.read_json(root / "last-successful.json") or None
+        current = unavailable_current(latest, last_good)
+
+    telemetry.atomic_json(root / "current.json", current)
     telemetry.append_event(
         "quota_snapshot",
-        status=snapshot.get("status"),
-        rateLimits=snapshot.get("rateLimits"),
-        ordinaryUsageAllowed=snapshot.get("ordinaryUsageAllowed"),
+        status=latest.get("status"),
+        freshness=current.get("freshness"),
+        reason=latest.get("reason"),
+        rateLimits=current.get("rateLimits"),
+        ordinaryUsageAllowed=current.get("ordinaryUsageAllowed"),
     )
 
 
@@ -221,7 +258,10 @@ def main() -> int:
         snapshot = {
             "protocolVersion": telemetry.PROTOCOL_VERSION,
             "status": "unavailable",
+            "freshness": "unavailable",
             "observedAt": telemetry.iso_now(),
+            "source": "codex-app-server:account/rateLimits/read",
+            "staleAfterSeconds": int(os.environ.get("RPGK_QUOTA_STALE_SECONDS", str(DEFAULT_STALE_AFTER_SECONDS))),
             "reason": str(exc),
         }
     snapshot = telemetry.sanitize(snapshot)
