@@ -22,6 +22,8 @@ create_label "symphony:agent-review" "1D76DB" "Implementation handoff complete; 
 create_label "symphony:rework" "FBCA04" "Automated review requested bounded repair on the existing PR"
 create_label "symphony:human-review" "0E8A16" "Automated review passed; human integration decision required"
 create_label "symphony:human-attention" "B60205" "Automation halted for ambiguity, scope change, or exhausted repair budget"
+create_label "symphony:report-complete" "5319E7" "Host-verified report-only work completed; human review/closure remains"
+create_label "completion:report-only" "C5DEF5" "Explicitly permits host-verified completion without a source diff or PR"
 
 create_label "repair-route:luna" "EDEDED" "Reviewer advisory route for current bounded repair: Luna"
 create_label "repair-route:terra" "DDEEFF" "Reviewer advisory route for current bounded repair: Terra"
