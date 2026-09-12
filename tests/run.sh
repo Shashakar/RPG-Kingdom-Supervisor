@@ -14,6 +14,7 @@ python3 "$ROOT/tests/supervisor-telemetry-test.py"
 python3 "$ROOT/tests/supervisor-activity-test.py"
 python3 "$ROOT/tests/supervisor-maintenance-test.py"
 python3 "$ROOT/tests/supervisor-detail-test.py"
+python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
@@ -53,6 +54,7 @@ python3 -m py_compile \
   "$ROOT/scripts/supervisor_detail.py" \
   "$ROOT/scripts/supervisor_maintenance.py" \
   "$ROOT/scripts/supervisor_telemetry.py" \
+  "$ROOT/scripts/supervisor_usage_analysis.py" \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/codex-app-server-router.sh"
