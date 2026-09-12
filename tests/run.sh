@@ -12,6 +12,8 @@ bash "$ROOT/tests/diagnostics-policy-test.sh"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 python3 "$ROOT/tests/review-orchestrator-test.py"
+python3 "$ROOT/tests/review-orchestrator-service-test.py"
+bash "$ROOT/tests/review-orchestrator-watchdog-test.sh"
 bash "$ROOT/tests/review-workflow-policy-test.sh"
 bash "$ROOT/tests/review-worker-test.sh"
 bash "$ROOT/tests/unity-resource-policy-test.sh"
@@ -32,11 +34,13 @@ python3 -m py_compile \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
   "$ROOT/scripts/queue-agent-review.py" \
   "$ROOT/scripts/review-orchestrator.py" \
+  "$ROOT/scripts/review-orchestrator-service.py" \
   "$ROOT/scripts/review_state.py" \
   "$ROOT/scripts/unity_run_history.py" \
   "$ROOT/scripts/supervisor_dashboard.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/review-worker.sh"
+bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
 python3 -m json.tool "$ROOT/schemas/review-verdict.schema.json" >/dev/null
