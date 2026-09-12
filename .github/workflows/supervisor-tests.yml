@@ -1,0 +1,59 @@
+name: Supervisor CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  supervisor-tests:
+    name: supervisor-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Print tool versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash --version | head -n 1
+          python3 --version
+          git --version
+
+      - name: Run Supervisor regression suite
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          env \
+            -u SYMPHONY_GITHUB_TOKEN \
+            -u GITHUB_TOKEN \
+            -u GH_TOKEN \
+            -u OPENAI_API_KEY \
+            -u CODEX_HOME \
+            -u RPGK_SUPERVISOR_ROOT \
+            -u RPGK_SECRETS_FILE \
+            -u RPGK_POWERSHELL_EXE \
+            -u RPGK_UNITY_EDITOR_WINDOWS \
+            -u RPGK_UNITY_STAGE_ROOT_WINDOWS \
+            -u RPGK_SUPERVISOR_STATE_ROOT \
+            -u RPGK_ALTERNATE_SCREEN \
+            bash tests/run.sh

@@ -107,12 +107,19 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`AGENTS.md`](AGENTS.md) — rules for modifying this supervisor repository.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — supervisor boundaries and phased design.
 - [`docs/SETUP.md`](docs/SETUP.md) — local installation and operator prerequisites.
+- [`docs/CI.md`](docs/CI.md) — GitHub Actions regression-gate contract and local/CI equivalence.
 - [`docs/CODEX_PERMISSIONS.md`](docs/CODEX_PERMISSIONS.md) — current model-turn permission boundary and probes.
 - [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) — host-owned branch/commit/push/PR handoff contract.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md) — model-turn execution diagnostics and localhost dashboard usage.
+
+## Regression gate
+
+`bash tests/run.sh` is the canonical deterministic Supervisor regression gate. Developers and operators run that command locally, and GitHub Actions runs the same command for pull requests targeting `main` and pushes to `main`. The CI job is named `supervisor-tests` so it can be made a required branch-protection check later.
+
+CI does not run live Symphony/Codex workers or Unity and does not require Supervisor account secrets. See [`docs/CI.md`](docs/CI.md) for the exact CI boundary and clean-environment expectations.
 
 ## Diagnostics quick start
 

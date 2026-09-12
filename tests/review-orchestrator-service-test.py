@@ -3,17 +3,22 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 from pathlib import Path
 from urllib import error
 
 ROOT = Path(__file__).resolve().parents[1]
+# Force the default-root path so a developer shell cannot hide checkout-location assumptions.
+os.environ.pop("RPGK_SUPERVISOR_ROOT", None)
 SPEC = importlib.util.spec_from_file_location(
     "review_orchestrator_service", ROOT / "scripts/review-orchestrator-service.py"
 )
 assert SPEC and SPEC.loader
 service = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(service)
+assert service.SUPERVISOR_ROOT == ROOT
+assert service.review.SUPERVISOR_ROOT == ROOT
 
 
 def configure_status(temp: Path) -> None:
