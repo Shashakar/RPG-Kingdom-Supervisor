@@ -37,4 +37,4 @@ cd ~/src/RPG-Kingdom-Supervisor
 bash tests/run.sh
 ```
 
-A local developer shell may contain credentials or host-specific overrides that CI does not. Tests must not rely on those values unless the test itself supplies an explicit fixture. If a test passes only because of an operator's shell state, fix the test rather than adding secrets or host integration to CI.
+A local developer shell may contain credentials or host-specific overrides that CI does not. Tests and runtime helpers under test must not rely on those values unless the test itself supplies an explicit fixture. Repository-local helpers should discover their checkout from their own file location when practical rather than assuming the evaluated `~/src/RPG-Kingdom-Supervisor` operator path. If a test passes only because of an operator's shell state, fix the dependency rather than adding secrets or host integration to CI.
