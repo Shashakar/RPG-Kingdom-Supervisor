@@ -40,22 +40,26 @@ def main() -> int:
     Config.codex_runtime_settings(workspace)
   end
 ''',
-        '''  defp configure_supervisor_skill_roots(port) do
-    supervisor_root =
-      System.get_env("RPGK_SUPERVISOR_ROOT") || Path.expand("~/src/RPG-Kingdom-Supervisor")
+        '''  defp configure_supervisor_skill_roots(port, workspace) do
+    if Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace)) do
+      supervisor_root =
+        System.get_env("RPGK_SUPERVISOR_ROOT") || Path.expand("~/src/RPG-Kingdom-Supervisor")
 
-    skill_root =
-      System.get_env("RPGK_SUPERVISOR_SKILLS_ROOT") || Path.join(supervisor_root, "skills")
+      skill_root =
+        System.get_env("RPGK_SUPERVISOR_SKILLS_ROOT") || Path.join(supervisor_root, "skills")
 
-    send_message(port, %{
-      "method" => "skills/extraRoots/set",
-      "id" => @skills_extra_roots_id,
-      "params" => %{"extraRoots" => [skill_root]}
-    })
+      send_message(port, %{
+        "method" => "skills/extraRoots/set",
+        "id" => @skills_extra_roots_id,
+        "params" => %{"extraRoots" => [skill_root]}
+      })
 
-    case await_response(port, @skills_extra_roots_id) do
-      {:ok, _} -> :ok
-      other -> other
+      case await_response(port, @skills_extra_roots_id) do
+        {:ok, _} -> :ok
+        other -> other
+      end
+    else
+      :ok
     end
   end
 
@@ -77,7 +81,7 @@ def main() -> int:
 ''',
         '''  defp do_start_session(port, workspace, session_policies, dynamic_tool_binding) do
     with :ok <- send_initialize(port),
-         :ok <- configure_supervisor_skill_roots(port) do
+         :ok <- configure_supervisor_skill_roots(port, workspace) do
       start_thread(port, workspace, session_policies, dynamic_tool_binding)
     end
   end

@@ -56,7 +56,9 @@ with tempfile.TemporaryDirectory() as temp:
     runner_text = agent_runner.read_text(encoding="utf-8")
     assert '"method" => "skills/extraRoots/set"' in app_text
     assert 'RPGK_SUPERVISOR_SKILLS_ROOT' in app_text
-    assert 'configure_supervisor_skill_roots(port)' in app_text
+    assert 'configure_supervisor_skill_roots(port, workspace)' in app_text
+    assert 'Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace))' in app_text
+    assert 'else\n      :ok\n    end' in app_text
     assert '$rpgk-investigate-bug' in runner_text
     assert 'risk:investigative' in runner_text
 
