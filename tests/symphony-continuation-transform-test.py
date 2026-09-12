@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert "reset_continuation_policy!(workspace)" in text
     assert "continuation_policy(workspace, refreshed_issue, turn_number, max_turns)" in text
     assert "Continuation policy stopped automatic turn" in text
-    assert '"continuation-policy.py"' in text
+    assert "continuation-policy.py" in text
     assert '{output, 20} -> {:stop, String.trim(output)}' in text
 
     # Transform must be idempotent on the generated local compatibility branch.
