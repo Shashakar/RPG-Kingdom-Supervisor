@@ -12,6 +12,7 @@ bash "$ROOT/tests/diagnostics-policy-test.sh"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 bash "$ROOT/tests/report-completion-after-run-test.sh"
+python3 "$ROOT/tests/report-completion-reconcile-test.py"
 python3 "$ROOT/tests/review-orchestrator-test.py"
 python3 "$ROOT/tests/review-orchestrator-service-test.py"
 bash "$ROOT/tests/review-orchestrator-watchdog-test.sh"
