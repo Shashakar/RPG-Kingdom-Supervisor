@@ -98,41 +98,53 @@ def main() -> int:
     Path.join(supervisor_root, "scripts/continuation-policy.py")
   end
 
-  defp reset_continuation_policy!(workspace) do
-    script = continuation_policy_script()
+  defp rpgk_supervisor_workspace?(workspace) do
+    Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace))
+  end
 
-    case System.cmd("python3", [script, "reset", "--workspace", workspace],
-           cd: workspace,
-           stderr_to_stdout: true
-         ) do
-      {_output, 0} -> :ok
-      {output, status} -> raise "continuation policy reset failed status=#{status}: #{String.trim(output)}"
+  defp reset_continuation_policy!(workspace) do
+    if rpgk_supervisor_workspace?(workspace) do
+      script = continuation_policy_script()
+
+      case System.cmd("python3", [script, "reset", "--workspace", workspace],
+             cd: workspace,
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} -> :ok
+        {output, status} -> raise "continuation policy reset failed status=#{status}: #{String.trim(output)}"
+      end
+    else
+      :ok
     end
   end
 
   defp continuation_policy(workspace, issue, turn_number, max_turns) do
-    script = continuation_policy_script()
-    labels_json = Jason.encode!(issue.labels || [])
+    if rpgk_supervisor_workspace?(workspace) do
+      script = continuation_policy_script()
+      labels_json = Jason.encode!(issue.labels || [])
 
-    args = [
-      script,
-      "evaluate",
-      "--workspace",
-      workspace,
-      "--issue",
-      issue.identifier,
-      "--turn",
-      Integer.to_string(turn_number),
-      "--max-turns",
-      Integer.to_string(max_turns),
-      "--labels-json",
-      labels_json
-    ]
+      args = [
+        script,
+        "evaluate",
+        "--workspace",
+        workspace,
+        "--issue",
+        issue.identifier,
+        "--turn",
+        Integer.to_string(turn_number),
+        "--max-turns",
+        Integer.to_string(max_turns),
+        "--labels-json",
+        labels_json
+      ]
 
-    case System.cmd("python3", args, cd: workspace, stderr_to_stdout: true) do
-      {output, 0} -> {:continue, String.trim(output)}
-      {output, 20} -> {:stop, String.trim(output)}
-      {output, status} -> {:error, {:continuation_policy_failed, status, String.trim(output)}}
+      case System.cmd("python3", args, cd: workspace, stderr_to_stdout: true) do
+        {output, 0} -> {:continue, String.trim(output)}
+        {output, 20} -> {:stop, String.trim(output)}
+        {output, status} -> {:error, {:continuation_policy_failed, status, String.trim(output)}}
+      end
+    else
+      {:continue, "Supervisor continuation policy not applicable outside GH workspaces"}
     end
   end
 
