@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import diagnostics  # type: ignore  # noqa: E402
+import quota_state  # type: ignore  # noqa: E402
 import review_state  # type: ignore  # noqa: E402
 import supervisor_activity  # type: ignore  # noqa: E402
 import supervisor_detail  # type: ignore  # noqa: E402
@@ -44,6 +45,12 @@ def normalize_issue(value: str | None) -> str | None:
 
 def json_bytes(value: Any) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def operations_payload() -> dict[str, Any]:
+    payload = supervisor_telemetry.collect_operations()
+    payload["quota"] = quota_state.summarize(payload.get("quota"))
+    return payload
 
 
 def serve(port: int) -> None:
@@ -80,7 +87,7 @@ def serve(port: int) -> None:
                 return
 
             if parsed.path == "/api/operations":
-                self.send_json(supervisor_telemetry.collect_operations())
+                self.send_json(operations_payload())
                 return
 
             if parsed.path == "/api/maintenance":
