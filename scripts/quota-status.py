@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -13,37 +12,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
-
-
-def age_seconds(value: Any) -> float | None:
-    parsed = telemetry.parse_time(value)
-    if parsed is None:
-        return None
-    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
-
-
-def summarize(snapshot: dict[str, Any]) -> dict[str, Any]:
-    result = dict(snapshot)
-    age = age_seconds(snapshot.get("observedAt"))
-    result["ageSeconds"] = age
-    threshold = int(snapshot.get("staleAfterSeconds") or 600)
-    if snapshot.get("status") == "available":
-        result["freshness"] = "stale" if age is not None and age > threshold else "fresh"
-    elif snapshot.get("observedAt"):
-        result["freshness"] = "unavailable"
-    else:
-        result["freshness"] = "not-sampled"
-    previous = snapshot.get("lastSuccessful")
-    if isinstance(previous, dict):
-        previous = dict(previous)
-        previous["ageSeconds"] = age_seconds(previous.get("observedAt"))
-        result["lastSuccessful"] = previous
-    return telemetry.sanitize(result)
+import quota_state  # type: ignore  # noqa: E402
 
 
 def render_text(snapshot: dict[str, Any]) -> str:
-    data = summarize(snapshot)
+    data = quota_state.summarize(snapshot)
     rate = data.get("rateLimits") or {}
     primary = rate.get("primary") or {}
     weekly = rate.get("secondary") or {}
@@ -79,7 +52,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Show current authoritative Codex quota")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    value = summarize(telemetry.current_quota())
+    value = quota_state.current()
     if args.json:
         print(json.dumps(value, sort_keys=True))
     else:
