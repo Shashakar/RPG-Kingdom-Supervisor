@@ -83,7 +83,7 @@ Report-only diagnostic work has a separate explicit completion contract layered 
 
 See [`docs/REPORT_ONLY_COMPLETION.md`](docs/REPORT_ONLY_COMPLETION.md) for the complete contract.
 
-The #46 operations-console work now includes the 46A telemetry foundation, 46B lifecycle/activity view, and 46C retention/detail slice:
+The #46 operations-console work now includes the telemetry foundation, lifecycle/activity view, retention/detail, and comparative usage analysis:
 
 - Symphony, review-orchestrator, Unity-broker, and Git-broker status are normalized into `healthy`, `busy`, `degraded`, `blocked`, `stopped`, or `unknown` without replacing their underlying authoritative status files;
 - implementation, repair, review, and report-only Codex lifetimes persist role/model/effort, duration, outcome, and uniquely attributable token counts;
@@ -97,7 +97,7 @@ The #46 operations-console work now includes the 46A telemetry foundation, 46B l
 - worker-lifetime drill-down correlates route, timing, outcome, token/quota telemetry, current lifecycle, review history, Unity runs, Git handoffs, artifacts, and chronological same-issue continuation context;
 - the localhost UI remains read-only and visually separates queues requiring human action.
 
-See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md) and [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md). Comparative usage analysis remains the later #46 slice.
+See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md), [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md), and [`docs/OPERATIONS_USAGE_ANALYSIS.md`](docs/OPERATIONS_USAGE_ANALYSIS.md).
 
 Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
@@ -120,7 +120,8 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
 - [`scripts/supervisor_maintenance.py`](scripts/supervisor_maintenance.py) — configurable local telemetry retention and stale active-worker restart reconciliation.
 - [`scripts/supervisor_detail.py`](scripts/supervisor_detail.py) — one-worker lifetime drill-down across lifecycle, usage, review, Unity, Git, and artifact sources.
-- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only operations/lifecycle/activity/worker/issue/Unity dashboard.
+- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only dashboard server and existing observability APIs.
+- [`scripts/supervisor_dashboard.html`](scripts/supervisor_dashboard.html) — dependency-free operator console presentation, navigation, drill-down, and progressive-disclosure UI.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
 - [`scripts/git-handoff-broker.py`](scripts/git-handoff-broker.py) — host-owned Git request broker and structured status producer.
@@ -150,6 +151,8 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/REPORT_ONLY_COMPLETION.md`](docs/REPORT_ONLY_COMPLETION.md) — explicit no-code/report-only completion, evidence, lifecycle, and reconciliation contract.
 - [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md) — service health, Codex quota, worker telemetry, lifecycle queues, activity correlation, redaction, and dashboard data contracts.
 - [`docs/OPERATIONS_RETENTION_DETAIL.md`](docs/OPERATIONS_RETENTION_DETAIL.md) — configurable telemetry retention, stale-worker restart reconciliation, and worker-lifetime drill-down contracts.
+- [`docs/OPERATIONS_USAGE_ANALYSIS.md`](docs/OPERATIONS_USAGE_ANALYSIS.md) — comparative worker-usage coverage, grouped summaries, expensive lifetimes, and continuation-cost analysis.
+- [`docs/DASHBOARD.md`](docs/DASHBOARD.md) — operator hierarchy, dashboard views, progressive disclosure, and read-only safety boundary.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
@@ -170,7 +173,7 @@ bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
-The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its top-level operations view shows host service health, current authoritative Codex quota when available, active/recent worker usage, telemetry-retention status, GitHub-authoritative lifecycle queues, and a unified recent activity timeline. Worker rows/activity links open a lifetime drill-down containing usage, lifecycle, review, Unity, Git handoff, lineage, and artifact context. Existing issue detail and Unity run history/detail remain available below it. Report-only completion remains visible as its own human-action queue through the `symphony:report-complete` lifecycle label.
+The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its sticky status strip and **Overview** view surface service health, active work, Codex quota, and human-action-required state first. **Work / Activity** contains GitHub-authoritative lifecycle queues, the unified activity timeline, and recent worker lifetimes; relevant issue references open focused **Issue detail** directly. Comparative usage and Unity history live in their own views, with detailed tables and raw diagnostics progressively disclosed rather than competing with the operator overview. See [`docs/DASHBOARD.md`](docs/DASHBOARD.md) for the presentation contract.
 
 When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 
