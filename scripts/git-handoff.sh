@@ -11,6 +11,7 @@ Usage:
   git-handoff.sh health [--project PATH]
   git-handoff.sh prepare --branch codex/NAME [--project PATH]
   git-handoff.sh handoff --branch codex/NAME --commit-message MESSAGE --pr-title TITLE [--pr-body BODY | --pr-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
+  git-handoff.sh report-complete [--report-body BODY | --report-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
 
 Environment overrides:
   RPGK_SYMPHONY_WORKSPACE_ROOT
@@ -24,14 +25,18 @@ if [[ $# -lt 1 ]]; then
   exit 64
 fi
 
-operation="$1"
+cli_operation="$1"
 shift
+operation="$cli_operation"
+completion_mode=""
 project="$PWD"
 branch=""
 commit_message=""
 pr_title=""
 pr_body=""
 pr_body_file=""
+report_body=""
+report_body_file=""
 validation_runs=()
 
 while [[ $# -gt 0 ]]; do
@@ -66,6 +71,16 @@ while [[ $# -gt 0 ]]; do
       pr_body_file="$2"
       shift 2
       ;;
+    --report-body)
+      [[ $# -ge 2 ]] || { echo "Missing value for --report-body" >&2; exit 64; }
+      report_body="$2"
+      shift 2
+      ;;
+    --report-body-file)
+      [[ $# -ge 2 ]] || { echo "Missing value for --report-body-file" >&2; exit 64; }
+      report_body_file="$2"
+      shift 2
+      ;;
     --validation-run)
       [[ $# -ge 2 ]] || { echo "Missing value for --validation-run" >&2; exit 64; }
       validation_runs+=("$2")
@@ -83,7 +98,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$operation" in
+case "$cli_operation" in
   health) ;;
   prepare)
     [[ -n "$branch" ]] || { echo "git-handoff.sh prepare requires --branch" >&2; exit 64; }
@@ -97,8 +112,16 @@ case "$operation" in
       exit 64
     fi
     ;;
+  report-complete)
+    operation="handoff"
+    completion_mode="report-only"
+    if [[ -n "$report_body" && -n "$report_body_file" ]]; then
+      echo "Use only one of --report-body or --report-body-file" >&2
+      exit 64
+    fi
+    ;;
   *)
-    echo "Unknown Git handoff operation: $operation" >&2
+    echo "Unknown Git handoff operation: $cli_operation" >&2
     usage
     exit 64
     ;;
@@ -123,6 +146,14 @@ if [[ -n "$pr_body_file" ]]; then
   [[ -f "$pr_body_file" ]] || { echo "PR body file does not exist: $pr_body_file" >&2; exit 64; }
   pr_body="$(cat "$pr_body_file")"
 fi
+if [[ -n "$report_body_file" ]]; then
+  [[ -f "$report_body_file" ]] || { echo "Report body file does not exist: $report_body_file" >&2; exit 64; }
+  report_body="$(cat "$report_body_file")"
+fi
+if [[ "$cli_operation" == "report-complete" && -z "${report_body//[[:space:]]/}" ]]; then
+  echo "git-handoff.sh report-complete requires --report-body or --report-body-file" >&2
+  exit 64
+fi
 
 broker_dir="$project/Logs/SymphonyGit/.broker"
 request_dir="$broker_dir/requests"
@@ -130,7 +161,7 @@ ack_dir="$broker_dir/acks"
 response_dir="$broker_dir/responses"
 mkdir -p "$request_dir" "$ack_dir" "$response_dir"
 
-request_id="${workspace_name}-${operation}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+request_id="${workspace_name}-${cli_operation}-$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
 request_path="$request_dir/$request_id.json"
 ack_path="$ack_dir/$request_id.json"
 response_path="$response_dir/$request_id.json"
@@ -144,13 +175,15 @@ fi
 jq -cn \
   --arg requestId "$request_id" \
   --arg operation "$operation" \
+  --arg completionMode "$completion_mode" \
   --argjson issueNumber "$issue_number" \
   --arg branch "$branch" \
   --arg commitMessage "$commit_message" \
   --arg prTitle "$pr_title" \
   --arg prBody "$pr_body" \
+  --arg reportBody "$report_body" \
   --argjson validationRunIds "$validation_json" \
-  '{protocolVersion:1,requestId:$requestId,operation:$operation,issueNumber:$issueNumber,branch:$branch,commitMessage:$commitMessage,prTitle:$prTitle,prBody:$prBody,validationRunIds:$validationRunIds}' \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,completionMode:$completionMode,issueNumber:$issueNumber,branch:$branch,commitMessage:$commitMessage,prTitle:$prTitle,prBody:$prBody,reportBody:$reportBody,validationRunIds:$validationRunIds}' \
   > "$temp_request"
 mv "$temp_request" "$request_path"
 
@@ -189,7 +222,7 @@ elif [[ -n "$stdout" ]]; then
 fi
 
 case "$status" in
-  HostBusy|TimedOut|StaleRequest|BrokerStopped|InvalidWorkspace|InvalidBranch|InvalidOrigin|UnexpectedBranch|ValidationEvidenceMissing|ValidationEvidenceInvalid|ValidationEvidenceFailed|GitFailed|GitHubApiFailed|GitHubNetworkFailed|GitHubAuthMissing|MainNotIntegrated|NonFastForward|ForbiddenPath|DirtyAfterCommit|NoChanges|PushVerificationFailed)
+  HostBusy|TimedOut|StaleRequest|BrokerStopped|InvalidWorkspace|InvalidBranch|InvalidOrigin|UnexpectedBranch|ValidationEvidenceMissing|ValidationEvidenceInvalid|ValidationEvidenceFailed|ValidationEvidenceStale|GitFailed|GitHubApiFailed|GitHubNetworkFailed|GitHubAuthMissing|MainNotIntegrated|NonFastForward|ForbiddenPath|DirtyAfterCommit|NoChanges|PushVerificationFailed|ReportOnlyNotAllowed|ReportEvidenceMissing|ReportEvidenceInvalid|ReportWorkspaceDirty|ReportAlreadyComplete|ReportLifecycleIncomplete)
     echo "RPG Kingdom Git handoff: $status" >&2
     ;;
 esac
