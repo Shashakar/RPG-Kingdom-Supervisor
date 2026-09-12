@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 for file in \
   "$ROOT/scripts/review-orchestrator.py" \
+  "$ROOT/scripts/review-orchestrator-service.py" \
+  "$ROOT/scripts/review-orchestrator-watchdog.sh" \
   "$ROOT/scripts/review-worker.sh" \
   "$ROOT/scripts/run-symphony.sh" \
   "$ROOT/scripts/codex-app-server-router.sh" \
@@ -14,7 +16,9 @@ for file in \
   [[ -f "$file" ]] || { echo "review-workflow-policy-test: missing $file" >&2; exit 1; }
 done
 
-grep -Fq 'review-orchestrator.py' "$ROOT/scripts/run-symphony.sh"
+grep -Fq 'review-orchestrator-service.py' "$ROOT/scripts/run-symphony.sh"
+grep -Fq 'review-orchestrator-watchdog.sh' "$ROOT/scripts/run-symphony.sh"
+grep -Fq 'review-orchestrator.py' "$ROOT/scripts/review-orchestrator-service.py"
 grep -Fq 'codex-session.lock' "$ROOT/scripts/codex-app-server-router.sh"
 grep -Fq 'codex-session.lock' "$ROOT/scripts/review-worker.sh"
 grep -Fq -- '--sandbox read-only' "$ROOT/scripts/review-worker.sh"
