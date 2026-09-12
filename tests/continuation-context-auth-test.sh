@@ -5,6 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# This test verifies fallback credential acquisition when the worker command does not receive the
+# tracker token. Make the fixture independent of an operator shell that may already have sourced the
+# Supervisor secrets file; otherwise the final no-leak assertion tests the caller environment rather
+# than the wrapper behavior.
+unset SYMPHONY_GITHUB_TOKEN
+
 mkdir -p "$TMP/bin" "$TMP/supervisor/scripts"
 
 cat > "$TMP/bin/gh" <<'GH'
