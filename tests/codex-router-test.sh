@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/GH-321"
+mkdir -p "$TMP/bin" "$TMP/GH-321" "$TMP/state" "$TMP/codex-home"
 
 cat > "$TMP/bin/gh" <<'MOCK'
 #!/usr/bin/env bash
@@ -15,6 +15,9 @@ chmod +x "$TMP/bin/gh"
 
 export PATH="$TMP/bin:$PATH"
 export RPGK_SUPERVISOR_ROOT="$ROOT"
+export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
+export CODEX_HOME="$TMP/codex-home"
+export RPGK_USAGE_SNAPSHOT_TIMEOUT_SECONDS=1
 export RPGK_ROUTER_DRY_RUN=1
 cd "$TMP/GH-321"
 
@@ -70,5 +73,16 @@ fi
 grep -Fxq 'model="gpt-5.6-luna"' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'model_reasoning_effort=medium' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
+
+python3 - "$TMP/state" <<'PY'
+import json, sys
+from pathlib import Path
+active = Path(sys.argv[1]) / "workers" / "active" / "implementation.json"
+value = json.loads(active.read_text(encoding="utf-8"))
+assert value["identifier"] == "GH-321"
+assert value["role"] == "implementation"
+assert value["model"] == "gpt-5.6-luna"
+assert value["effort"] == "medium"
+PY
 
 echo "codex-router-test: PASS"
