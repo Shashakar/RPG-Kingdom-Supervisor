@@ -10,10 +10,13 @@ The supervisor is currently evaluated against:
 - Tracked compatibility transforms:
   - `scripts/patch-symphony-named-permissions.py`
   - `scripts/patch-symphony-usage-limit.py`
+  - `scripts/patch-symphony-continuation-policy.py`
 
 ## Why this revision
 
 This revision includes the official GitHub Issues tracker adapter and Codex App Server runtime while also preserving the intended credential boundary: tracker authentication remains host-side and known GitHub/GitLab tracker token aliases are scrubbed from Codex child environments.
+
+The continuation behavior relevant to RPG Kingdom remains unchanged in current upstream as of the #60 investigation: after a normal `turn/completed`, `AgentRunner` refreshes the tracker item and recursively launches another turn whenever the item remains routable, until `agent.max_turns` is reached. Upstream does not currently expose a between-turn continuation-policy hook, so the Supervisor still needs a narrow compatibility seam for usage/progress-aware continuation.
 
 ## Named-permissions compatibility
 
@@ -35,16 +38,34 @@ The Supervisor therefore carries a second narrow compatibility transform that:
 
 The quota marker is runtime-only state and is cleared before each Codex session and after successful host reporting. Reviewed rearm semantics remain unchanged.
 
+## Automatic-continuation compatibility
+
+RPG Kingdom GH-108 demonstrated that a static four-turn hard cap is too permissive as the only continuation decision for expensive routes: Terra/medium consumed all four turns and retained useful dirty work but never reached handoff.
+
+The Supervisor therefore carries a third narrow compatibility transform. After Symphony confirms that a normally completed issue is still active/routable, but before it recursively starts the next turn, the patched `AgentRunner` invokes `scripts/continuation-policy.py` on the host.
+
+The host policy is model-free and evaluates:
+
+- the route-specific automatic-turn budget;
+- a fresh authoritative Codex App Server rate-limit snapshot;
+- current Git/worktree progress;
+- latest Unity run progress;
+- attributable cumulative rollout token telemetry and per-turn delta where available.
+
+The hard `agent.max_turns` value remains unchanged as an emergency ceiling. The policy may stop earlier. A declined continuation writes Supervisor-owned local evidence, returns control to the existing `after_run` boundary, and produces a distinct `continuation-budget-stop` halt while preserving the workspace for reviewed rearm.
+
+See `docs/CONTINUATION_POLICY.md` for defaults, thresholds, persistence, and tuning rules.
+
 ## Applying compatibility
 
-Apply and validate both transforms through the Supervisor scripts; do not hand-edit the upstream checkout:
+Apply and validate all transforms through the Supervisor scripts; do not hand-edit the upstream checkout:
 
 ```bash
 bash scripts/apply-symphony-permissions-patch.sh
 bash scripts/verify-symphony-permissions-patch.sh
 ```
 
-The generated local compatibility branch remains derived from the evaluated pin. If upstream Symphony adds equivalent first-class support for either compatibility seam, remove the corresponding transform as part of the reviewed pin upgrade.
+The generated local compatibility branch remains derived from the evaluated pin. If upstream Symphony adds equivalent first-class support for any compatibility seam, remove the corresponding transform as part of the reviewed pin upgrade.
 
 ## Upgrade policy
 
@@ -55,7 +76,7 @@ Before changing this pin:
 1. review upstream changes since the current revision;
 2. verify GitHub tracker behavior and Codex App Server configuration remain compatible with `WORKFLOW.md`;
 3. verify credential isolation has not regressed;
-4. determine whether upstream now provides the named-permissions and usage-limit seams and retire/rebase local compatibility transforms accordingly;
+4. determine whether upstream now provides the named-permissions, usage-limit, and between-turn continuation seams and retire/rebase local compatibility transforms accordingly;
 5. run the Supervisor shell suite plus compatibility verification;
 6. run the Phase 1 smoke path against a disposable or low-risk RPG Kingdom issue;
 7. update this file with the new revision and relevant compatibility notes.
