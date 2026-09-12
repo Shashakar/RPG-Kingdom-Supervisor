@@ -15,10 +15,18 @@ case "$url" in
     printf '%s\n' "${FAKE_LABELS_JSON:-[]}"
     ;;
   */issues/98)
-    printf '%s\n' "${FAKE_OWNER_ISSUE_JSON:-{\"state\":\"open\",\"labels\":[{\"name\":\"symphony:ready\"}]} }"
+    if [[ -n "${FAKE_OWNER_ISSUE_JSON:-}" ]]; then
+      printf '%s\n' "$FAKE_OWNER_ISSUE_JSON"
+    else
+      printf '%s\n' '{"state":"open","labels":[{"name":"symphony:ready"}]}'
+    fi
     ;;
   */issues/123|*/issues/124)
-    printf '%s\n' "${FAKE_OTHER_ISSUE_JSON:-{\"state\":\"open\",\"labels\":[{\"name\":\"symphony:ready\"}]} }"
+    if [[ -n "${FAKE_OTHER_ISSUE_JSON:-}" ]]; then
+      printf '%s\n' "$FAKE_OTHER_ISSUE_JSON"
+    else
+      printf '%s\n' '{"state":"open","labels":[{"name":"symphony:ready"}]}'
+    fi
     ;;
   *)
     printf '{}\n'
