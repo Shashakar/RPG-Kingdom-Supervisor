@@ -14,6 +14,9 @@ worker = {
     "model":"gpt-5.6-terra","effort":"medium","route":"terra",
     "startedAt":"2026-09-12T01:00:00+00:00","endedAt":"2026-09-12T01:10:00+00:00",
     "outcome":"agent-review","tokenUsage":{"status":"available","totalTokens":1234},
+    "quotaBefore":{"status":"available","rateLimits":{"primary":{"remainingPercent":60}}},
+    "quotaAfter":{"status":"available","rateLimits":{"primary":{"remainingPercent":52}}},
+    "quotaDelta":{"status":"available","primary":{"remainingPercentagePointDelta":-8}},
 }
 workers = [
     {**worker,"runId":"GH-46-implementation-r1","role":"implementation","startedAt":"2026-09-12T00:00:00+00:00","endedAt":"2026-09-12T00:30:00+00:00"},
@@ -23,6 +26,10 @@ workers = [
 
 supervisor_detail._load_worker = lambda run_id: (worker, "completed")
 supervisor_detail._all_issue_workers = lambda issue: workers
+supervisor_detail.supervisor_telemetry.current_quota = lambda: {
+    "status":"available","observedAt":"2026-09-12T03:00:00+00:00",
+    "rateLimits":{"primary":{"remainingPercent":100},"secondary":{"remainingPercent":92}},
+}
 supervisor_detail.supervisor_activity.collect = lambda **kwargs: {
     "items":[{"issue":46,"lifecycleState":"human_review","prNumber":55,"headSha":"abc123"}],
     "activity":[
@@ -44,6 +51,10 @@ value = supervisor_detail.collect("GH-46-repair-r2", workspace_root=Path("/tmp/w
 assert value is not None
 assert value["workerState"] == "completed"
 assert value["worker"]["tokenUsage"]["totalTokens"] == 1234
+assert value["worker"]["quotaBefore"]["rateLimits"]["primary"]["remainingPercent"] == 60
+assert value["worker"]["quotaAfter"]["rateLimits"]["primary"]["remainingPercent"] == 52
+assert value["currentQuota"]["rateLimits"]["primary"]["remainingPercent"] == 100
+assert "historical" in value["quotaSemantics"]
 assert value["currentLifecycle"]["lifecycleState"] == "human_review"
 assert value["continuationLineage"]["previousRunId"] == "GH-46-implementation-r1"
 assert value["continuationLineage"]["nextRunId"] == "GH-46-review-r3"
