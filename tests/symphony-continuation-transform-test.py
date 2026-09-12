@@ -55,6 +55,9 @@ with tempfile.TemporaryDirectory() as temp:
     assert "Continuation policy stopped automatic turn" in text
     assert "continuation-policy.py" in text
     assert '{output, 20} -> {:stop, String.trim(output)}' in text
+    assert "defp rpgk_supervisor_workspace?(workspace)" in text
+    assert "Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace))" in text
+    assert "Supervisor continuation policy not applicable outside GH workspaces" in text
 
     # Transform must be idempotent on the generated local compatibility branch.
     proc2 = subprocess.run(
