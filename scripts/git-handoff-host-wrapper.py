@@ -162,6 +162,7 @@ def main() -> int:
 
     operation = str(payload.get("operation", "")) if isinstance(payload, dict) else ""
     branch = str(payload.get("branch", "")) if isinstance(payload, dict) else ""
+    completion_mode = str(payload.get("completionMode", "")) if isinstance(payload, dict) else ""
 
     if operation == "prepare" and (workspace / ATTEMPT_MARKER).exists():
         try:
@@ -170,6 +171,11 @@ def main() -> int:
             return emit_error("GitFailed", 71, f"continuation workspace refresh failed: {exc}")
         if not ok:
             return emit_error("ContinuationSyncBlocked", 73, message or "continuation workspace refresh blocked")
+
+    if operation == "handoff" and completion_mode == "report-only":
+        report_core = Path(__file__).with_name("report-complete-host.py")
+        os.execv(sys.executable, [sys.executable, str(report_core), *args])
+        return 70
 
     core = Path(__file__).with_name("git-handoff-host.py")
     os.execv(sys.executable, [sys.executable, str(core), *args])
