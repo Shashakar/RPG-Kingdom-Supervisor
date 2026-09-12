@@ -8,6 +8,7 @@ USE_ALT_SCREEN="${RPGK_ALTERNATE_SCREEN:-1}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
 TELEMETRY_SCRIPT="$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py"
+MAINTENANCE_SCRIPT="$SUPERVISOR_ROOT/scripts/supervisor_maintenance.py"
 BROKER_ROOT="$STATE_ROOT/unity-broker"
 BROKER_STATUS="$BROKER_ROOT/status.json"
 BROKER_PID_FILE="$BROKER_ROOT/pid"
@@ -65,6 +66,18 @@ if [[ ! -f "$TELEMETRY_SCRIPT" ]]; then
   echo "ERROR: Supervisor telemetry script not found: $TELEMETRY_SCRIPT" >&2
   exit 1
 fi
+
+if [[ ! -f "$MAINTENANCE_SCRIPT" ]]; then
+  echo "ERROR: Supervisor maintenance script not found: $MAINTENANCE_SCRIPT" >&2
+  exit 1
+fi
+
+# Reconcile any active-worker records left behind by a crashed prior Supervisor process and
+# prune expired local telemetry before new services start. This never mutates GitHub lifecycle.
+python3 "$MAINTENANCE_SCRIPT" --apply >/dev/null || {
+  echo "ERROR: Supervisor telemetry maintenance failed; refusing to start with ambiguous local worker ownership." >&2
+  exit 1
+}
 
 if ! bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh"; then
   echo "ERROR: the pinned Symphony checkout does not support required RPG Kingdom compatibility policy." >&2
