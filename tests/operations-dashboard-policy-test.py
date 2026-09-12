@@ -11,11 +11,21 @@ assert 'parsed.path == "/api/maintenance"' in text
 assert "supervisor_maintenance.status()" in text
 assert 'parsed.path == "/api/lifecycle"' in text
 assert "supervisor_activity.collect()" in text
+assert 'parsed.path == "/api/usage-analysis"' in text
+assert "supervisor_usage_analysis.analyze(" in text
 assert 'r"/api/worker/([^/]+)"' in text
 assert "supervisor_detail.collect(run_id)" in text
 assert "Work lifecycle queues" in text
 assert "Recent activity" in text
 assert "Recent Codex worker lifetimes" in text
+assert "Comparative Codex usage" in text
+assert "By role" in text
+assert "By model" in text
+assert "By effort" in text
+assert "By risk" in text
+assert "Successful handoff vs halted/rework" in text
+assert "Highest-cost recent lifetimes" in text
+assert "Issue continuation cost" in text
 assert "Telemetry retention" in text
 assert "Continuation lineage" in text
 assert "Codex quota" in text
