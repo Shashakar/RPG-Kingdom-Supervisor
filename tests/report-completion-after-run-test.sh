@@ -10,7 +10,11 @@ cat > "$TMP/bin/curl" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$RPGK_TEST_CURL_LOG"
-printf '[]\n'
+if [[ "$*" == *'/issues/123/labels?per_page=100'* && "${RPGK_TEST_READY:-0}" == "1" ]]; then
+  printf '[{"name":"symphony:ready"}]\n'
+else
+  printf '[]\n'
+fi
 MOCK
 chmod +x "$TMP/bin/curl"
 
@@ -29,6 +33,7 @@ export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export RPGK_REPORT_RECONCILER="$TMP/reconcile-ok.py"
 export RPGK_TEST_CURL_LOG="$TMP/curl.log"
 export RPGK_TEST_RECONCILE_LOG="$TMP/reconcile.log"
+export RPGK_TEST_READY=0
 
 cd "$TMP/GH-123"
 bash "$ROOT/scripts/after-run-guard.sh" >"$TMP/stdout" 2>"$TMP/stderr"
@@ -71,6 +76,7 @@ PY
 chmod +x "$TMP/reconcile-none.py"
 export RPGK_REPORT_RECONCILER="$TMP/reconcile-none.py"
 export RPGK_GUARD_DRY_RUN=1
+export RPGK_TEST_READY=1
 : > "$RPGK_TEST_CURL_LOG"
 bash "$ROOT/scripts/after-run-guard.sh" >"$TMP/stdout-none" 2>"$TMP/stderr-none"
 grep -Fq 'would halt GH-123 because symphony:ready remains' "$TMP/stderr-none"
