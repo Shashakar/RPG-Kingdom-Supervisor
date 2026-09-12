@@ -148,7 +148,9 @@ Rules:
 - Do not mutate the Windows staging project directly; it is disposable validation state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
-- `HostBusy` is valid only while the broker's host child is still running when the request is handled; the broker reaps an already-exited child before returning that status.
+- `HostBusy` is valid only while the broker has another live or ownership-blocked host operation when the request is handled; the broker reaps an already-exited child before returning that status.
+- `Stalled` means the current validation stopped making observable progress and the host safely recovered the request-owned operation. If the broker is back to `ready`, retry that same relevant validation **once** in the current worker lifetime. Do not create another worker lifetime or enter an unbounded retry loop for this infrastructure outcome.
+- `StallRecoveryBlocked` means the host detected a stall but could not prove/process request ownership safely enough to complete recovery. Do not poll `HostBusy`, retry validation, invoke Windows process tools, or spend remaining turns waiting. Preserve the implementation/evidence, report the request ID and blocker, and stop so operator/human recovery can occur without losing completed work.
 - If `validation:unity-required` is present, do not complete the PR handoff without relevant Unity validation. Supply the successful runner `runId` values to `git-handoff.sh handoff` so the host can verify that evidence exists and passed.
 - On a rearmed continuation, every supplied Unity run must be newer than the previous `.symphony-attempt-complete` marker. Historical passing runs cannot substitute for validating the current continuation.
 - If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.

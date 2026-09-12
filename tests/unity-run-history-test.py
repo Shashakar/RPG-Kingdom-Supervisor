@@ -54,6 +54,24 @@ def response(broker: Path, request_id: str, **values: object) -> None:
     write_json(broker / "responses" / f"{request_id}.json", payload)
 
 
+def stall_details(*, result: str, unity_pid: int | None = 4242) -> dict[str, object]:
+    return {
+        "reason": "no_observed_progress",
+        "stallThresholdSeconds": 300,
+        "recoveryAction": "request_owned_unity_cancel" if unity_pid else "none",
+        "recoveryResult": result,
+        "activeRequest": {
+            "requestId": "fixture",
+            "issue": "GH-98",
+            "operation": "playmode",
+            "phase": "tests_running",
+            "lastProgressAt": "2026-09-11T07:02:00Z",
+            "noProgressSeconds": 301,
+            "unityPid": unity_pid,
+        },
+    }
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rpgk-unity-history-") as temp:
         root = Path(temp)
@@ -132,6 +150,26 @@ def main() -> int:
             stderr="RPG Kingdom Unity broker: host operation timed out after 1800s",
         )
 
+        _, broker = request_fixture(root, "owned-stall")
+        response(
+            broker,
+            "owned-stall",
+            status="Stalled",
+            exitCode=91,
+            stderr="Unity validation made no observable progress; request-owned Unity was cancelled.",
+            details=stall_details(result="host_runner_exited"),
+        )
+
+        _, broker = request_fixture(root, "blocked-stall")
+        response(
+            broker,
+            "blocked-stall",
+            status="StallRecoveryBlocked",
+            exitCode=92,
+            stderr="Unity validation is stalled, but request-owned Unity process identity could not be proven.",
+            details=stall_details(result="ownership_ambiguous", unity_pid=None),
+        )
+
         write_json(
             state_root / "unity-broker" / "status.json",
             {
@@ -140,6 +178,8 @@ def main() -> int:
                     "requestId": "active", "issue": "GH-98", "workspace": str(workspace),
                     "operation": "editmode", "testFilter": "Active.Test",
                     "startedAt": "2026-09-11T07:01:00Z", "elapsedSeconds": 13,
+                    "phase": "tests_running", "lastProgressAt": "2026-09-11T07:01:12Z",
+                    "noProgressSeconds": 1, "unityPid": 777, "recoveryBlocked": False,
                 },
             },
         )
@@ -179,9 +219,46 @@ def main() -> int:
         assert timeout["diagnosis"]["retryable"] is True
         assert timeout["finalStatus"] == "timed_out"
 
+        stalled = runs["owned-stall"]
+        assert stalled["diagnosis"]["category"] == "stalled"
+        assert stalled["diagnosis"]["retryable"] is True
+        assert stalled["finalStatus"] == "stalled"
+        assert stalled["phase"] == "tests_running"
+        assert stalled["recovery"]["recoveryAction"] == "request_owned_unity_cancel"
+
+        blocked = runs["blocked-stall"]
+        assert blocked["diagnosis"]["category"] == "stall_recovery_blocked"
+        assert blocked["diagnosis"]["retryable"] is False
+        assert blocked["finalStatus"] == "blocked"
+        assert blocked["recovery"]["recoveryResult"] == "ownership_ambiguous"
+
         active = runs["active"]
         assert active["finalStatus"] == "running"
         assert active["durationSeconds"] == 13
+        assert active["phase"] == "tests_running"
+        assert active["lastProgressAt"] == "2026-09-11T07:01:12Z"
+        assert active["noProgressSeconds"] == 1
+        assert active["unityPid"] == 777
+
+        # A live ambiguous recovery remains visible as blocked, not as an ordinary failure or disappearance.
+        write_json(
+            state_root / "unity-broker" / "status.json",
+            {
+                "state": "blocked",
+                "activeRequest": {
+                    "requestId": "active-blocked", "issue": "GH-98", "workspace": str(workspace),
+                    "operation": "playmode", "testFilter": "Blocked.Test",
+                    "startedAt": "2026-09-11T07:03:00Z", "elapsedSeconds": 320,
+                    "phase": "unity_running", "lastProgressAt": "2026-09-11T07:03:10Z",
+                    "noProgressSeconds": 310, "unityPid": None, "recoveryBlocked": True,
+                },
+            },
+        )
+        active_blocked = history.active_run(state_root)
+        assert active_blocked is not None
+        assert active_blocked["finalStatus"] == "blocked"
+        assert active_blocked["diagnosis"]["category"] == "stall_recovery_blocked"
+        assert active_blocked["phase"] == "unity_running"
 
         filtered = history.collect_runs(
             workspace_root=workspace_root,
@@ -202,10 +279,14 @@ def main() -> int:
         assert dashboard.normalize_issue("gh-98") == "GH-98"
         assert "/api/unity/runs" in dashboard.PAGE
         assert "/api/unity/run/" in dashboard.PAGE
+        assert "stalled" in dashboard.PAGE
+        assert "blocked" in dashboard.PAGE
+        assert "lastProgressAt" in dashboard.PAGE
 
         runner_text = (SCRIPTS / "unity-runner.sh").read_text(encoding="utf-8")
         assert "history/requests" in runner_text
         assert "requestedAt" in runner_text
+        assert "StallRecoveryBlocked" in runner_text
 
     print("unity-run-history-test: PASS")
     return 0

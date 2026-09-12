@@ -42,11 +42,13 @@ LICENSE_RECOVERY_TERMS = (
 )
 INFRA_STATUSES = {
     "HostBusy": ("host_busy", "Unity host busy", True),
+    "Stalled": ("stalled", "Unity validation stalled", True),
+    "StallRecoveryBlocked": ("stall_recovery_blocked", "Unity stall recovery blocked", False),
     "TimedOut": ("timeout", "Unity host timeout", True),
     "StaleRequest": ("stale_request", "Stale broker request", True),
     "BrokerStopped": ("broker_stopped", "Unity broker stopped", True),
 }
-INFRA_EXIT_CODES = {70, 80, 81, 82, 83, 84, 85, 86, 89, 90}
+INFRA_EXIT_CODES = {70, 80, 81, 82, 83, 84, 85, 86, 89, 90, 91, 92}
 
 
 def utc_now() -> datetime:
@@ -170,10 +172,15 @@ def diagnose_run(
     status = str(response.get("status") or "unknown")
     if status in INFRA_STATUSES:
         category, title, retryable = INFRA_STATUSES[status]
+        details = response.get("details") if isinstance(response.get("details"), dict) else {}
+        recovery = details.get("recoveryResult")
+        message = str(response.get("stderr") or title).strip()
+        if recovery:
+            message = f"{message} Recovery: {recovery}."
         return {
             "category": category,
             "title": title,
-            "message": str(response.get("stderr") or title).strip(),
+            "message": message,
             "retryable": retryable,
             "testsStarted": False,
         }
@@ -188,7 +195,7 @@ def diagnose_run(
             "category": "infrastructure",
             "title": "Unity host/infrastructure failure",
             "message": str(response.get("stderr") or f"Unity host operation failed with exit code {exit_code}.").strip(),
-            "retryable": exit_code in {70, 80, 84, 85, 86, 89, 90},
+            "retryable": exit_code in {70, 80, 84, 85, 86, 89, 90, 91},
             "testsStarted": False,
         }
 
@@ -314,13 +321,18 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
     if test_filter in (None, "") and isinstance(summary, dict):
         test_filter = summary.get("testFilter")
 
-    result = str((summary or {}).get("result") or response.get("status") or "unknown")
+    response_status = str(response.get("status") or "")
+    result = str((summary or {}).get("result") or response_status or "unknown")
     if diagnosis.get("category") == "passed":
         final_status = "passed"
-    elif str(response.get("status")) == "TimedOut":
+    elif response_status == "TimedOut":
         final_status = "timed_out"
-    elif str(response.get("status")) == "HostBusy":
+    elif response_status == "HostBusy":
         final_status = "rejected_busy"
+    elif response_status == "Stalled":
+        final_status = "stalled"
+    elif response_status == "StallRecoveryBlocked":
+        final_status = "blocked"
     else:
         final_status = "failed"
 
@@ -335,6 +347,8 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
             if any(word in line.lower() for word in title_words if len(word) > 4)
         ][:8]
 
+    details = response.get("details") if isinstance(response.get("details"), dict) else None
+    active_details = details.get("activeRequest") if isinstance(details, dict) and isinstance(details.get("activeRequest"), dict) else {}
     return {
         "requestId": request_id,
         "issue": workspace.name,
@@ -350,6 +364,11 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
         "finalStatus": final_status,
         "result": result,
         "exitCode": response.get("exitCode"),
+        "phase": active_details.get("phase"),
+        "lastProgressAt": active_details.get("lastProgressAt"),
+        "noProgressSeconds": active_details.get("noProgressSeconds"),
+        "unityPid": active_details.get("unityPid"),
+        "recovery": details,
         "artifactPath": str(artifact) if artifact else None,
         "paths": {
             "editorLog": str(editor_path) if editor_path and editor_path.is_file() else None,
@@ -368,9 +387,44 @@ def run_from_response(response_path: Path, workspace: Path) -> dict[str, Any] | 
 
 def active_run(state_root: Path) -> dict[str, Any] | None:
     status = read_json(state_root / "unity-broker" / "status.json")
-    if not status or status.get("state") != "running" or not isinstance(status.get("activeRequest"), dict):
+    if not status or status.get("state") not in {"running", "blocked"} or not isinstance(status.get("activeRequest"), dict):
         return None
     active = status["activeRequest"]
+    blocked = status.get("state") == "blocked" or bool(active.get("recoveryBlocked"))
+    phase = str(active.get("phase") or "host_startup")
+    last_progress = active.get("lastProgressAt") or active.get("startedAt")
+    no_progress = active.get("noProgressSeconds")
+    last_result = status.get("lastResult") if isinstance(status.get("lastResult"), dict) else {}
+    last_details = last_result.get("details") if isinstance(last_result.get("details"), dict) else None
+    if blocked:
+        diagnosis = {
+            "category": "stall_recovery_blocked",
+            "title": "Unity stall recovery blocked",
+            "message": (
+                f"Unity request is stalled in phase '{phase}', but process ownership was ambiguous or bounded "
+                "cancellation did not complete. Operator inspection is required before the Unity slot can be reused."
+            ),
+            "retryable": False,
+            "testsStarted": None,
+        }
+        run_status = "StallRecoveryBlocked"
+        final_status = "blocked"
+        result = "blocked"
+    else:
+        diagnosis = {
+            "category": "running",
+            "title": "Running",
+            "message": (
+                f"Unity host operation is active in phase '{phase}'; last observed progress was {last_progress}"
+                + (f" ({no_progress}s without progress)." if no_progress is not None else ".")
+            ),
+            "retryable": False,
+            "testsStarted": None,
+        }
+        run_status = "running"
+        final_status = "running"
+        result = "running"
+
     return {
         "requestId": active.get("requestId"),
         "issue": active.get("issue"),
@@ -381,21 +435,20 @@ def active_run(state_root: Path) -> dict[str, Any] | None:
         "startedAt": active.get("startedAt"),
         "completedAt": None,
         "durationSeconds": active.get("elapsedSeconds"),
-        "status": "running",
-        "finalStatus": "running",
-        "result": "running",
-        "exitCode": None,
+        "status": run_status,
+        "finalStatus": final_status,
+        "result": result,
+        "exitCode": last_result.get("exitCode") if blocked else None,
+        "phase": phase,
+        "lastProgressAt": last_progress,
+        "noProgressSeconds": no_progress,
+        "unityPid": active.get("unityPid"),
+        "recovery": last_details if blocked else None,
         "artifactPath": None,
         "paths": {},
         "summary": None,
         "failedTests": [],
-        "diagnosis": {
-            "category": "running",
-            "title": "Running",
-            "message": "Unity host operation is currently active.",
-            "retryable": False,
-            "testsStarted": None,
-        },
+        "diagnosis": diagnosis,
         "errorExcerpts": [],
         "broker": {"status": status},
     }
@@ -432,6 +485,10 @@ def collect_runs(
     if include_active:
         active = active_run(state_root)
         if active:
+            # A recovery-blocked request has already written a terminal response for the worker
+            # while the host process intentionally remains owned by the broker. Show the live
+            # blocked state once instead of duplicating the same request in history.
+            runs = [run for run in runs if run.get("requestId") != active.get("requestId")]
             runs.append(active)
 
     def keep(run: dict[str, Any]) -> bool:
@@ -441,7 +498,7 @@ def collect_runs(
             return False
         if status and run.get("finalStatus") != status and run.get("status") != status:
             return False
-        if run.get("finalStatus") == "running":
+        if run.get("finalStatus") in {"running", "blocked"}:
             return True
         completed = parse_time(run.get("completedAt"))
         return completed is None or completed >= cutoff

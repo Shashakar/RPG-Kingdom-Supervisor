@@ -145,6 +145,12 @@ case "$status" in
   HostBusy)
     echo "RPG Kingdom Unity runner: HostBusy" >&2
     ;;
+  Stalled)
+    echo "RPG Kingdom Unity runner: Stalled" >&2
+    ;;
+  StallRecoveryBlocked)
+    echo "RPG Kingdom Unity runner: StallRecoveryBlocked" >&2
+    ;;
   TimedOut)
     echo "RPG Kingdom Unity runner: TimedOut" >&2
     ;;

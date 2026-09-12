@@ -10,6 +10,9 @@ source "$ROOT/scripts/unity-runner-policy.sh"
 POWERSHELL_EXE="${RPGK_POWERSHELL_EXE:-powershell.exe}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
+REQUEST_ID="${RPGK_UNITY_REQUEST_ID:-}"
+PROGRESS_FILE="${RPGK_UNITY_PROGRESS_FILE:-}"
+CANCEL_FILE="${RPGK_UNITY_CANCEL_FILE:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -23,6 +26,11 @@ Environment overrides:
   RPGK_UNITY_EDITOR_WINDOWS
   RPGK_UNITY_STAGE_ROOT_WINDOWS
   RPGK_SUPERVISOR_STATE_ROOT
+
+Broker-owned request metadata (set by unity-host-broker.py):
+  RPGK_UNITY_REQUEST_ID
+  RPGK_UNITY_PROGRESS_FILE
+  RPGK_UNITY_CANCEL_FILE
 EOF
 }
 
@@ -96,6 +104,21 @@ powershell_args=(
 
 if [[ -n "${RPGK_UNITY_STAGE_ROOT_WINDOWS:-}" ]]; then
   powershell_args+=( -StageRoot "$RPGK_UNITY_STAGE_ROOT_WINDOWS" )
+fi
+
+if [[ -n "$REQUEST_ID" || -n "$PROGRESS_FILE" || -n "$CANCEL_FILE" ]]; then
+  if [[ -z "$REQUEST_ID" || -z "$PROGRESS_FILE" || -z "$CANCEL_FILE" ]]; then
+    echo "RPG Kingdom Unity runner: broker progress metadata is incomplete" >&2
+    exit 86
+  fi
+  mkdir -p "$(dirname "$PROGRESS_FILE")" "$(dirname "$CANCEL_FILE")"
+  progress_windows="$(wslpath -w "$PROGRESS_FILE")"
+  cancel_windows="$(wslpath -w "$CANCEL_FILE")"
+  powershell_args+=(
+    -RequestId "$REQUEST_ID"
+    -ProgressPath "$progress_windows"
+    -CancelPath "$cancel_windows"
+  )
 fi
 
 if [[ "$command" == "health" ]]; then

@@ -54,10 +54,12 @@ Phase 4 turns that scheduling contract into real Unity validation:
 - the staged `Library/` cache survives across issues;
 - Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
 - `results.xml`, `Editor.log`, and `summary.json` return to the ignored `Logs/SymphonyUnity/` directory;
+- active validation records phase/artifact progress so a long-running test can be distinguished from a request that has stopped moving;
+- positively-owned stalled requests are recovered through request-scoped cancellation, while ambiguous ownership blocks without killing unrelated Unity processes;
 - zero matched tests are reported as `NoTestsMatched`, not as a successful green run;
 - test execution is refused unless the current issue owns the Phase 3 Unity lock.
 
-See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract.
+See [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) for the runner contract and [`docs/UNITY_STALL_RECOVERY.md`](docs/UNITY_STALL_RECOVERY.md) for progress-aware stall detection/recovery.
 
 Phase 5 removes the remaining model-turn infrastructure dependency from PR handoff:
 
@@ -96,7 +98,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — worker-facing broker client for Unity health/EditMode/PlayMode validation.
 - [`scripts/unity-host-broker.py`](scripts/unity-host-broker.py) — host-owned typed Unity request broker and structured status producer.
 - [`scripts/unity-runner-host.sh`](scripts/unity-runner-host.sh) — host-only direct WSL/Windows adapter used by the broker.
-- [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, and artifact return bridge.
+- [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, progress reporting, request-owned cancellation, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
 - [`scripts/after-run-guard.sh`](scripts/after-run-guard.sh) — records the local execution boundary and performs tracker cleanup/halt handoff.
 - [`scripts/install-labels.sh`](scripts/install-labels.sh) — creates/updates routing, continuation, and Unity scheduling labels.
@@ -113,6 +115,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
+- [`docs/UNITY_STALL_RECOVERY.md`](docs/UNITY_STALL_RECOVERY.md) — progress-aware Unity stall classification and ownership-safe recovery contract.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md) — model-turn execution diagnostics and localhost dashboard usage.
 
 ## Regression gate
@@ -129,7 +132,7 @@ bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
-The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only.
+The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Unity history now shows the active validation phase, last observed progress, stall recovery result, and blocked ownership state so a wedged request is distinguishable from a legitimately long test run.
 
 When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 
