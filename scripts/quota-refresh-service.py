@@ -82,8 +82,9 @@ def refresh(timeout_seconds: float) -> int:
         exit_code = 124
         stderr = f"quota snapshot subprocess timed out after {exc.timeout}s"
     latest = telemetry.current_quota()
+    available = exit_code == 0 and latest.get("status") == "available"
     write_status(
-        state="ready" if exit_code == 0 else "degraded",
+        state="ready" if available else "degraded",
         intervalSeconds=None,
         staleAfterSeconds=stale_after_seconds(),
         lastAttemptAt=started,
