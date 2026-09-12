@@ -75,6 +75,17 @@ def classify_failure(exc: BaseException) -> str:
         return "transient"
 
     text = str(exc)
+    lowered = text.lower()
+    if " failed: 403 " in text and any(
+        marker in lowered
+        for marker in (
+            "rate limit",
+            "secondary rate limit",
+            "abuse detection",
+        )
+    ):
+        return "transient"
+
     permanent_markers = (
         " failed: 401 ",
         " failed: 403 ",
@@ -155,8 +166,6 @@ def run_loop(
                     file=sys.stderr,
                     flush=True,
                 )
-                # Stay alive so the parent Supervisor cannot mistake a dead child for a healthy idle
-                # system. A corrected credential/configuration requires an explicit Supervisor restart.
                 while True:
                     sleep_fn(PERMANENT_BLOCK_SLEEP_SECONDS)
 
