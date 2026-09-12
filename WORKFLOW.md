@@ -54,22 +54,22 @@ No issue description was provided.
 3. Read the repository-root `AGENTS.md` first. Read every additional document that `AGENTS.md` requires for this task, but do not broaden context beyond those requirements and the files actually relevant to the issue.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
 5. Do not change the Supervisor repository from a worker session.
-6. The App Server runs under the Supervisor's named Codex permission profile so source files in the current issue workspace can be inspected and edited. Do not assume the model turn can reliably own `.git` metadata, GitHub DNS, or final push/PR state. The host-owned Git handoff interface below is the authoritative mutation path for branch preparation and final PR handoff.
+6. The App Server runs under the Supervisor's named Codex permission profile so source files in the current issue workspace can be inspected and edited. Do not assume the model turn can reliably own `.git` metadata, GitHub DNS, or final GitHub lifecycle state. The host-owned Git handoff interface below is the authoritative mutation path for branch preparation, final PR handoff, and explicit report-only completion.
 
 ## Phase 2 execution contract
 
 This worker is intentionally budgeted. A Codex turn is expected to perform substantial tool work, not one small conversational step.
 
-- Aim to finish the entire bounded issue in the current turn: inspect -> prepare branch -> implement -> validate -> host Git handoff -> PR.
+- Aim to finish the entire bounded issue in the current turn. For implementation work: inspect -> prepare branch -> implement -> validate -> host Git handoff -> PR. For an explicitly labeled report-only task: inspect -> gather evidence -> validate as required -> host report completion.
 - Do not spend a turn merely narrating a plan, restating instructions, or reporting progress when useful repository work can continue.
 - Keep the change bounded to the issue and the smallest complete implementation.
-- Before project changes, prepare the required dedicated `codex/` branch through the host Git handoff client described below. Read-only Git inspection remains fine, but do not spend turns trying to work around protected model-side `.git` metadata.
+- Before project changes, prepare the required dedicated `codex/` branch through the host Git handoff client described below. Read-only Git inspection remains fine, but do not spend turns trying to work around protected model-side `.git` metadata. A `completion:report-only` task that intentionally makes no source changes does not prepare a branch merely to manufacture a handoff artifact.
 - Respect all production-scene restrictions in RPG Kingdom. Unity access does not broaden scene-edit authority.
-- Add or update tests and documentation required by the RPG Kingdom repository contract.
+- Add or update tests and documentation required by the RPG Kingdom repository contract when the task actually changes repository behavior.
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
 - When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
 - On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
-- Do not merge the pull request.
+- Do not merge a pull request or close an issue directly.
 
 ## Host-owned Git handoff contract
 
@@ -115,7 +115,23 @@ The host handoff:
 
 A recovered workspace can legitimately reach handoff with no new `git commit` during the current call when a prior failed handoff already left a local commit. The host judges progress by whether the remote branch advances, not merely by whether this invocation created the commit. If neither the remote branch advances nor fresh current-attempt evidence exists, treat `NoHandoffProgress` as a real blocker and do not rewrite PR text to imply that review feedback was resolved.
 
-Do not use direct `git push`, force-push, temporary Git metadata copies, or GitHub Git-object/branch API reconstruction as the normal completion path. If the host handoff returns a real blocker, preserve the workspace, leave a concise issue comment with the structured failure, and stop without claiming success.
+### Explicit report-only completion
+
+`completion:report-only` is the only supported opt-in for successful work that intentionally produces evidence but no source/test changes or PR. Never infer report-only eligibility from a clean workspace or from the absence of a diff.
+
+For an eligible report-only task, write the final report to a workspace-local temporary file and invoke:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" report-complete \
+  --report-body-file /tmp/rpgk-report.md \
+  [--validation-run <successful-unity-run-id> ...]
+```
+
+The host verifies the explicit issue label, non-empty report, clean source workspace, `HEAD == origin/main`, and fresh passing Unity evidence when `validation:unity-required` is present. It then posts the durable report comment itself, records a host-only completion receipt, adds `symphony:report-complete`, removes incompatible automation lifecycle labels, and removes `symphony:ready` last. The issue remains open for human review/closure; no dummy commit, empty PR, automated reviewer cycle, issue close, or merge is created.
+
+If source/test files changed or `HEAD` moved beyond `origin/main`, `report-complete` must fail closed as `ReportWorkspaceDirty`; use the normal implementation PR handoff instead. Repeating the same report/evidence is idempotent and reuses the existing durable comment. If GitHub lifecycle mutation fails after evidence was verified, the host-only receipt allows `after_run` to reconcile the same completion rather than falsely converting it to `symphony:halted`.
+
+Do not use direct `git push`, force-push, temporary Git metadata copies, GitHub Git-object/branch API reconstruction, direct lifecycle-label mutation, or direct issue closure as the normal completion path. If a host handoff/completion call returns a real blocker, preserve the workspace and evidence and stop without claiming success.
 
 A read-only health check is also available:
 
@@ -128,8 +144,8 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" health
 Unity is an explicit host-owned resource. The host evaluates these labels before Codex starts:
 
 - `resource:unity-editor` requests exclusive ownership of the Unity editor resource for this dispatch.
-- `validation:unity-required` requires `resource:unity-editor`, a healthy Windows Unity runner, and actual relevant Unity validation before successful PR handoff.
-- `validation:unity-optional` means implementation may proceed without Unity. If the issue does not also own `resource:unity-editor`, report the missing editor validation rather than trying to obtain Unity access yourself.
+- `validation:unity-required` requires `resource:unity-editor`, a healthy Windows Unity runner, and actual relevant Unity validation before successful PR or report-only handoff.
+- `validation:unity-optional` means work may proceed without Unity. If the issue does not also own `resource:unity-editor`, report the missing editor validation rather than trying to obtain Unity access yourself.
 - `validation:unity-required` and `validation:unity-optional` are mutually exclusive. Conflicting labels fail closed before Codex.
 
 When this issue owns `resource:unity-editor`, the **only** supported editor interface is:
@@ -151,7 +167,7 @@ Rules:
 - `HostBusy` is valid only while the broker has another live or ownership-blocked host operation when the request is handled; the broker reaps an already-exited child before returning that status.
 - `Stalled` means the current validation stopped making observable progress and the host safely recovered the request-owned operation. If the broker is back to `ready`, retry that same relevant validation **once** in the current worker lifetime. Do not create another worker lifetime or enter an unbounded retry loop for this infrastructure outcome.
 - `StallRecoveryBlocked` means the host detected a stall but could not prove/process request ownership safely enough to complete recovery. Do not poll `HostBusy`, retry validation, invoke Windows process tools, or spend remaining turns waiting. Preserve the implementation/evidence, report the request ID and blocker, and stop so operator/human recovery can occur without losing completed work.
-- If `validation:unity-required` is present, do not complete the PR handoff without relevant Unity validation. Supply the successful runner `runId` values to `git-handoff.sh handoff` so the host can verify that evidence exists and passed.
+- If `validation:unity-required` is present, do not complete the PR or report-only handoff without relevant Unity validation. Supply the successful runner `runId` values to the appropriate `git-handoff.sh` completion operation so the host can verify that evidence exists and passed.
 - On a rearmed continuation, every supplied Unity run must be newer than the previous `.symphony-attempt-complete` marker. Historical passing runs cannot substitute for validating the current continuation.
 - If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.
 - If broader Unity validation exposes unrelated failures after the issue's targeted contract is green, report them explicitly without silently expanding issue scope.
@@ -192,31 +208,54 @@ Luna is the default workhorse for bounded implementation. Terra is reserved for 
 
 The `symphony:ready` label is the dispatch lease.
 
-- Leave `symphony:ready` on the issue while implementation is genuinely active.
+- Leave `symphony:ready` on the issue while work is genuinely active.
 - Do not remove it merely to indicate that work started.
-- If a true external blocker prevents useful progress, leave a concise issue comment describing the blocker and stop without claiming success.
-- When implementation and available validation are complete, use the host Git handoff operation. Its PR body must summarize implementation, tests/validation run, anything not validated, architecture/doc changes, and intentionally deferred follow-up.
+- If a true external blocker prevents useful progress, report the blocker and stop without claiming success.
+{% if issue.labels contains "completion:report-only" %}
+- This issue explicitly permits report-only completion. Do not create source changes, a branch, an empty commit, or a dummy PR merely to satisfy the normal implementation lifecycle.
+- When the requested report/evidence and required validation are complete, use `git-handoff.sh report-complete`; the host posts the durable report and transitions the issue to `symphony:report-complete` while leaving it open for human review/closure.
+- If repository changes turn out to be necessary, do not force report-only completion. Treat that as a scope/lifecycle mismatch and stop for human/ChatGPT review unless the issue is deliberately converted to the normal implementation path.
+{% else %}
+- When implementation and available validation are complete, use the normal host Git handoff operation. Its PR body must summarize implementation, tests/validation run, anything not validated, architecture/doc changes, and intentionally deferred follow-up.
 - Do not update an existing PR body to claim review feedback is resolved when the branch has not advanced and no fresh current-attempt evidence directly supports that claim.
 - Confirm the returned handoff result contains the expected remote branch SHA and PR URL/number before reporting success.
 - The host removes `symphony:ready` only after the PR exists. Do not remove the dispatch lease before handoff or merge the PR.
+{% endif %}
 
-Removing `symphony:ready` remains intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present, the host also removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub mutation is temporarily unavailable.
+Removing `symphony:ready` remains intentionally last. The host records a local completed-attempt marker after every worker lifetime. If the worker attempt ends while the dispatch lease is still present and there is no trusted report-completion receipt for this lifetime, the host removes the lease and adds `symphony:halted`. The local marker makes a second Codex worker lifetime fail closed even if the GitHub lease cleanup is temporarily unavailable. A trusted report-only receipt is reconciled before that generic halt rule so successful no-code work cannot be mislabeled as an implementation failure.
 
 A reviewed continuation uses `symphony:rearm` as a one-shot host-consumed approval in addition to the normal `symphony:ready` lease. Human/ChatGPT review may request the continuation through GitHub by adding `symphony:rearm` first and `symphony:ready` last, or an operator may use `scripts/rearm-issue.sh`. During `before_run`, the host consumes `symphony:rearm`, preserves the durable completed-attempt marker, and clears only a stale Unity lock owned by the same GH issue. Re-adding `symphony:ready` by itself is not a valid rearm and must remain blocked.
 
 ## Completion criteria
 
-Do not report success unless all of the following are true:
+Do not report success unless the task-specific contract below and the shared validation rules are satisfied.
 
-- the implementation matches the issue and RPG Kingdom architecture;
-- repository-required tests/docs have been addressed;
+Shared rules:
+
+- the work matches the issue and RPG Kingdom architecture/instructions;
 - available relevant validation has been run and failures are not hidden;
-- any pre-existing runtime behavior materially affected by changed configuration, wiring, serialization, or presentation/controller assets has focused preservation evidence in addition to the new acceptance-path evidence;
-- `validation:unity-required`, when present, has actual relevant Unity runner evidence and its successful `runId` values were supplied to the host handoff;
+- `validation:unity-required`, when present, has actual relevant Unity runner evidence and its successful `runId` values were supplied to the host completion operation;
 - on a reviewed continuation, supplied Unity evidence was produced after the prior completed-attempt marker rather than recycled from an earlier worker lifetime;
-- the host handoff reports the branch was pushed and verified at the expected commit SHA;
-- a reviewable PR against `main` exists and the handoff returns its URL/number;
 - remaining optional/manual validation is explicit rather than guessed;
-- `symphony:ready` was removed only after the PR handoff completed.
+- `symphony:ready` was removed only by a successful host completion/reconciliation path.
+
+{% if issue.labels contains "completion:report-only" %}
+Report-only success additionally requires:
+
+- the requested diagnostic/report evidence is complete and concise enough for human review;
+- no source/test changes are present and `HEAD` still matches `origin/main`;
+- `git-handoff.sh report-complete` returned success with a durable report comment ID/URL;
+- the returned lifecycle is `symphony:report-complete`;
+- no PR or dummy commit was manufactured for the task.
+
+Your final response should report the completed evidence/validation, durable report comment URL when returned, and any unvalidated items. Do not claim the GitHub issue was automatically closed.
+{% else %}
+Implementation success additionally requires:
+
+- repository-required tests/docs have been addressed;
+- any pre-existing runtime behavior materially affected by changed configuration, wiring, serialization, or presentation/controller assets has focused preservation evidence in addition to the new acceptance-path evidence;
+- the host handoff reports the branch was pushed and verified at the expected commit SHA;
+- a reviewable PR against `main` exists and the handoff returns its URL/number.
 
 Your final response should report completed work, validation evidence, PR URL, and blockers or unvalidated items. Do not claim the change is merged.
+{% endif %}

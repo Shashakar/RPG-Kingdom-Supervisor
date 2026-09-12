@@ -7,7 +7,10 @@ API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 USAGE_LIMIT_MARKER="${RPGK_USAGE_LIMIT_MARKER:-.symphony-usage-limit.json}"
-REVIEW_STATE_WRITER="${RPGK_REVIEW_STATE_WRITER:-$(dirname "${BASH_SOURCE[0]}")/queue-agent-review.py}"
+STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+SCRIPT_ROOT="$(dirname "${BASH_SOURCE[0]}")"
+REVIEW_STATE_WRITER="${RPGK_REVIEW_STATE_WRITER:-$SCRIPT_ROOT/queue-agent-review.py}"
+REPORT_RECONCILER="${RPGK_REPORT_RECONCILER:-$SCRIPT_ROOT/reconcile-report-completion.py}"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -15,6 +18,16 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   exit 0
 fi
 issue_number="${BASH_REMATCH[1]}"
+
+prior_attempt_boundary="none"
+if [[ -f "$MARKER" ]]; then
+  prior_attempt_boundary="$(python3 - "$MARKER" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).stat().st_mtime_ns)
+PY
+)"
+fi
 
 printf 'completed worker lifetime for GH-%s at %s\n' "$issue_number" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
 
@@ -75,6 +88,32 @@ enqueue_agent_review() {
   api POST "/issues/$issue_number/labels" '{"labels":["symphony:agent-review"]}' >/dev/null
   echo "RPG Kingdom review workflow: queued GH-$issue_number / PR #$pr_number for independent review" >&2
 }
+
+# A host-verified report-only completion has no PR to queue. Reconcile its trusted host-side
+# receipt before applying the generic "ready still present => halted" rule. Exit 2 means no
+# receipt belongs to this worker lifetime; any other failure is surfaced without mislabeling the
+# verified report as a normal implementation halt.
+if [[ "${RPGK_GUARD_DRY_RUN:-0}" != "1" && -f "$REPORT_RECONCILER" ]]; then
+  set +e
+  report_reconcile_output="$(python3 "$REPORT_RECONCILER" \
+    --issue "$issue_number" \
+    --workspace "$PWD" \
+    --state-root "$STATE_ROOT" \
+    --attempt-boundary "$prior_attempt_boundary" 2>&1)"
+  report_reconcile_status=$?
+  set -e
+  if [[ "$report_reconcile_status" -eq 0 ]]; then
+    rm -f -- "$USAGE_LIMIT_MARKER"
+    [[ -z "$report_reconcile_output" ]] || echo "$report_reconcile_output" >&2
+    echo "RPG Kingdom report workflow: reconciled GH-$issue_number as symphony:report-complete" >&2
+    exit 0
+  fi
+  if [[ "$report_reconcile_status" -ne 2 ]]; then
+    [[ -z "$report_reconcile_output" ]] || echo "$report_reconcile_output" >&2
+    echo "RPG Kingdom report workflow: trusted report completion exists but lifecycle reconciliation failed; refusing to convert it into symphony:halted" >&2
+    exit "$report_reconcile_status"
+  fi
+fi
 
 if ! ready_present; then
   rm -f -- "$USAGE_LIMIT_MARKER"
