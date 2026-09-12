@@ -9,6 +9,10 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
 TELEMETRY_SCRIPT="$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py"
 MAINTENANCE_SCRIPT="$SUPERVISOR_ROOT/scripts/supervisor_maintenance.py"
+QUOTA_REFRESH_SCRIPT="$SUPERVISOR_ROOT/scripts/quota-refresh-service.py"
+QUOTA_REFRESH_LOG="$STATE_ROOT/usage/refresher.log"
+QUOTA_REFRESH_STARTED=0
+QUOTA_REFRESH_PID=""
 BROKER_ROOT="$STATE_ROOT/unity-broker"
 BROKER_STATUS="$BROKER_ROOT/status.json"
 BROKER_PID_FILE="$BROKER_ROOT/pid"
@@ -72,6 +76,11 @@ if [[ ! -f "$MAINTENANCE_SCRIPT" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$QUOTA_REFRESH_SCRIPT" ]]; then
+  echo "ERROR: Supervisor quota refresh service not found: $QUOTA_REFRESH_SCRIPT" >&2
+  exit 1
+fi
+
 # Reconcile any active-worker records left behind by a crashed prior Supervisor process and
 # prune expired local telemetry before new services start. This never mutates GitHub lifecycle.
 python3 "$MAINTENANCE_SCRIPT" --apply >/dev/null || {
@@ -92,12 +101,27 @@ if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
   fi
 fi
 
+# Quota is an operator control signal even when no worker is running. Populate the latest
+# authoritative App Server sample before Symphony can dispatch anything. Failure is intentionally
+# observability-only: the persisted unavailable reason is more useful than blocking Supervisor.
+mkdir -p "$STATE_ROOT/usage"
+env -u SYMPHONY_GITHUB_TOKEN -u GITHUB_TOKEN -u GH_TOKEN -u OPENAI_API_KEY \
+  python3 "$QUOTA_REFRESH_SCRIPT" --once >>"$QUOTA_REFRESH_LOG" 2>&1 || true
+
 python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state starting --pid "$$" >/dev/null || true
 
 cleanup_screen() {
   if (( ALT_SCREEN_ACTIVE == 1 )); then
     tput rmcup 2>/dev/null || true
     ALT_SCREEN_ACTIVE=0
+  fi
+}
+
+stop_quota_refresher() {
+  if (( QUOTA_REFRESH_STARTED == 1 )) && [[ -n "$QUOTA_REFRESH_PID" ]]; then
+    kill "$QUOTA_REFRESH_PID" 2>/dev/null || true
+    wait "$QUOTA_REFRESH_PID" 2>/dev/null || true
+    QUOTA_REFRESH_STARTED=0
   fi
 }
 
@@ -137,10 +161,26 @@ cleanup_all() {
   cleanup_screen
   stop_review_watchdog
   stop_review_orchestrator
+  stop_quota_refresher
   stop_unity_broker
   stop_git_broker
 }
 trap cleanup_all EXIT
+
+start_quota_refresher() {
+  env -u SYMPHONY_GITHUB_TOKEN -u GITHUB_TOKEN -u GH_TOKEN -u OPENAI_API_KEY \
+    python3 -u "$QUOTA_REFRESH_SCRIPT" --no-initial-refresh >>"$QUOTA_REFRESH_LOG" 2>&1 &
+  QUOTA_REFRESH_PID=$!
+  QUOTA_REFRESH_STARTED=1
+  sleep 0.1
+  if ! kill -0 "$QUOTA_REFRESH_PID" 2>/dev/null; then
+    echo "WARNING: quota refresh service exited during startup; current quota will age stale until the next Supervisor restart." >&2
+    tail -n 20 "$QUOTA_REFRESH_LOG" >&2 2>/dev/null || true
+    QUOTA_REFRESH_STARTED=0
+    return 0
+  fi
+  echo "RPG Kingdom quota refresher: ready (PID $QUOTA_REFRESH_PID, interval ${RPGK_QUOTA_REFRESH_SECONDS:-300}s)"
+}
 
 start_unity_broker() {
   mkdir -p "$BROKER_ROOT" "$WORKSPACE_ROOT"
@@ -267,6 +307,7 @@ start_review_watchdog() {
   REVIEW_WATCHDOG_PID=$!
 }
 
+start_quota_refresher
 if ! start_unity_broker; then
   exit 1
 fi
