@@ -4,8 +4,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PS_SCRIPT="$ROOT/scripts/windows/run-unity-tests.ps1"
 
-if ! grep -Fq 'Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru' "$PS_SCRIPT"; then
-  echo "unity-runner-host-syntax-test: Unity launch must use Start-Process -Wait -PassThru" >&2
+if ! grep -Fq 'Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -PassThru' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: Unity launch must return a process handle for progress/ownership tracking" >&2
+  exit 1
+fi
+
+if grep -Fq 'Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: Unity launch must not block before progress/cancellation polling can run" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'while (-not $unityProcess.HasExited)' "$PS_SCRIPT" || \
+   ! grep -Fq '$unityProcess.Refresh()' "$PS_SCRIPT" || \
+   ! grep -Fq '$unityProcess.WaitForExit()' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: host runner must explicitly poll and reap the launched Unity process" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Stop-Process -Id $unityProcess.Id -Force' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: stall recovery must target only the request-owned Unity PID" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Write-ProgressState -Phase "unity_running" -UnityPid $unityProcess.Id' "$PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: request-owned Unity PID must be published through progress state" >&2
   exit 1
 fi
 
