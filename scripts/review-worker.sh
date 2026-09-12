@@ -47,7 +47,8 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
   --workspace "$workspace" \
   --model "$model" \
   --effort "$effort" \
-  --route review >/dev/null; then
+  --route review \
+  --pid "$$" >/dev/null; then
   echo "RPG Kingdom review worker: durable worker telemetry record could not be established" >&2
   exit 70
 fi
