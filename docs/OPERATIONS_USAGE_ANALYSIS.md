@@ -4,9 +4,9 @@ This document defines the #46D comparative usage/efficiency slice built on the d
 
 ## Purpose
 
-`scripts/supervisor_usage_analysis.py` turns retained worker-lifetime records into simple, auditable tables that can answer where Codex capacity is being spent without inventing a cost model that Codex does not expose.
+`scripts/supervisor_usage_analysis.py` turns retained worker-lifetime records into simple, auditable comparisons that can answer where Codex capacity is being spent without inventing a cost model that Codex does not expose.
 
-The analysis is read-only. It does not route workers, mutate GitHub lifecycle, rearm issues, change concurrency, or alter retention.
+The analysis is read-only. It does not route workers, mutate GitHub lifecycle, rearm issues, change concurrency, alter retention, or merge work.
 
 ## Authoritative inputs
 
@@ -21,6 +21,20 @@ The analysis consumes completed Supervisor worker records. Depending on what Cod
 - authoritative before/after quota percentage-point deltas.
 
 Missing telemetry stays missing. A worker with unavailable token usage does not contribute a zero-token sample, and a worker without authoritative before/after quota percentages does not contribute a zero quota-cost sample.
+
+## Dashboard and API
+
+The localhost operations console exposes the analysis through `GET /api/usage-analysis`. The optional `limit` query parameter is bounded to 1–5000 retained completed workers; the default is 500.
+
+The main dashboard renders the analysis alongside the existing operations/lifecycle views. It shows:
+
+- telemetry coverage counts before any comparative numbers;
+- grouped tables by role, model, effort, risk, and normalized outcome;
+- recent highest-cost worker lifetimes with links into #46C worker detail;
+- per-issue lifetime/continuation rollups;
+- an explicit unavailable message for measurements the runtime cannot support authoritatively.
+
+The dashboard remains localhost-only and read-only. Analysis refresh is a data read, not an operator mutation action.
 
 ## Views
 
@@ -97,4 +111,6 @@ Prefer medians over single-run anecdotes once enough comparable lifetimes exist.
 - same-issue continuation rollups;
 - explicit refusal to fabricate model-reasoning timing.
 
-The test and Python compile check are part of `bash tests/run.sh`.
+`tests/operations-dashboard-policy-test.py` additionally verifies that the usage-analysis endpoint and comparison views are wired into the existing dashboard while the dashboard remains free of privileged process/GitHub mutation behavior.
+
+Both tests and the Python compile checks are part of `bash tests/run.sh`.
