@@ -26,60 +26,61 @@ if ! grep -Fq 'field(:permissions, :string)' "$schema"; then
   echo "ERROR: Symphony schema does not expose codex.permissions" >&2
   exit 1
 fi
-
 if ! grep -Fq 'permissions: settings.codex.permissions' "$config"; then
   echo "ERROR: Symphony runtime settings do not propagate codex.permissions" >&2
   exit 1
 fi
-
 if ! grep -Fq 'Map.put(params, "permissions", permissions)' "$app_server"; then
   echo "ERROR: Symphony App Server client does not send the named permission profile" >&2
   exit 1
 fi
-
 runtime_root_count="$(grep -Fc '"runtimeWorkspaceRoots" => [workspace]' "$app_server" || true)"
 if [[ "$runtime_root_count" -lt 2 ]]; then
   echo "ERROR: Symphony App Server client does not materialize the issue workspace as the runtime workspace root on both thread/start and turn/start" >&2
   exit 1
 fi
-
 if ! grep -Fq 'Map.put(params, "sandbox", thread_sandbox)' "$app_server"; then
   echo "ERROR: Symphony App Server client lost legacy thread-sandbox fallback" >&2
   exit 1
 fi
-
 if ! grep -Fq 'Map.put(params, "sandboxPolicy", turn_sandbox_policy)' "$app_server"; then
   echo "ERROR: Symphony App Server client lost legacy turn-sandbox fallback" >&2
   exit 1
 fi
-
 if ! grep -Fq '{:usage_limit_exceeded, details}' "$app_server"; then
   echo "ERROR: Symphony App Server client does not classify usage_limit_exceeded as a terminal turn result" >&2
   exit 1
 fi
-
 if ! grep -Fq 'write_usage_limit_marker(workspace, details)' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not persist usage-limit metadata for the host guard" >&2
   exit 1
 fi
-
 if ! grep -Fq 'ending worker lifetime without continuation turns' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not terminate the worker lifetime on usage_limit_exceeded" >&2
   exit 1
 fi
-
 if ! grep -Fq 'reset_continuation_policy!(workspace)' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not reset the host continuation policy at worker start" >&2
   exit 1
 fi
-
 if ! grep -Fq 'continuation_policy(workspace, refreshed_issue, turn_number, max_turns)' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not consult the host continuation policy between normal turns" >&2
   exit 1
 fi
-
 if ! grep -Fq 'Continuation policy stopped automatic turn' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not stop a normal continuation when the host policy declines it" >&2
+  exit 1
+fi
+if ! grep -Fq '"method" => "skills/extraRoots/set"' "$app_server"; then
+  echo "ERROR: Symphony App Server client does not register Supervisor first-party skill roots" >&2
+  exit 1
+fi
+if ! grep -Fq 'RPGK_SUPERVISOR_SKILLS_ROOT' "$app_server"; then
+  echo "ERROR: Symphony App Server client does not expose the Supervisor skill-root override" >&2
+  exit 1
+fi
+if ! grep -Fq '$rpgk-investigate-bug' "$agent_runner"; then
+  echo "ERROR: Symphony AgentRunner does not route the investigative first-party skill on the first turn" >&2
   exit 1
 fi
 

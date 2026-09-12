@@ -11,6 +11,7 @@ The supervisor is currently evaluated against:
   - `scripts/patch-symphony-named-permissions.py`
   - `scripts/patch-symphony-usage-limit.py`
   - `scripts/patch-symphony-continuation-policy.py`
+  - `scripts/patch-symphony-skill-roots.py`
 
 ## Why this revision
 
@@ -56,6 +57,24 @@ The hard `agent.max_turns` value remains unchanged as an emergency ceiling. The 
 
 See `docs/CONTINUATION_POLICY.md` for defaults, thresholds, persistence, and tuning rules.
 
+## First-party skill-root compatibility
+
+Current Codex App Server supports process-runtime extra skill roots, but the pinned Symphony client does not register a Supervisor-owned root before starting its thread. #34 uses that supported App Server surface rather than copying task procedure into RPG Kingdom or expanding the always-on `WORKFLOW.md` prompt.
+
+The fourth compatibility transform:
+
+- registers `skills/` through `skills/extraRoots/set` immediately after App Server initialization;
+- keeps the root Supervisor-owned and overrideable with `RPGK_SUPERVISOR_SKILLS_ROOT`;
+- invokes `$rpgk-investigate-bug` on the first turn of `risk:investigative` issues so Codex loads the detailed debugging procedure on demand;
+- does not repeat the skill marker on continuation turns;
+- leaves RPG Kingdom's checked-in `AGENTS.md` and repository documentation authoritative.
+
+The App Server extra-root registration is process-scoped. That is safe under the current architecture because each implementation worker owns its own App Server process. If #48 changes App Server/process sharing, re-evaluate this assumption before raising concurrency.
+
+Third-party MCP selection is separate from this Symphony transform. `scripts/codex-capability-policy.py` supplies only approved, already-installed MCP configuration to the Codex process at launch and records the selected capability state for telemetry.
+
+See `docs/CODEX_CAPABILITIES.md` for the current #34 capability policy.
+
 ## Applying compatibility
 
 Apply and validate all transforms through the Supervisor scripts; do not hand-edit the upstream checkout:
@@ -76,7 +95,7 @@ Before changing this pin:
 1. review upstream changes since the current revision;
 2. verify GitHub tracker behavior and Codex App Server configuration remain compatible with `WORKFLOW.md`;
 3. verify credential isolation has not regressed;
-4. determine whether upstream now provides the named-permissions, usage-limit, and between-turn continuation seams and retire/rebase local compatibility transforms accordingly;
+4. determine whether upstream now provides the named-permissions, usage-limit, between-turn continuation, and Supervisor skill-root seams and retire/rebase local compatibility transforms accordingly;
 5. run the Supervisor shell suite plus compatibility verification;
 6. run the Phase 1 smoke path against a disposable or low-risk RPG Kingdom issue;
 7. update this file with the new revision and relevant compatibility notes.

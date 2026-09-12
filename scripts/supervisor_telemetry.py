@@ -273,10 +273,12 @@ def worker_start(
     route: str,
     workspace: Path | None = None,
     pid: int | None = None,
+    capabilities_file: Path | None = None,
 ) -> dict[str, Any]:
     workspace = (workspace or Path.cwd()).resolve()
     issue_number, identifier = infer_issue(workspace)
     run_id = f"{identifier}-{role}-{utc_now().strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    capabilities = read_json(capabilities_file) if capabilities_file and capabilities_file.is_file() else None
     payload = {
         "protocolVersion": PROTOCOL_VERSION,
         "runId": run_id,
@@ -286,6 +288,7 @@ def worker_start(
         "model": model or None,
         "effort": effort or None,
         "route": route or None,
+        "capabilities": capabilities,
         "workspace": str(workspace),
         "pid": pid if pid is not None else os.getpid(),
         "startedAt": iso_now(),
@@ -566,6 +569,7 @@ def cli() -> int:
     start.add_argument("--route", default="")
     start.add_argument("--workspace")
     start.add_argument("--pid", type=int)
+    start.add_argument("--capabilities-file")
     end = sub.add_parser("worker-end")
     end.add_argument("--role", choices=("implementation", "repair", "review", "report-only"))
     end.add_argument("--workspace")
@@ -583,6 +587,7 @@ def cli() -> int:
                 args.role, args.model, args.effort, args.route,
                 Path(args.workspace) if args.workspace else None,
                 args.pid,
+                Path(args.capabilities_file) if args.capabilities_file else None,
             )
         elif args.command == "worker-end":
             result = worker_end(

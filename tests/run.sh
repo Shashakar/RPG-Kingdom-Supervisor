@@ -5,10 +5,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/codex-router-test.sh" >/dev/null
+python3 "$ROOT/tests/codex-capability-policy-test.py"
 bash "$ROOT/tests/codex-permissions-policy-test.sh"
 bash "$ROOT/tests/symphony-permissions-compat-test.sh"
 python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 python3 "$ROOT/tests/symphony-continuation-transform-test.py"
+python3 "$ROOT/tests/symphony-skill-roots-transform-test.py"
 python3 "$ROOT/tests/continuation-policy-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
@@ -42,10 +44,12 @@ bash "$ROOT/tests/continuation-context-test.sh"
 bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
+  "$ROOT/scripts/codex-capability-policy.py" \
   "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/continuation-policy.py" \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
   "$ROOT/scripts/patch-symphony-continuation-policy.py" \
+  "$ROOT/scripts/patch-symphony-skill-roots.py" \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
   "$ROOT/scripts/queue-agent-review.py" \
   "$ROOT/scripts/reconcile-report-completion.py" \

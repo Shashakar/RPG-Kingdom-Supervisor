@@ -43,9 +43,6 @@ if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Verify the live App Server launch receives the named permission profile rather
-# than relying on Symphony's legacy workspace-write sandbox. Git metadata is now
-# intentionally host-owned, and the tracker token must not reach the Codex child.
 cat > "$TMP/bin/codex" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -77,12 +74,20 @@ grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
 python3 - "$TMP/state" <<'PY'
 import json, sys
 from pathlib import Path
-active = Path(sys.argv[1]) / "workers" / "active" / "implementation.json"
+root = Path(sys.argv[1])
+active = root / "workers" / "active" / "implementation.json"
 value = json.loads(active.read_text(encoding="utf-8"))
 assert value["identifier"] == "GH-321"
 assert value["role"] == "implementation"
 assert value["model"] == "gpt-5.6-luna"
 assert value["effort"] == "medium"
+cap = value["capabilities"]
+assert cap["route"] == "luna"
+assert cap["selectedSkills"] == []
+assert cap["mcp"][0]["name"] == "graphify"
+assert cap["mcp"][0]["enabled"] is False
+persisted = json.loads((root / "capabilities" / "GH-321.json").read_text(encoding="utf-8"))
+assert persisted["route"] == "luna"
 PY
 
 echo "codex-router-test: PASS"
