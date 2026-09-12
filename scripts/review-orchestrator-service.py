@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib import error
 
+DEFAULT_SUPERVISOR_ROOT = Path(__file__).resolve().parents[1]
 SUPERVISOR_ROOT = Path(
-    os.environ.get("RPGK_SUPERVISOR_ROOT", str(Path.home() / "src/RPG-Kingdom-Supervisor"))
+    os.environ.get("RPGK_SUPERVISOR_ROOT", str(DEFAULT_SUPERVISOR_ROOT))
 ).expanduser()
 STATE_ROOT = Path(
     os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", str(Path.home() / ".local/state/rpg-kingdom-supervisor"))
@@ -32,6 +33,10 @@ if not SPEC or not SPEC.loader:
     raise RuntimeError("unable to load review-orchestrator.py")
 review = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(review)
+# The service owns the resolved Supervisor checkout. Keep the imported core on the same root even
+# when RPGK_SUPERVISOR_ROOT is absent so subprocess paths do not fall back to a developer-specific
+# ~/src checkout.
+review.SUPERVISOR_ROOT = SUPERVISOR_ROOT
 
 
 def utc_now() -> datetime:
