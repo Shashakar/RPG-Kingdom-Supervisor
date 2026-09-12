@@ -9,6 +9,9 @@ bash "$ROOT/tests/codex-permissions-policy-test.sh"
 bash "$ROOT/tests/symphony-permissions-compat-test.sh"
 python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
+python3 "$ROOT/tests/codex-usage-snapshot-test.py"
+python3 "$ROOT/tests/supervisor-telemetry-test.py"
+python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 bash "$ROOT/tests/report-completion-after-run-test.sh"
@@ -33,6 +36,7 @@ bash "$ROOT/tests/continuation-context-test.sh"
 bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
+  "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
   "$ROOT/scripts/patch-symphony-usage-limit.py" \
   "$ROOT/scripts/queue-agent-review.py" \
@@ -41,9 +45,11 @@ python3 -m py_compile \
   "$ROOT/scripts/review-orchestrator.py" \
   "$ROOT/scripts/review-orchestrator-service.py" \
   "$ROOT/scripts/review_state.py" \
-  "$ROOT/scripts/unity_run_history.py" \
-  "$ROOT/scripts/supervisor_dashboard.py"
+  "$ROOT/scripts/supervisor_dashboard.py" \
+  "$ROOT/scripts/supervisor_telemetry.py" \
+  "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
+bash -n "$ROOT/scripts/codex-app-server-router.sh"
 bash -n "$ROOT/scripts/git-handoff.sh"
 bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"

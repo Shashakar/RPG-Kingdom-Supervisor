@@ -19,6 +19,43 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 
+# The App Server router creates a durable active-worker record after it acquires the Codex lock.
+# Finalize that record regardless of which lifecycle branch below exits. Quota sampling is
+# observability-only and fail-soft; the existing lifecycle result remains authoritative.
+finish_worker_telemetry() {
+  local original_status=$?
+  trap - EXIT
+  set +e
+  local active_dir="$STATE_ROOT/workers/active"
+  local has_issue_record=0
+  if [[ -d "$active_dir" ]]; then
+    while IFS= read -r path; do
+      if python3 - "$path" "$issue_number" <<'PY' >/dev/null 2>&1
+import json, sys
+from pathlib import Path
+try:
+    value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("issue") == int(sys.argv[2]) else 1)
+PY
+      then
+        has_issue_record=1
+        break
+      fi
+    done < <(find "$active_dir" -maxdepth 1 -type f -name '*.json' -print 2>/dev/null)
+  fi
+
+  if (( has_issue_record == 1 )); then
+    env -u SYMPHONY_GITHUB_TOKEN -u GITHUB_TOKEN -u GH_TOKEN -u OPENAI_API_KEY \
+      python3 "$SCRIPT_ROOT/codex-usage-snapshot.py" --write --quiet >/dev/null 2>&1 || true
+    GH_TOKEN="$TOKEN" python3 "$SCRIPT_ROOT/supervisor_telemetry.py" worker-end \
+      --workspace "$PWD" --infer-lifecycle >/dev/null 2>&1 || true
+  fi
+  exit "$original_status"
+}
+trap finish_worker_telemetry EXIT
+
 prior_attempt_boundary="none"
 if [[ -f "$MARKER" ]]; then
   prior_attempt_boundary="$(python3 - "$MARKER" <<'PY'

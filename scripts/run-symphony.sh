@@ -7,6 +7,7 @@ SECRETS_FILE="${RPGK_SECRETS_FILE:-$HOME/.config/rpg-kingdom-supervisor/secrets.
 USE_ALT_SCREEN="${RPGK_ALTERNATE_SCREEN:-1}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
+TELEMETRY_SCRIPT="$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py"
 BROKER_ROOT="$STATE_ROOT/unity-broker"
 BROKER_STATUS="$BROKER_ROOT/status.json"
 BROKER_PID_FILE="$BROKER_ROOT/pid"
@@ -60,6 +61,11 @@ if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$TELEMETRY_SCRIPT" ]]; then
+  echo "ERROR: Supervisor telemetry script not found: $TELEMETRY_SCRIPT" >&2
+  exit 1
+fi
+
 if ! bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh"; then
   echo "ERROR: the pinned Symphony checkout does not support required RPG Kingdom compatibility policy." >&2
   echo "Run: bash $SUPERVISOR_ROOT/scripts/apply-symphony-permissions-patch.sh" >&2
@@ -72,6 +78,8 @@ if [[ "${RPGK_SKIP_CODEX_PERMISSION_PROBE:-0}" != "1" ]]; then
     exit 1
   fi
 fi
+
+python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state starting --pid "$$" >/dev/null || true
 
 cleanup_screen() {
   if (( ALT_SCREEN_ACTIVE == 1 )); then
@@ -264,12 +272,14 @@ if [[ "$USE_ALT_SCREEN" == "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]] && comman
 fi
 
 cd "$SYMPHONY_ROOT" || exit 1
+python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state running --pid "$$" >/dev/null || true
 
 mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
   "$SUPERVISOR_ROOT/WORKFLOW.md"
 status=$?
 
+python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state stopped --pid "$$" --exit-code "$status" >/dev/null || true
 cleanup_all
 trap - EXIT
 
