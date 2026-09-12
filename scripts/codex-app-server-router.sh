@@ -56,7 +56,8 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
   --role "$role" \
   --model "$model" \
   --effort "$reasoning_effort" \
-  --route "$route_name" >/dev/null; then
+  --route "$route_name" \
+  --pid "$$" >/dev/null; then
   echo "RPG Kingdom router: refusing to start Codex because the durable worker telemetry record could not be established" >&2
   exit 70
 fi
