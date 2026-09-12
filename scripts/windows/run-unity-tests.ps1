@@ -13,10 +13,14 @@ param(
 
     [string]$TestFilter = "",
     [string]$RunId = "",
+    [string]$RequestId = "",
+    [string]$ProgressPath = "",
+    [string]$CancelPath = "",
     [switch]$HealthOnly
 )
 
 $ErrorActionPreference = "Stop"
+$script:ProgressSequence = 0
 
 function Fail-Runner {
     param(
@@ -26,6 +30,84 @@ function Fail-Runner {
 
     [Console]::Error.WriteLine("RPG Kingdom Unity runner: $Message")
     exit $Code
+}
+
+function Write-ProgressState {
+    param(
+        [string]$Phase,
+        [int]$UnityPid = 0,
+        [long]$EditorLogBytes = -1,
+        [long]$ResultsBytes = -1,
+        [bool]$SummaryPresent = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProgressPath)) {
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($RequestId)) {
+        Fail-Runner "ProgressPath requires RequestId" 86
+    }
+
+    $script:ProgressSequence += 1
+    $progressDirectory = Split-Path -Parent $ProgressPath
+    if (-not [string]::IsNullOrWhiteSpace($progressDirectory)) {
+        New-Item -ItemType Directory -Force -Path $progressDirectory | Out-Null
+    }
+
+    $payload = [ordered]@{
+        protocolVersion = 1
+        requestId = $RequestId
+        sequence = $script:ProgressSequence
+        phase = $Phase
+        observedAt = (Get-Date).ToUniversalTime().ToString("o")
+        unityPid = if ($UnityPid -gt 0) { $UnityPid } else { $null }
+        editorLogBytes = if ($EditorLogBytes -ge 0) { $EditorLogBytes } else { $null }
+        resultsBytes = if ($ResultsBytes -ge 0) { $ResultsBytes } else { $null }
+        summaryPresent = $SummaryPresent
+    }
+    $json = $payload | ConvertTo-Json -Compress
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $tempPath = "$ProgressPath.tmp.$PID"
+    [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
+    Move-Item -LiteralPath $tempPath -Destination $ProgressPath -Force
+}
+
+function Get-UnityProgressPhase {
+    param([string]$LogPath)
+
+    if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) {
+        return "unity_startup"
+    }
+
+    try {
+        $tail = (Get-Content -LiteralPath $LogPath -Tail 120 -ErrorAction Stop | Out-String).ToLowerInvariant()
+    }
+    catch {
+        return "unity_running"
+    }
+
+    if ($tail -match "testrunner|test runner|running tests|run tests|test run") {
+        return "tests_running"
+    }
+    if ($tail -match "scriptcompilation|compil|bee_backend|assembly updater") {
+        return "compiling"
+    }
+    if ($tail -match "importing|asset import|refreshing native plugins|domain reload") {
+        return "importing"
+    }
+    return "unity_running"
+}
+
+function Read-CancelRequest {
+    if ([string]::IsNullOrWhiteSpace($CancelPath) -or -not (Test-Path -LiteralPath $CancelPath -PathType Leaf)) {
+        return $null
+    }
+    try {
+        return Get-Content -LiteralPath $CancelPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
 }
 
 function Assert-UnityHostIdle {
@@ -93,6 +175,7 @@ catch {
 Assert-UnityHostIdle
 
 if ($HealthOnly) {
+    Write-ProgressState -Phase "health_ready"
     [ordered]@{
         status = "ready"
         unityVersion = $UnityVersion
@@ -107,10 +190,12 @@ if ([string]::IsNullOrWhiteSpace($RunId)) {
     Fail-Runner "RunId is required for a test run" 86
 }
 
+Write-ProgressState -Phase "staging"
 foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
     $sourceDirectory = Join-Path $SourceProjectPath $directory
     $destinationDirectory = Join-Path $StageProject $directory
     Invoke-ProjectMirror -Source $sourceDirectory -Destination $destinationDirectory
+    Write-ProgressState -Phase ("staging_" + $directory.ToLowerInvariant())
 }
 
 $StageOutput = Join-Path (Join-Path $StageProject ".symphony-results") $RunId
@@ -121,6 +206,7 @@ New-Item -ItemType Directory -Force -Path $SourceOutput | Out-Null
 $ResultsPath = Join-Path $StageOutput "results.xml"
 $LogPath = Join-Path $StageOutput "Editor.log"
 $SummaryPath = Join-Path $StageOutput "summary.json"
+$SourceLogPath = Join-Path $SourceOutput "Editor.log"
 
 $unityArgs = @(
     "-batchmode",
@@ -137,11 +223,91 @@ if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
 }
 
 $launchStartedAt = Get-Date
-$unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -Wait -PassThru
+Write-ProgressState -Phase "unity_startup"
+$unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -PassThru
+Write-ProgressState -Phase "unity_running" -UnityPid $unityProcess.Id
+
+$cancelled = $false
+$lastLogLength = -1L
+$lastLogWrite = [datetime]::MinValue
+$lastResultsLength = -1L
+
+while (-not $unityProcess.HasExited) {
+    $cancel = Read-CancelRequest
+    if ($null -ne $cancel -and [string]$cancel.requestId -eq $RequestId) {
+        Write-ProgressState -Phase "recovery_cancel_requested" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
+        try {
+            Stop-Process -Id $unityProcess.Id -Force -ErrorAction Stop
+            $unityProcess.WaitForExit()
+            $cancelled = $true
+            Write-ProgressState -Phase "recovery_cancelled" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
+            break
+        }
+        catch {
+            # Do not broaden cleanup to other Unity processes. The broker will fail closed if
+            # this request-owned PID cannot be stopped within its recovery grace period.
+            Write-ProgressState -Phase "recovery_cancel_failed" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
+        }
+    }
+
+    $progressChanged = $false
+    $phase = "unity_running"
+    $logLength = -1L
+    $resultsLength = -1L
+
+    if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+        try {
+            $logInfo = Get-Item -LiteralPath $LogPath
+            $logLength = [long]$logInfo.Length
+            if ($logLength -ne $lastLogLength -or $logInfo.LastWriteTimeUtc -ne $lastLogWrite) {
+                $lastLogLength = $logLength
+                $lastLogWrite = $logInfo.LastWriteTimeUtc
+                $progressChanged = $true
+                $phase = Get-UnityProgressPhase -LogPath $LogPath
+                try {
+                    Copy-Item -LiteralPath $LogPath -Destination $SourceLogPath -Force -ErrorAction Stop
+                }
+                catch {
+                    # Progress detection must not fail the validation merely because a live log
+                    # cannot be copied during one poll. Final artifact copy is still authoritative.
+                }
+            }
+        }
+        catch {
+            # Treat inability to stat the live log as no new progress for this poll.
+        }
+    }
+
+    if (Test-Path -LiteralPath $ResultsPath -PathType Leaf) {
+        try {
+            $resultsInfo = Get-Item -LiteralPath $ResultsPath
+            $resultsLength = [long]$resultsInfo.Length
+            if ($resultsLength -ne $lastResultsLength) {
+                $lastResultsLength = $resultsLength
+                $progressChanged = $true
+                $phase = "test_results"
+            }
+        }
+        catch {
+        }
+    }
+
+    if ($progressChanged) {
+        Write-ProgressState -Phase $phase -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
+    }
+
+    Start-Sleep -Seconds 2
+    $unityProcess.Refresh()
+}
+
+if (-not $cancelled) {
+    $unityProcess.WaitForExit()
+}
 $unityExitCode = $unityProcess.ExitCode
+Write-ProgressState -Phase "artifact_finalization" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
 
 if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
-    Copy-Item -LiteralPath $LogPath -Destination (Join-Path $SourceOutput "Editor.log") -Force
+    Copy-Item -LiteralPath $LogPath -Destination $SourceLogPath -Force
 }
 else {
     # Some early Unity startup crashes happen before the requested -logFile is created.
@@ -152,15 +318,18 @@ else {
         $defaultEditorLogInfo = Get-Item -LiteralPath $defaultEditorLog
         if ($defaultEditorLogInfo.LastWriteTime -ge $launchStartedAt.AddSeconds(-2)) {
             Get-Content -LiteralPath $defaultEditorLog -Tail 4000 |
-                Set-Content -LiteralPath (Join-Path $SourceOutput "Editor.log") -Encoding UTF8
+                Set-Content -LiteralPath $SourceLogPath -Encoding UTF8
         }
     }
 }
 
+if ($cancelled) {
+    Fail-Runner "request-owned Unity PID $($unityProcess.Id) was cancelled after Supervisor detected a validation stall. Inspect '$SourceLogPath' when present." 91
+}
+
 if (-not (Test-Path -LiteralPath $ResultsPath -PathType Leaf)) {
-    $copiedLogPath = Join-Path $SourceOutput "Editor.log"
-    if (Test-Path -LiteralPath $copiedLogPath -PathType Leaf) {
-        Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$copiedLogPath'." 87
+    if (Test-Path -LiteralPath $SourceLogPath -PathType Leaf) {
+        Fail-Runner "Unity exited with code $unityExitCode without producing test results. Inspect '$SourceLogPath'." 87
     }
     Fail-Runner "Unity exited with code $unityExitCode without producing test results or an Editor log." 87
 }
@@ -206,6 +375,7 @@ $summaryJson = $summary | ConvertTo-Json -Compress
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($SummaryPath, $summaryJson, $utf8NoBom)
 Copy-Item -LiteralPath $SummaryPath -Destination (Join-Path $SourceOutput "summary.json") -Force
+Write-ProgressState -Phase "completed" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes ((Get-Item -LiteralPath $ResultsPath).Length) -SummaryPresent $true
 $summaryJson | Write-Output
 
 if ($unityExitCode -ne 0 -or $failed -gt 0 -or $total -le 0 -or ($result -ne "Passed" -and $result -ne "Success")) {
