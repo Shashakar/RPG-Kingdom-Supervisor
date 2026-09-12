@@ -16,16 +16,42 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 SCHEMA="$SUPERVISOR_ROOT/schemas/review-verdict.schema.json"
 LOCK_FILE="$STATE_ROOT/locks/codex-session.lock"
 RUN_LOG="${output_file}.codex.log"
+TELEMETRY_STARTED=0
 
 [[ -f "$prompt_file" ]] || { echo "Review prompt missing: $prompt_file" >&2; exit 64; }
 [[ -f "$SCHEMA" ]] || { echo "Review schema missing: $SCHEMA" >&2; exit 64; }
 mkdir -p "$(dirname "$output_file")" "$(dirname "$LOCK_FILE")"
+
+finish_telemetry() {
+  if (( TELEMETRY_STARTED == 0 )); then
+    return 0
+  fi
+  python3 "$SUPERVISOR_ROOT/scripts/codex-usage-snapshot.py" --write --quiet || true
+  python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-end \
+    --role review \
+    --workspace "$workspace" \
+    --outcome-file "$output_file" >/dev/null 2>&1 || true
+  TELEMETRY_STARTED=0
+}
+trap finish_telemetry EXIT
 
 # The reviewer is intentionally independent and read-only. It may inspect repository state,
 # ignored validation artifacts, and Git history, but it cannot mutate the implementation.
 unset SYMPHONY_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 exec 9>"$LOCK_FILE"
 flock 9
+
+python3 "$SUPERVISOR_ROOT/scripts/codex-usage-snapshot.py" --write --quiet || true
+if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
+  --role review \
+  --workspace "$workspace" \
+  --model "$model" \
+  --effort "$effort" \
+  --route review >/dev/null; then
+  echo "RPG Kingdom review worker: durable worker telemetry record could not be established" >&2
+  exit 70
+fi
+TELEMETRY_STARTED=1
 
 set +e
 codex exec \
