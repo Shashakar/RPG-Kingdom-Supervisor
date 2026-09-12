@@ -17,6 +17,7 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   exit 64
 fi
 issue_number="${BASH_REMATCH[1]}"
+identifier="GH-$issue_number"
 
 labels="$(gh issue view "$issue_number" --repo "$RPGK_REPO" --json labels --jq '.labels[].name')"
 
@@ -44,6 +45,28 @@ bash "$SUPERVISOR_ROOT/scripts/build-continuation-context-with-auth.sh"
 
 unset SYMPHONY_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
 
+# Select only pre-approved capabilities that are already available on the host. This is
+# deliberately separate from routing: model selection remains unchanged if Graphify is absent.
+mkdir -p "$STATE_ROOT/capabilities"
+capabilities_file="$STATE_ROOT/capabilities/$identifier.json"
+capability_args_file="$(mktemp)"
+trap 'rm -f -- "$capability_args_file"' EXIT
+labels_json="$(printf '%s\n' "$labels" | jq -R -s 'split("\n") | map(select(length > 0))')"
+if ! python3 "$SUPERVISOR_ROOT/scripts/codex-capability-policy.py" route \
+  --route "$route_name" \
+  --issue "$identifier" \
+  --workspace "$PWD" \
+  --labels-json "$labels_json" \
+  --args-file "$capability_args_file" \
+  --state-file "$capabilities_file"; then
+  echo "RPG Kingdom router: refusing to start Codex because capability selection failed" >&2
+  exit 70
+fi
+capability_args=()
+if [[ -s "$capability_args_file" ]]; then
+  mapfile -d '' -t capability_args < "$capability_args_file"
+fi
+
 # Implementation, repair, report-only work, and independent review currently share one host-level
 # Codex session slot. Hold it while sampling quota and publishing the active worker record so
 # telemetry cannot race a second Codex process.
@@ -57,6 +80,7 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
   --model "$model" \
   --effort "$reasoning_effort" \
   --route "$route_name" \
+  --capabilities-file "$capabilities_file" \
   --pid "$$" >/dev/null; then
   echo "RPG Kingdom router: refusing to start Codex because the durable worker telemetry record could not be established" >&2
   exit 70
@@ -69,4 +93,5 @@ exec codex \
   "${RPGK_CODEX_PERMISSION_ARGS[@]}" \
   --config "model=\"$model\"" \
   --config "model_reasoning_effort=$reasoning_effort" \
+  "${capability_args[@]}" \
   app-server

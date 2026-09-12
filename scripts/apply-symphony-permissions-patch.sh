@@ -7,6 +7,7 @@ SYMPHONY_REPO_ROOT="$(cd "$SYMPHONY_ROOT/.." && pwd)"
 PERMISSIONS_TRANSFORM="$SUPERVISOR_ROOT/scripts/patch-symphony-named-permissions.py"
 USAGE_LIMIT_TRANSFORM="$SUPERVISOR_ROOT/scripts/patch-symphony-usage-limit.py"
 CONTINUATION_TRANSFORM="$SUPERVISOR_ROOT/scripts/patch-symphony-continuation-policy.py"
+SKILL_ROOTS_TRANSFORM="$SUPERVISOR_ROOT/scripts/patch-symphony-skill-roots.py"
 PIN="8001b52e3062495a16e520e4ceaf8f9de868c4d0"
 LOCAL_BRANCH="rpgk/named-permissions"
 
@@ -15,7 +16,7 @@ if bash "$SUPERVISOR_ROOT/scripts/verify-symphony-permissions-patch.sh" >/dev/nu
   exit 0
 fi
 
-for transform in "$PERMISSIONS_TRANSFORM" "$USAGE_LIMIT_TRANSFORM" "$CONTINUATION_TRANSFORM"; do
+for transform in "$PERMISSIONS_TRANSFORM" "$USAGE_LIMIT_TRANSFORM" "$CONTINUATION_TRANSFORM" "$SKILL_ROOTS_TRANSFORM"; do
   if [[ ! -f "$transform" ]]; then
     echo "ERROR: Symphony compatibility transform not found: $transform" >&2
     exit 1
@@ -78,6 +79,7 @@ fi
 python3 "$PERMISSIONS_TRANSFORM" "$SYMPHONY_ROOT"
 python3 "$USAGE_LIMIT_TRANSFORM" "$SYMPHONY_ROOT"
 python3 "$CONTINUATION_TRANSFORM" "$SYMPHONY_ROOT"
+python3 "$SKILL_ROOTS_TRANSFORM" "$SYMPHONY_ROOT"
 
 cd "$SYMPHONY_ROOT"
 mise exec -- mix format \
