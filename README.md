@@ -83,16 +83,19 @@ Report-only diagnostic work has a separate explicit completion contract layered 
 
 See [`docs/REPORT_ONLY_COMPLETION.md`](docs/REPORT_ONLY_COMPLETION.md) for the complete contract.
 
-The #46 operations-console work now has a durable telemetry foundation:
+The #46 operations-console work now includes both the 46A telemetry foundation and the 46B lifecycle/activity view:
 
 - Symphony, review-orchestrator, Unity-broker, and Git-broker status are normalized into `healthy`, `busy`, `degraded`, `blocked`, `stopped`, or `unknown` without replacing their underlying authoritative status files;
 - implementation, repair, review, and report-only Codex lifetimes persist role/model/effort, duration, outcome, and uniquely attributable token counts;
 - a short-lived model-free App Server probe samples `account/rateLimits/read` before/after worker lifetimes so five-hour/weekly quota values and reset times remain server-authoritative;
 - quota percentage-point deltas are shown only when both authoritative samples exist and are never inferred from token counts;
 - telemetry persistence redacts credentials/authorization values before writing state or serving dashboard JSON;
-- the localhost dashboard exposes service health, current quota, active Codex work, and recent worker usage alongside the existing issue/Unity diagnostics.
+- the dashboard projects GitHub-authoritative work into implementation, agent-review, rework, human-review, human-attention, halted/quota, and report-complete queues;
+- lifecycle rows correlate review cycles, repairs, PR/head information, model/effort routing, and time in state without creating a second lifecycle authority;
+- one chronological activity feed correlates lifecycle transitions, review verdicts, Codex worker lifetimes, Unity validation, and Git handoff results, with links into existing Unity detail where correlation is available;
+- the localhost UI remains read-only and visually separates queues requiring human action.
 
-See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md). The broader #46 lifecycle queues, cross-system activity feed, retention controls, and comparative usage analysis remain follow-up work on the same umbrella issue.
+See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md). Retention/reconciliation controls, richer worker detail, and comparative usage analysis remain later #46 slices.
 
 Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
@@ -112,7 +115,8 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
 - [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.
 - [`scripts/supervisor_telemetry.py`](scripts/supervisor_telemetry.py) — durable service/worker/quota correlation, redaction, history, and operations collector.
-- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only operations/issue/Unity dashboard.
+- [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
+- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only operations/lifecycle/activity/issue/Unity dashboard.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
 - [`scripts/git-handoff-broker.py`](scripts/git-handoff-broker.py) — host-owned Git request broker and structured status producer.
@@ -140,7 +144,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/CODEX_PERMISSIONS.md`](docs/CODEX_PERMISSIONS.md) — current model-turn permission boundary and probes.
 - [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) — host-owned branch/commit/push/PR handoff contract.
 - [`docs/REPORT_ONLY_COMPLETION.md`](docs/REPORT_ONLY_COMPLETION.md) — explicit no-code/report-only completion, evidence, lifecycle, and reconciliation contract.
-- [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md) — service health, Codex quota snapshots, worker-lifetime telemetry, redaction, and dashboard data contract.
+- [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md) — service health, Codex quota, worker telemetry, lifecycle queues, activity correlation, redaction, and dashboard data contracts.
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
@@ -161,7 +165,7 @@ bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
-The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its top-level operations view now shows host service health, current authoritative Codex quota when available, active Codex work, and recent worker token/quota usage. Existing issue detail and Unity history remain available below it. Report-only completion remains visible through the distinct `symphony:report-complete` GitHub lifecycle label and durable issue comment.
+The dashboard is available only on `http://127.0.0.1:8765` by default and is read-only. Its top-level operations view shows host service health, current authoritative Codex quota when available, active/recent worker usage, GitHub-authoritative lifecycle queues, and a unified recent activity timeline spanning lifecycle/review, Codex workers, Unity validation, and Git handoff. Existing issue detail and Unity run history/detail remain available below it. Report-only completion remains visible as its own human-action queue through the `symphony:report-complete` lifecycle label.
 
 When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 
@@ -175,6 +179,6 @@ That probe uses Luna / low by default and consumes a small amount of Codex allow
 
 Symphony is engineering-preview software and Codex App Server workers are intentionally autonomous. The configuration therefore keeps one concurrent worker, no automatic merge, explicit human review boundaries, explicit model escalation, a four-turn worker budget, a host-side execution gate that requires an explicit one-shot rearm before a second worker lifetime, and exclusive Unity scheduling for editor validation.
 
-Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. Normal implementation stops at a reviewable PR; explicitly eligible report-only work stops at a host-verified `symphony:report-complete` issue state. Telemetry is read-only with respect to RPG Kingdom/GitHub lifecycle and never grants model turns additional credentials or permissions. Merge and issue closure remain human decisions.
+Workers can edit source in their GH workspace but use typed host interfaces for privileged/fragile seams. Unity execution does not broaden production-scene authority. Git handoff validates workspace/repository/branch/history and never exposes a generic host command runner. Normal implementation stops at a reviewable PR; explicitly eligible report-only work stops at a host-verified `symphony:report-complete` issue state. Telemetry and activity aggregation are read-only with respect to RPG Kingdom/GitHub lifecycle and never grant model turns additional credentials or permissions. Merge and issue closure remain human decisions.
 
 Do not put GitHub tokens or other secrets in this repository. Runtime credentials belong in the operator environment or the permission-restricted operator secrets file described in [`docs/SETUP.md`](docs/SETUP.md).
