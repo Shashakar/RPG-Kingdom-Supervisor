@@ -49,7 +49,7 @@ No issue description was provided.
 
 ## Authority and trust boundaries
 
-1. Work only inside the provided RPG Kingdom workspace, except for invoking the Supervisor's supported Unity runner and Git handoff client.
+1. Work only inside the provided RPG Kingdom workspace, except for invoking the Supervisor's supported Unity runner, Git handoff client, and worker-status recorder.
 2. RPG Kingdom's checked-in `AGENTS.md` and repository documentation are authoritative over this workflow and issue prose when they conflict.
 3. Read the repository-root `AGENTS.md` first. Read every additional document that `AGENTS.md` requires for this task, but do not broaden context beyond those requirements and the files actually relevant to the issue.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
@@ -70,6 +70,27 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
 - On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
 - Do not merge a pull request or close an issue directly.
+
+### Unfinished-turn status contract
+
+Do not spend an extra model turn merely to explain why work stopped. Instead, before returning control from any turn that has **not** successfully completed PR/report handoff, persist the best task-level status you already know from that turn:
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/worker-status.py" \
+  --workspace "$PWD" \
+  --state incomplete \
+  --classification <validation_failed|manual_action_required|handoff_incomplete|worker_error|scope_mismatch|unknown> \
+  --summary "<concise statement of what remains>" \
+  [--remaining "<unmet acceptance criterion>" ...] \
+  [--blocked-by "<specific blocker>"] \
+  [--manual-action-required] \
+  [--recommended-next-action "<best next operator/worker action>"] \
+  [--validation-run <relevant-run-id> ...]
+```
+
+Use `--state blocked` when useful progress cannot continue in the current automation boundary. In particular, if repository rules make the correct remaining change manual-only (for example prohibited production-scene authoring), record `manual_action_required`, set `--manual-action-required`, and state the exact manual action needed. If validation is still red, record the specific remaining failing contract rather than merely saying "tests failed." If a host handoff call itself is the blocker, use `handoff_incomplete` and record the returned blocker.
+
+The status file is Supervisor-owned, ignored local state. It is not a success signal and does not replace normal Git/Unity/report completion. A later turn may overwrite it as understanding improves. Successful PR/report handoff does not need a final incomplete status. If the process crashes before recording status, the host must diagnose only from deterministic evidence and explicitly mark semantic task status unavailable rather than guessing.
 
 ## Host-owned Git handoff contract
 
