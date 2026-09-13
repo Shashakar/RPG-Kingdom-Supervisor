@@ -62,6 +62,16 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/codex-capability-policy.py" route \
   echo "RPG Kingdom router: refusing to start Codex because capability selection failed" >&2
   exit 70
 fi
+
+# Keep first-party procedural guidance independent from MCP/tool selection. This augments the same
+# capability snapshot before worker-start so durable worker telemetry contains the final skill set.
+if ! python3 "$SUPERVISOR_ROOT/scripts/first-party-skill-policy.py" \
+  --labels-json "$labels_json" \
+  --state-file "$capabilities_file" >/dev/null; then
+  echo "RPG Kingdom router: refusing to start Codex because first-party skill selection failed" >&2
+  exit 70
+fi
+
 capability_args=()
 if [[ -s "$capability_args_file" ]]; then
   mapfile -d '' -t capability_args < "$capability_args_file"
