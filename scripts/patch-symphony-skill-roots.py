@@ -100,9 +100,7 @@ def main() -> int:
 
   defp maybe_route_first_party_skill(issue, prompt) do
     labels =
-      issue
-      |> Map.get(:labels, [])
-      |> Kernel.||([])
+      (Map.get(issue, :labels, []) || [])
       |> Enum.map(&(String.downcase(to_string(&1))))
       |> MapSet.new()
 
