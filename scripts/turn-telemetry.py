@@ -3,7 +3,8 @@
 
 This module does not decide whether another turn should run. The existing
 continuation policy owns that decision. It records the before/after evidence
-needed to explain what each completed turn cost and accomplished.
+needed to explain what each completed turn cost and accomplished, including
+actual use of Supervisor-selected MCP capabilities when rollout telemetry exposes it.
 """
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
-from typing import Any
+from typing import Any, Iterable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -31,6 +33,7 @@ PROTOCOL_VERSION = 1
 START_NAME = ".symphony-turn-start.json"
 HISTORY_NAME = ".symphony-turn-history.jsonl"
 TOKEN_KEYS = ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens", "totalTokens")
+MCP_TYPES = {"mcptoolcall", "mcptoolcallbegin"}
 
 
 def _ensure_local_excludes(workspace: Path) -> None:
@@ -50,10 +53,18 @@ def _ensure_local_excludes(workspace: Path) -> None:
                 handle.write(addition + "\n")
 
 
+def _active_worker(workspace: Path, issue: str) -> dict[str, Any]:
+    return policy.active_worker(workspace, issue) or {}
+
+
 def _worker_run_id(workspace: Path, issue: str) -> str | None:
-    worker = policy.active_worker(workspace, issue)
-    value = (worker or {}).get("runId")
+    value = _active_worker(workspace, issue).get("runId")
     return str(value) if value else None
+
+
+def _worker_capabilities(workspace: Path, issue: str) -> dict[str, Any]:
+    value = _active_worker(workspace, issue).get("capabilities")
+    return value if isinstance(value, dict) else {}
 
 
 def _snapshot(workspace: Path, issue: str) -> dict[str, Any]:
@@ -108,10 +119,145 @@ def _decode_reason(value: str) -> tuple[str, dict[str, Any] | None]:
     return text, None
 
 
+def _walk_dicts(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
+
+
+def _event_type(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _mcp_call_from_node(node: dict[str, Any], line_number: int) -> dict[str, Any] | None:
+    event_type = _event_type(node.get("type"))
+    invocation = node.get("invocation") if isinstance(node.get("invocation"), dict) else {}
+    server = node.get("server") or node.get("server_name") or node.get("serverName") or invocation.get("server")
+    tool = node.get("tool") or node.get("tool_name") or node.get("toolName") or invocation.get("tool")
+    call_id = (
+        node.get("call_id") or node.get("callId") or node.get("id")
+        or invocation.get("call_id") or invocation.get("callId") or invocation.get("id")
+    )
+
+    # Current App Server/rollout surfaces use mcp_tool_call items. Keep compatibility with
+    # older begin records and with function-call encodings such as mcp__server__tool.
+    if event_type not in MCP_TYPES:
+        name = str(node.get("name") or "")
+        if event_type == "functioncall" and name.startswith("mcp__"):
+            pieces = name.split("__", 2)
+            if len(pieces) == 3:
+                server, tool = pieces[1], pieces[2]
+        else:
+            return None
+
+    if not server or not tool:
+        return None
+    identity = str(call_id) if call_id else f"anon:{line_number}:{server}:{tool}"
+    return {
+        "id": identity,
+        "server": str(server),
+        "tool": str(tool),
+        "status": node.get("status"),
+    }
+
+
+def _rollout_mcp_snapshot(usage: dict[str, Any]) -> dict[str, Any]:
+    if usage.get("status") != "available":
+        return {"status": "unavailable", "reason": usage.get("reason") or "rollout usage is unavailable"}
+    source = usage.get("source")
+    if not isinstance(source, str) or not source:
+        return {"status": "unavailable", "reason": "attributable rollout path is unavailable"}
+    path = Path(source)
+    calls: dict[str, dict[str, Any]] = {}
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_number, raw in enumerate(handle, start=1):
+                try:
+                    record = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                for node in _walk_dicts(record):
+                    call = _mcp_call_from_node(node, line_number)
+                    if call is not None:
+                        calls.setdefault(call["id"], call)
+    except OSError as exc:
+        return {"status": "unavailable", "reason": f"could not read attributable rollout: {exc}"}
+    return {
+        "status": "available",
+        "source": str(path),
+        "calls": list(calls.values()),
+        "callCount": len(calls),
+    }
+
+
+def _capability_catalog(capabilities: dict[str, Any]) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    server_to_name: dict[str, str] = {}
+    by_name: dict[str, dict[str, Any]] = {}
+    for item in capabilities.get("mcp") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        server = str(item.get("mcpServer") or "").strip()
+        if not name:
+            continue
+        by_name[name] = item
+        if server:
+            server_to_name[server] = name
+    return server_to_name, by_name
+
+
+def _mcp_delta(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    turn: int,
+    capabilities: dict[str, Any],
+) -> dict[str, Any]:
+    if after.get("status") != "available":
+        return {"status": "unavailable", "reason": after.get("reason") or "ending MCP snapshot unavailable"}
+    after_calls = [item for item in after.get("calls") or [] if isinstance(item, dict)]
+    if before.get("status") == "available":
+        prior_ids = {str(item.get("id")) for item in before.get("calls") or [] if isinstance(item, dict)}
+        calls = [item for item in after_calls if str(item.get("id")) not in prior_ids]
+        basis = "cumulative rollout call-id delta"
+    elif turn == 1:
+        calls = after_calls
+        basis = "first-turn attributable rollout calls; no pre-turn rollout existed"
+    else:
+        return {"status": "unavailable", "reason": "pre-turn MCP snapshot unavailable"}
+
+    server_to_name, by_name = _capability_catalog(capabilities)
+    by_capability: dict[str, dict[str, Any]] = {}
+    for name, item in by_name.items():
+        matching = [call for call in calls if server_to_name.get(str(call.get("server"))) == name]
+        by_capability[name] = {
+            "enabled": bool(item.get("enabled")),
+            "used": bool(matching),
+            "calls": len(matching),
+            "tools": sorted({str(call.get("tool")) for call in matching if call.get("tool")}),
+        }
+    unknown = sorted({
+        str(call.get("server")) for call in calls
+        if call.get("server") and str(call.get("server")) not in server_to_name
+    })
+    return {
+        "status": "available",
+        "basis": basis,
+        "totalCalls": len(calls),
+        "calls": calls,
+        "byCapability": by_capability,
+        "unknownServers": unknown,
+    }
+
+
 def start_turn(workspace: Path, issue: str, turn: int, max_turns: int, labels: list[str]) -> int:
     _ensure_local_excludes(workspace)
     snapshot = _snapshot(workspace, issue)
     route = policy.route_class(labels)
+    capabilities = _worker_capabilities(workspace, issue)
     record = {
         "protocolVersion": PROTOCOL_VERSION,
         "workerRunId": _worker_run_id(workspace, issue),
@@ -125,6 +271,8 @@ def start_turn(workspace: Path, issue: str, turn: int, max_turns: int, labels: l
         "usage": snapshot["usage"],
         "workspace": snapshot["workspace"],
         "unity": snapshot["unity"],
+        "capabilities": capabilities,
+        "mcp": _rollout_mcp_snapshot(snapshot["usage"]),
     }
     telemetry.atomic_json(workspace / START_NAME, record)
     telemetry.append_event(
@@ -136,6 +284,7 @@ def start_turn(workspace: Path, issue: str, turn: int, max_turns: int, labels: l
         route=route,
         automaticTurnLimit=record["automaticTurnLimit"],
         quota=record["quota"],
+        capabilities=capabilities,
     )
     print(json.dumps(record, separators=(",", ":")))
     return 0
@@ -171,6 +320,8 @@ def finish_turn(workspace: Path, issue: str, turn: int, decision: str, reason: s
         "workspaceChanged": before_workspace.get("fingerprint") != after_workspace.get("fingerprint"),
         "unityChanged": bool(after_unity and (after_unity or {}).get("runId") != (before_unity or {}).get("runId")),
     }
+    capabilities = started.get("capabilities") if isinstance(started.get("capabilities"), dict) else {}
+    mcp_after = _rollout_mcp_snapshot(ended["usage"])
     record = {
         "protocolVersion": PROTOCOL_VERSION,
         "workerRunId": started.get("workerRunId") or _worker_run_id(workspace, issue),
@@ -195,6 +346,8 @@ def finish_turn(workspace: Path, issue: str, turn: int, decision: str, reason: s
         "unityBefore": before_unity,
         "unityAfter": after_unity,
         "progress": progress,
+        "capabilities": capabilities,
+        "mcpUsage": _mcp_delta(started.get("mcp") or {}, mcp_after, turn, capabilities),
         "continuationPolicy": policy_record,
     }
     telemetry.append_jsonl(workspace / HISTORY_NAME, record)
