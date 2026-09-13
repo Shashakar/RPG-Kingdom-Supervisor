@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 from pathlib import Path
 import tempfile
 
@@ -19,6 +18,8 @@ assert policy.route_class(["risk:investigative"]) == "terra"
 assert policy.route_class(["risk:architecture"]) == "sol"
 assert policy.route_class(["risk:end-to-end"]) == "astra"
 assert policy.route_class(["risk:investigative", "model:luna"]) == "luna"
+assert policy.is_report_only(["completion:report-only"])
+assert not policy.is_report_only(["risk:mechanical"])
 
 healthy_quota = {
     "status": "available",
@@ -47,16 +48,61 @@ assert allowed and "source or Unity evidence" in reason
 allowed, reason, _ = policy.progress_decision({"fingerprint": "a", "dirty": False}, None, None)
 assert not allowed and "no source diff" in reason
 
+# Report-only tasks are intentionally source-clean. Analysis/report synthesis is not necessarily
+# host-observable, so a clean workspace is valid progress until the bounded route cap is reached.
+allowed, reason, detail = policy.progress_decision(
+    {"fingerprint": "clean", "dirty": False},
+    None,
+    None,
+    report_only=True,
+)
+assert allowed and "host-invisible" in reason
+assert detail["reportOnly"] is True
+
+allowed, reason, _ = policy.progress_decision(
+    {"fingerprint": "dirty", "dirty": True},
+    None,
+    None,
+    report_only=True,
+)
+assert not allowed and "requires source-clean state" in reason
+
 previous = {
     "workspace": {"fingerprint": "a", "dirty": True},
-    "unity": {"runId": "run-1", "testFilter": "Focused", "failed": 1},
+    "unity": {"runId": "run-1", "testPlatform": "PlayMode", "testFilter": "Focused", "failed": 1},
 }
 allowed, reason, _ = policy.progress_decision(
     {"fingerprint": "a", "dirty": True},
-    {"runId": "run-2", "testFilter": "Focused", "failed": 1},
+    {"runId": "run-2", "testPlatform": "PlayMode", "testFilter": "Focused", "failed": 1},
     previous,
 )
 assert not allowed and "failed again" in reason
+
+# Unfiltered EditMode and PlayMode suites are different validation work even though both filters
+# are empty. Do not collapse them into the repeated-focused-failure stop condition.
+previous_full = {
+    "workspace": {"fingerprint": "clean", "dirty": False},
+    "unity": {"runId": "edit", "testPlatform": "EditMode", "testFilter": None, "failed": 5},
+}
+allowed, reason, _ = policy.progress_decision(
+    {"fingerprint": "clean", "dirty": False},
+    {"runId": "play", "testPlatform": "PlayMode", "testFilter": None, "failed": 7},
+    previous_full,
+)
+assert allowed and "progress detected" in reason
+
+# Report-only diagnostics may intentionally rerun a failing focused test to establish evidence.
+# The rerun itself is evidence and should not be treated like an implementation worker looping.
+allowed, reason, _ = policy.progress_decision(
+    {"fingerprint": "clean", "dirty": False},
+    {"runId": "run-2", "testPlatform": "PlayMode", "testFilter": "Focused", "failed": 1},
+    {
+        "workspace": {"fingerprint": "clean", "dirty": False},
+        "unity": {"runId": "run-1", "testPlatform": "PlayMode", "testFilter": "Focused", "failed": 1},
+    },
+    report_only=True,
+)
+assert allowed and "new Unity evidence" in reason
 
 # Exercise the integrated decision path without starting Codex/App Server or touching the real
 # Supervisor state. GH-108 should regress to at most two automatic Terra turns by default.
@@ -115,6 +161,47 @@ try:
         assert result == 0
         state = json.loads((workspace / policy.STATE_NAME).read_text(encoding="utf-8"))
         assert state["automaticTurnLimit"] == 4
+
+    # Report-only Luna work must not halt merely because report synthesis makes no source diff.
+    with tempfile.TemporaryDirectory() as temp:
+        workspace = Path(temp)
+        policy.workspace_snapshot = lambda workspace: {
+            "fingerprint": "report-clean",
+            "dirty": False,
+            "head": "main",
+            "gitStatus": "",
+        }
+        result = policy.evaluate(
+            workspace,
+            "GH-110",
+            1,
+            4,
+            ["risk:mechanical", "completion:report-only"],
+        )
+        assert result == 0
+        result = policy.evaluate(
+            workspace,
+            "GH-110",
+            2,
+            4,
+            ["risk:mechanical", "completion:report-only"],
+        )
+        assert result == 0
+        state = json.loads((workspace / policy.STATE_NAME).read_text(encoding="utf-8"))
+        assert state["completionMode"] == "report-only"
+        assert "host-invisible" in state["reason"]
+
+        # The special progress semantics do not remove the route/hard safety ceiling.
+        result = policy.evaluate(
+            workspace,
+            "GH-110",
+            4,
+            4,
+            ["risk:mechanical", "completion:report-only"],
+        )
+        assert result == 20
+        stopped = json.loads((workspace / policy.STOP_NAME).read_text(encoding="utf-8"))
+        assert "automatic turn limit reached" in stopped["reason"]
 
     # Missing authoritative quota is a transparent fail-safe stop, not unlimited capacity.
     with tempfile.TemporaryDirectory() as temp:

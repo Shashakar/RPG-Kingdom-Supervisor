@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -89,6 +90,84 @@ def validate_report_workspace(workspace: Path) -> str:
     return head
 
 
+def validate_report_unity_evidence(
+    workspace: Path,
+    run_ids: list[str],
+    required: bool,
+    *,
+    newer_than_ns: int | None = None,
+) -> list[dict[str, Any]]:
+    """Validate fresh executed Unity evidence without requiring a green result.
+
+    Report-only work is evidence gathering: a trustworthy failing suite can be the result being
+    reported. Normal implementation/PR handoff continues to use core.validate_unity_evidence,
+    which requires a passing non-zero result.
+    """
+    if required and not run_ids:
+        raise core.HandoffError(
+            "validation:unity-required is present but no Unity validation run IDs were supplied",
+            code=72,
+            status="ValidationEvidenceMissing",
+        )
+
+    evidence: list[dict[str, Any]] = []
+    for run_id in run_ids:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", run_id):
+            raise core.HandoffError(f"invalid Unity validation run ID '{run_id}'", code=72, status="ValidationEvidenceInvalid")
+        summary_path = workspace / "Logs" / "SymphonyUnity" / run_id / "summary.json"
+        if not summary_path.is_file():
+            raise core.HandoffError(
+                f"Unity validation summary does not exist: {summary_path}",
+                code=72,
+                status="ValidationEvidenceMissing",
+            )
+        if newer_than_ns is not None and summary_path.stat().st_mtime_ns <= newer_than_ns:
+            raise core.HandoffError(
+                f"Unity validation run '{run_id}' predates the current reviewed continuation",
+                code=72,
+                status="ValidationEvidenceStale",
+                details={"runId": run_id, "summaryPath": str(summary_path)},
+            )
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise core.HandoffError(
+                f"Unity validation summary is unreadable: {summary_path}: {exc}",
+                code=72,
+                status="ValidationEvidenceInvalid",
+            ) from exc
+        if not isinstance(summary, dict):
+            raise core.HandoffError(f"Unity validation summary is not an object: {summary_path}", code=72, status="ValidationEvidenceInvalid")
+        try:
+            total = int(summary.get("total", -1))
+            passed = int(summary.get("passed", -1))
+            failed = int(summary.get("failed", -1))
+            exit_code = int(summary.get("unityExitCode", -1))
+        except (TypeError, ValueError) as exc:
+            raise core.HandoffError(f"Unity validation summary has invalid counts: {summary_path}", code=72, status="ValidationEvidenceInvalid") from exc
+        result = str(summary.get("result") or "").strip()
+        if total <= 0 or passed < 0 or failed < 0 or passed + failed > total or not result:
+            raise core.HandoffError(
+                f"Unity validation run '{run_id}' is not trustworthy executed test evidence",
+                code=72,
+                status="ValidationEvidenceFailed",
+                details={"summary": summary},
+            )
+        evidence.append(
+            {
+                "runId": run_id,
+                "platform": summary.get("testPlatform"),
+                "filter": summary.get("testFilter"),
+                "result": result,
+                "unityExitCode": exit_code,
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+            }
+        )
+    return evidence
+
+
 def report_digest(issue_number: int, report: str, run_ids: list[str], head: str) -> str:
     canonical = json.dumps(
         {"issue": issue_number, "report": report, "validationRunIds": run_ids, "head": head},
@@ -108,7 +187,8 @@ def render_report_comment(report: str, evidence: list[dict[str, Any]], marker: s
         for item in evidence:
             lines.append(
                 f"- Unity `{item.get('runId')}` — {item.get('platform') or '-'} — "
-                f"{item.get('total')} tests — filter `{item.get('filter') or '(all)'}`"
+                f"{item.get('result') or '-'} — {item.get('passed')}/{item.get('total')} passed — "
+                f"filter `{item.get('filter') or '(all)'}`"
             )
     else:
         lines.append("- Unity validation was not required/supplied for this report-only task.")
@@ -251,7 +331,7 @@ def complete_report(
         raise core.HandoffError("validationRunIds must be an array of strings", code=64, status="InvalidRequest")
     run_ids = list(dict.fromkeys(run_ids_raw))
     boundary_ns = current_attempt_boundary_ns(workspace)
-    evidence = core.validate_unity_evidence(
+    evidence = validate_report_unity_evidence(
         workspace,
         run_ids,
         "validation:unity-required" in labels,

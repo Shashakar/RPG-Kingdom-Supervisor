@@ -46,12 +46,36 @@ Before another turn, `scripts/continuation-policy.py` evaluates only host-observ
 1. **Route budget** — the route-specific automatic-turn limit must not already be reached.
 2. **Authoritative quota** — a model-free `account/rateLimits/read` snapshot is refreshed. Missing/stale quota fails safe instead of being treated as unlimited capacity.
 3. **Workspace progress** — current Git HEAD and non-Supervisor source/test worktree status are fingerprinted.
-4. **Unity progress** — the latest Supervisor Unity run ID/result/filter is compared with the prior decision state.
-5. **Rollout usage** — current cumulative token telemetry is sampled from the attributable Codex rollout, and a per-turn delta is recorded when a prior cumulative sample exists.
+4. **Unity progress** — the latest Supervisor Unity run ID/result/platform/filter is compared with the prior decision state.
+5. **Completion mode** — explicit `completion:report-only` work uses report-specific progress semantics instead of implementation/source-diff semantics.
+6. **Rollout usage** — current cumulative token telemetry is sampled from the attributable Codex rollout, and a per-turn delta is recorded when a prior cumulative sample exists.
 
-Obvious no-progress patterns stop automatic continuation. In particular, an unchanged workspace with no new Unity run is not enough evidence to spend another turn, and rerunning the same focused failing Unity validation without a source change is treated as a stop condition.
+For ordinary implementation/repair work, obvious no-progress patterns stop automatic continuation. An unchanged workspace with no new Unity run is not enough evidence to spend another turn, and rerunning the same **focused** failing Unity validation on the same test platform without a source change is treated as a stop condition. Unfiltered EditMode and PlayMode suites are distinct validation evidence even when both have an empty filter.
 
-These progress checks are deliberately bounded heuristics. They do not claim to understand whether a code change is semantically correct.
+### Report-only progress semantics
+
+`completion:report-only` tasks are intentionally source-clean. Their useful work is commonly:
+
+```text
+run validation / collect artifacts
+-> inspect evidence
+-> synthesize findings
+-> submit durable report
+```
+
+The middle steps can be entirely invisible to Git and to the Unity-run ID. Therefore Supervisor does **not** require a source diff or a new Unity run between every report-only turn. While the workspace remains source-clean and stable, report-only work may continue subject to the same route-specific automatic-turn cap and authoritative quota floors.
+
+This is not an unlimited exception:
+
+- a dirty report-only workspace stops automatic continuation because report completion cannot legally consume source/test changes;
+- a changed report-only HEAD/status stops automatic continuation because the task has crossed into implementation work;
+- quota failures still stop continuation;
+- route-specific automatic limits and the hard Symphony max-turn ceiling still apply;
+- normal implementation/repair workers keep the stricter source/Unity progress heuristic.
+
+A fresh Unity run always remains useful report-only evidence, including an intentionally repeated diagnostic run. This prevents report synthesis and test-order confirmation from being mistaken for an implementation loop.
+
+These progress checks are deliberately bounded heuristics. They do not claim to understand whether a code change or report conclusion is semantically correct.
 
 ## Per-turn lifecycle evidence
 
@@ -82,7 +106,7 @@ The gate writes Supervisor-owned, locally Git-excluded state in the issue worksp
 - `.symphony-turn-start.json` — current in-flight turn baseline;
 - `.symphony-turn-history.jsonl` — append-only local per-turn evidence for the preserved workspace.
 
-It also appends sanitized continuation and turn lifecycle events to Supervisor telemetry.
+It also appends sanitized continuation and turn lifecycle events to Supervisor telemetry. Continuation decisions record `completionMode` so report-only decisions remain distinguishable from implementation progress decisions.
 
 When the policy stops continuation while `symphony:ready` remains, the existing after-run host boundary removes the dispatch lease, adds `symphony:halted`, and posts a distinct `continuation-budget-stop` report containing the route, turn, reason, current quota evidence, cumulative token evidence, and latest Unity run. This is intentionally distinct from both `usage_limit_exceeded` and generic `agent.max_turns` exhaustion.
 

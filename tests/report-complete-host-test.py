@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 from typing import Any
 
@@ -35,17 +34,26 @@ def expect_error(status: str, fn: Any) -> None:
         raise AssertionError(f"expected HandoffError({status})")
 
 
-def write_summary(workspace: Path, run_id: str) -> Path:
+def write_summary(
+    workspace: Path,
+    run_id: str,
+    *,
+    result: str = "Passed",
+    total: int = 2,
+    passed: int = 2,
+    failed: int = 0,
+    unity_exit_code: int = 0,
+) -> Path:
     path = workspace / "Logs" / "SymphonyUnity" / run_id / "summary.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
             {
-                "result": "Passed",
-                "total": 2,
-                "passed": 2,
-                "failed": 0,
-                "unityExitCode": 0,
+                "result": result,
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "unityExitCode": unity_exit_code,
                 "testPlatform": "PlayMode",
                 "testFilter": "Diagnostic.Tests",
                 "runId": run_id,
@@ -75,8 +83,8 @@ def main() -> int:
         git(workspace, "remote", "add", "origin", str(remote))
         git(workspace, "push", "-u", "origin", "main")
 
-        # Report-only completion reuses the proven Git/Unity helpers but does not need the GitHub
-        # origin check exercised by the normal handoff tests.
+        # Report-only completion reuses the proven Git helpers but has report-specific Unity
+        # semantics: trustworthy executed failures are valid diagnostic evidence.
         core.validate_workspace = lambda workspace_arg, root_arg, expected_repo: 321
 
         labels = {report.REPORT_ONLY_LABEL, "validation:unity-required", "symphony:ready"}
@@ -145,12 +153,30 @@ def main() -> int:
         core.api_request = fake_api
         core.remove_dispatch_lease = fake_remove_dispatch
 
-        run_id = "diagnostic-pass"
-        write_summary(workspace, run_id)
+        # A failing non-zero Unity suite is valid evidence for a report-only diagnostic. The same
+        # evidence remains invalid for the normal implementation PR path.
+        run_id = "diagnostic-fail"
+        write_summary(
+            workspace,
+            run_id,
+            result="Failed(Child)",
+            total=2,
+            passed=1,
+            failed=1,
+            unity_exit_code=2,
+        )
+        report_evidence = report.validate_report_unity_evidence(workspace, [run_id], True)
+        assert report_evidence[0]["result"] == "Failed(Child)"
+        assert report_evidence[0]["failed"] == 1
+        expect_error(
+            "ValidationEvidenceFailed",
+            lambda: core.validate_unity_evidence(workspace, [run_id], True),
+        )
+
         payload = {
             "issueNumber": 321,
             "completionMode": "report-only",
-            "reportBody": "Diagnostic baseline completed. No repository changes are required.",
+            "reportBody": "Diagnostic baseline completed. The failing suite is the result being reported.",
             "validationRunIds": [run_id],
         }
 
@@ -166,9 +192,11 @@ def main() -> int:
         )
         assert result["lifecycle"] == report.REPORT_COMPLETE_LABEL
         assert result["reportCommentCreated"] is True
+        assert result["validation"][0]["result"] == "Failed(Child)"
         assert report.REPORT_COMPLETE_LABEL in labels
         assert "symphony:ready" not in labels
         assert len(comments) == 1
+        assert "Failed(Child)" in comments[0]["body"]
         receipt = report.read_receipt(report.receipt_path(state_root, 321))
         assert receipt and receipt["state"] == "completed"
         assert receipt["commentId"] == comments[0]["id"]
@@ -206,7 +234,7 @@ def main() -> int:
         )
         labels.add(report.REPORT_ONLY_LABEL)
 
-        # Unity-required report tasks cannot omit fresh passing evidence.
+        # Unity-required report tasks cannot omit fresh executed evidence.
         expect_error(
             "ValidationEvidenceMissing",
             lambda: report.complete_report(
@@ -219,6 +247,14 @@ def main() -> int:
                 api_root="https://api.invalid",
                 token="token",
             ),
+        )
+
+        # Zero-test/non-executed artifacts are not trustworthy diagnostic evidence.
+        zero_id = "diagnostic-zero"
+        write_summary(workspace, zero_id, result="NoTestsMatched", total=0, passed=0, failed=0, unity_exit_code=0)
+        expect_error(
+            "ValidationEvidenceFailed",
+            lambda: report.validate_report_unity_evidence(workspace, [zero_id], True),
         )
 
         # Dirty/source-changing report work must take the normal implementation PR path.
