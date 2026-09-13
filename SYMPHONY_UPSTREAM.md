@@ -84,6 +84,8 @@ bash scripts/apply-symphony-permissions-patch.sh
 bash scripts/verify-symphony-permissions-patch.sh
 ```
 
+Symphony's operator command launches the generated `elixir/bin/symphony` escript. `mix test` compiles patched source for the test environment but does **not** rebuild that escript. The compatibility installer therefore runs `mix build` after its upstream test suite, and the verifier refuses to pass when `bin/symphony` is missing or older than any patched runtime source file. This prevents source-level tests from being green while the live Supervisor still executes a stale pre-patch AgentRunner/AppServer binary, the mismatch observed during GH-108 continuation-policy validation.
+
 The generated local compatibility branch remains derived from the evaluated pin. If upstream Symphony adds equivalent first-class support for any compatibility seam, remove the corresponding transform as part of the reviewed pin upgrade.
 
 ## Upgrade policy
