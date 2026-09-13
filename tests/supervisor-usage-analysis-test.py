@@ -15,6 +15,7 @@ def worker(run_id, issue, role, model, effort, outcome, tokens=None, primary_del
     quota = {"status":"unavailable"}
     if primary_delta is not None:
         quota = {"status":"available","primary":{"remainingPercentagePointDelta":primary_delta},"secondary":None}
+    minute = {"implementation": 0, "repair": 2, "review": 4, "report-only": 6}.get(role, 0)
     return {
         "runId": run_id,
         "issue": issue,
@@ -24,8 +25,8 @@ def worker(run_id, issue, role, model, effort, outcome, tokens=None, primary_del
         "effort": effort,
         "outcome": outcome,
         "durationSeconds": duration,
-        "startedAt": f"2026-09-12T0{issue % 9}:00:00+00:00",
-        "endedAt": f"2026-09-12T0{issue % 9}:01:00+00:00",
+        "startedAt": f"2026-09-12T0{issue % 9}:{minute:02d}:00+00:00",
+        "endedAt": f"2026-09-12T0{issue % 9}:{minute + 1:02d}:00+00:00",
         "tokenUsage": usage,
         "quotaDelta": quota,
         "lifecycleLabels": labels,
