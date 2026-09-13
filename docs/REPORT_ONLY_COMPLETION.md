@@ -23,7 +23,7 @@ A report-only worker submits its final durable report through the existing worke
 ```bash
 bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" report-complete \
   --report-body-file /tmp/rpgk-report.md \
-  [--validation-run <successful-unity-run-id> ...]
+  [--validation-run <unity-run-id> ...]
 ```
 
 `--report-body` can be used instead of `--report-body-file` for short reports.
@@ -40,10 +40,42 @@ Before creating the report-complete lifecycle state, the host verifies all of th
 4. the report body is non-empty and within the bounded host size limit;
 5. the source workspace is clean;
 6. `HEAD` exactly matches `origin/main`, so previously committed implementation work cannot be hidden behind report-only completion;
-7. if `validation:unity-required` is present, supplied Unity run IDs resolve to passing, non-zero results;
+7. if `validation:unity-required` is present, supplied Unity run IDs resolve to **fresh, trustworthy, non-zero executed test evidence**;
 8. on a reviewed continuation, required Unity evidence is newer than the previous `.symphony-attempt-complete` boundary.
 
 Any source/test change or commit beyond `origin/main` must use the normal PR handoff path.
+
+### Diagnostic Unity evidence is allowed to be red
+
+For report-only work, `validation:unity-required` means the diagnostic must actually execute Unity and provide fresh trustworthy evidence. It does **not** mean the observed tests must all pass.
+
+That distinction is necessary because a failed suite can be the result the report is supposed to establish. A full regression baseline, flaky-test investigation, or failure inventory would otherwise be structurally unable to complete whenever it successfully found a real failure.
+
+Report-only Unity evidence therefore requires:
+
+- a real Supervisor-generated `summary.json` for every supplied run ID;
+- freshness relative to the reviewed-continuation boundary when applicable;
+- a non-zero executed test count;
+- valid test counts and a terminal result recorded by the runner.
+
+`Passed` and trustworthy `Failed(Child)` results can both be reported. `NoTestsMatched`, zero-test artifacts, missing/unreadable summaries, or stale evidence are not accepted.
+
+This exception is **only** for explicit `completion:report-only` work. Normal implementation/repair PR handoff still uses the strict Unity validator and requires a passing non-zero result when `validation:unity-required` is present.
+
+## Continuation behavior
+
+Report-only workers intentionally keep the source workspace clean, so Git-diff progress is not a meaningful between-turn signal. Their normal lifecycle is often:
+
+```text
+collect validation/artifacts
+-> inspect evidence
+-> synthesize report
+-> report-complete
+```
+
+The artifact-analysis and report-synthesis steps may make no host-observable source or Unity change. The continuation policy therefore allows an explicit report-only worker to keep using its normal route-specific automatic turn budget while the workspace remains source-clean and quota remains healthy. A dirty or changed source workspace still stops automatic continuation, and the normal route/hard turn limits still apply.
+
+See `docs/CONTINUATION_POLICY.md` for the full continuation contract.
 
 ## Durable evidence
 
@@ -55,6 +87,8 @@ The host posts the worker's report as a GitHub issue comment and appends a machi
 - current repository HEAD.
 
 That digest makes a repeated `report-complete` call idempotent: the same report/evidence reuses the existing issue comment rather than posting duplicates.
+
+The durable report comment also includes each supplied Unity run's platform, result, passed/total counts, and filter so a red diagnostic result is not visually presented as green validation.
 
 After the durable comment exists, the host writes a trusted receipt under Supervisor-owned state:
 
@@ -84,7 +118,7 @@ A stale receipt from an earlier worker lifetime is not sufficient because its sa
 
 ## Unity-required report tasks
 
-Report-only mode does not weaken Unity validation rules. If the issue has `validation:unity-required`, at least one successful non-zero Unity run must be supplied exactly as in normal PR handoff. Reviewed continuations cannot recycle Unity evidence from before the previous attempt marker.
+Report-only mode does not weaken the requirement to actually use Unity when `validation:unity-required` is present. At least one fresh trustworthy non-zero Unity run must be supplied. The result may be passing or failing because the diagnostic outcome itself is the report subject. Reviewed continuations cannot recycle Unity evidence from before the previous attempt marker.
 
 If the issue has no Unity-required label, report-only completion may legitimately contain no Unity run IDs.
 
@@ -102,5 +136,6 @@ Report-only completion does not:
 - broaden Codex GitHub/network permissions;
 - auto-close the issue;
 - auto-merge anything;
-- weaken Unity evidence freshness rules;
+- allow missing, stale, zero-test, or malformed Unity evidence;
+- weaken passing-Unity requirements for normal implementation/repair PR handoff;
 - replace the normal PR handoff for implementation work.
