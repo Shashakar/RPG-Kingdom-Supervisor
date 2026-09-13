@@ -1,52 +1,170 @@
-# Phase 2 — Budgeted Model and Risk Routing
+# Phase 2 — Budgeted Model, Risk Routing, and Dynamic Continuation
 
 ## Why Phase 2 exists
 
-The Phase 1 smoke test proved the full GitHub -> Symphony -> Codex App Server -> PR path, but it also exposed an unacceptable default execution cost.
+The Phase 1 smoke path proved GitHub -> Symphony -> Codex App Server -> PR, but it also showed that a large fixed turn budget can waste allowance even on trivial work.
 
-Smoke issue `Shashakar/RPG-Kingdom#91` was a documentation-only change that ultimately produced one commit, one changed file, and six added README lines. The successful Symphony run nevertheless reached the configured 20-turn ceiling, was eligible for a fresh worker session because the issue still had `symphony:ready`, and consumed approximately:
+Smoke issue `Shashakar/RPG-Kingdom#91` was a documentation-only change that ultimately produced one commit, one changed file, and six added README lines. The successful run nevertheless reached the then-configured 20-turn ceiling and consumed approximately:
 
 - 1,547,919 reported input tokens;
 - 4,424 reported output tokens;
 - 27 percentage points of the operator's five-hour Codex allowance;
 - 4 percentage points of the weekly allowance.
 
-Those numbers are the Phase 2 baseline. The purpose of this phase is not merely to choose cheaper models; it is to prevent routine work from buying unnecessary turns, contexts, and fresh worker lifetimes.
+Phase 2 therefore has two goals:
+
+1. route work to an appropriate model/risk tier;
+2. prevent routine work from buying unnecessary turns, contexts, or worker lifetimes.
+
+The second goal is now implemented primarily through a **dynamic continuation budget**, not through small model-specific turn counts.
 
 ## Runtime design
 
-Phase 2 keeps official Symphony unmodified and uses narrow host-side adapters at its documented command/hook seams:
+Phase 2 keeps official Symphony as the baseline runtime and uses narrow host-side adapters:
 
 1. `scripts/codex-app-server-router.sh`
-   - derives the GitHub issue number from the Symphony workspace name;
-   - reads only the issue labels needed for routing;
-   - selects model and reasoning effort through `scripts/routing-policy.sh`;
-   - execs `codex ... app-server` with explicit model configuration.
+   - derives the GitHub issue from the Symphony workspace;
+   - reads only routing/capability labels;
+   - selects model and reasoning effort through the host routing policy;
+   - starts Codex App Server with explicit model configuration.
 
 2. `scripts/before-run-guard.sh`
-   - runs before each Symphony worker lifetime;
-   - refuses to launch Codex when prior worker state exists unless GitHub carries the one-shot `symphony:rearm` approval;
-   - consumes `symphony:rearm` before Codex starts so the approval cannot be reused;
-   - recovers only a stale Unity lock owned by the same GH issue when that explicit rearm is present;
-   - gives Phase 2 a local hard execution gate even if a normal `symphony:ready` label is re-added accidentally.
+   - runs before each worker lifetime;
+   - refuses accidental second lifetimes unless GitHub carries the one-shot `symphony:rearm` approval;
+   - consumes that approval before Codex starts;
+   - recovers only same-issue stale host resources where the relevant resource policy permits it.
 
-3. `scripts/after-run-guard.sh`
-   - writes `.symphony-attempt-complete` before any network-dependent cleanup;
-   - does no tracker mutation when the worker already removed `symphony:ready` successfully;
-   - otherwise removes `symphony:ready`, adds `symphony:halted`, and comments on the issue;
-   - prevents the Phase 1 failure mode where reaching `agent.max_turns` caused a brand-new Codex thread to be dispatched automatically.
+3. `scripts/continuation-policy.py`
+   - runs after a normal completed Codex turn;
+   - refreshes authoritative Codex quota;
+   - measures worker-lifetime and per-turn account quota movement when possible;
+   - records cumulative/per-turn token telemetry without converting tokens into synthetic quota percentages;
+   - evaluates source/Unity progress;
+   - decides whether another turn is justified under the remaining hard turn ceiling.
 
-The local marker is deliberately persistent because Symphony preserves per-issue workspaces. A later retry must therefore be explicitly approved rather than merely re-adding the normal dispatch lease. The one-shot `symphony:rearm` label is the host-recognized approval that lets human/ChatGPT review request a continuation without direct access to Supervisor host state.
+4. `scripts/after-run-guard.sh`
+   - records the completed worker-lifetime boundary;
+   - reconciles successful host-owned completion paths;
+   - otherwise removes the dispatch lease and surfaces `symphony:halted` for human/ChatGPT review.
 
-## Default turn budget
+The persistent attempt marker and one-shot rearm path remain important. Dynamic continuation applies **inside one worker lifetime**. It does not create an unlimited redispatch loop.
 
-`agent.max_turns` is reduced from 20 to **4**.
+## Hard turn ceiling
 
-Upstream Symphony exposes this as a workflow-level value rather than a per-issue value. Four turns is therefore a deliberately conservative global ceiling for Phase 2. A single Codex turn can perform many tool calls and is expected to make substantial repository progress.
+`agent.max_turns` remains **4**.
 
-If four turns are insufficient, the completed-attempt marker prevents another Codex worker lifetime. Human/ChatGPT review decides whether another bounded run is justified.
+Four is the current global fail-safe ceiling. A single Codex turn can perform many tool calls, edits, searches, and validation runs, so the Supervisor does not need an unbounded turn count to support substantial work.
 
-This is intentionally biased toward preserving allowance rather than maximizing unattended completion at any cost.
+The hard ceiling exists to protect against bugs or pathological agent behavior even if every softer budget signal misbehaves.
+
+The hard ceiling is deliberately different from the continuation policy:
+
+- **hard ceiling:** an absolute safety limit;
+- **dynamic continuation budget:** the normal decision about whether another turn should be spent.
+
+Model route no longer creates a smaller automatic turn ceiling such as Terra=2 or Astra=1. Luna, Terra, Sol, and Astra can all use turns up to the workflow hard maximum when the dynamic policy continues to approve them.
+
+## Dynamic continuation budget
+
+A completed turn earns another turn only when all applicable gates remain healthy.
+
+### 1. Current quota reserve
+
+The Supervisor refreshes the authoritative App Server rate-limit sample before deciding.
+
+By default:
+
+- Luna work requires at least 20% remaining in the primary/five-hour window;
+- Terra, Sol, and Astra require at least 35% remaining in the primary/five-hour window;
+- all routes require at least 10% remaining weekly.
+
+Unavailable, stale, or incomplete quota data fails safe.
+
+These reserve thresholds are configurable but remain model-free host policy.
+
+### 2. Observed spend budget
+
+When the active worker's start quota and prior-turn quota are available in the same reset window, Supervisor derives actual **percentage-point movement** from authoritative remaining percentages.
+
+Initial defaults:
+
+| Budget | Default stop threshold |
+|---|---:|
+| one turn, five-hour window | > 15 percentage points |
+| one turn, weekly window | > 4 percentage points |
+| one worker lifetime, five-hour window | > 30 percentage points |
+| one worker lifetime, weekly window | > 8 percentage points |
+
+Environment overrides:
+
+- `RPGK_CONTINUATION_MAX_TURN_PRIMARY_SPEND_PERCENT`
+- `RPGK_CONTINUATION_MAX_TURN_WEEKLY_SPEND_PERCENT`
+- `RPGK_CONTINUATION_MAX_LIFETIME_PRIMARY_SPEND_PERCENT`
+- `RPGK_CONTINUATION_MAX_LIFETIME_WEEKLY_SPEND_PERCENT`
+
+Quota is account-global. These deltas are therefore a **safety budget**, not guaranteed per-worker attribution when another Codex lifetime overlaps.
+
+The policy never converts token counts into percentage-point quota cost.
+
+### 3. Token fallback
+
+If quota movement cannot be derived—for example because the rate-limit window reset between samples—the current quota reserve still remains authoritative, and fresh-token telemetry acts only as a fallback safety budget.
+
+Fresh tokens are defined for this purpose as:
+
+`max(0, input - cached_input) + output`
+
+Initial fallback defaults:
+
+- per-turn fresh-token ceiling: 750,000;
+- worker-lifetime fresh-token ceiling: 2,000,000.
+
+Environment overrides:
+
+- `RPGK_CONTINUATION_MAX_TURN_FRESH_TOKENS`
+- `RPGK_CONTINUATION_MAX_LIFETIME_FRESH_TOKENS`
+
+These token values do not pretend to estimate Codex allowance percentage. They simply prevent an obviously pathological turn from receiving more unattended work when quota deltas cannot be compared safely.
+
+### 4. Progress budget
+
+For implementation/repair workers, Supervisor treats source-workspace or Unity-run changes as host-observable progress.
+
+The following rules apply:
+
+- source diff/HEAD change => progress;
+- new Unity run => progress, subject to the repeated-failure rule below;
+- the same focused Unity validation failing again with no source change => stop;
+- one host-invisible analysis turn is allowed as a bounded grace turn;
+- a second consecutive host-invisible turn with no source or Unity progress => stop;
+- any later observable progress resets the invisible-turn count.
+
+The analysis grace exists because investigation is real work even when it consists of reading logs/source and deciding the next repair. It is intentionally limited to one consecutive turn so an agent cannot spend the full allowance merely thinking without producing evidence.
+
+Report-only tasks keep their separate source-clean progress semantics: report synthesis may be host-invisible, but the task must remain source-clean and is still bounded by quota/spend and the hard turn ceiling.
+
+## Why fixed route caps were removed
+
+The first version of continuation policy used route-specific automatic limits:
+
+- Luna: 4;
+- Terra: 2;
+- Sol: 2;
+- Astra: 1.
+
+That was a conservative proxy for cost before enough production telemetry existed.
+
+RPG Kingdom #111 exposed the downside. A legitimate Terra investigation reached turn 2 twice with healthy quota, preserved useful changes, and incomplete validation. The fixed cap forced a reviewed rearm and a new worker lifetime even though the account still had budget and the task was not complete. That repeated context and cost rather than controlling it.
+
+The policy now measures the thing we actually care about:
+
+- remaining allowance;
+- observed spend;
+- progress;
+- repeated ineffective behavior;
+- hard maximum autonomy.
+
+Route still matters for model selection and minimum reserve thresholds, but **turn number alone is no longer the primary cost proxy**.
 
 ## Routing labels
 
@@ -58,13 +176,13 @@ Use exactly zero or one of:
 |---|---|---|---|
 | `risk:mechanical` | GPT-5.6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
 | `risk:normal` | GPT-5.6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
-| `risk:investigative` | GPT-5.6 Terra | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation, substantial implementation where Luna is likely to waste iterations |
+| `risk:investigative` | GPT-5.6 Terra | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
 | `risk:architecture` | GPT-5.6 Sol | high | architecture-sensitive or cross-system boundary work |
-| `risk:end-to-end` | GPT-6 Astra | medium | hardest end-to-end work where stronger execution/tool use is expected to reduce iteration |
+| `risk:end-to-end` | GPT-6 Astra | medium | hardest end-to-end work where stronger execution/tool use is justified |
 
-If no risk or model label exists, the router defaults to **Luna / medium**. Unclassified work never silently promotes itself to Terra, Sol, or Astra.
+If no risk or model label exists, the router defaults to Luna / medium.
 
-The practical rule is: **Luna is the workhorse; Terra is the investigative/debugging upgrade; Sol is the architecture tier; Astra is the hardest engine/tool-heavy end-to-end tier.**
+The practical rule remains: **Luna is the workhorse; Terra is the investigative/debugging upgrade; Sol is the architecture tier; Astra is the hardest engine/tool-heavy end-to-end tier.**
 
 ### Explicit model override
 
@@ -75,7 +193,7 @@ Use exactly zero or one of:
 - `model:sol`
 - `model:astra`
 
-An explicit model label wins over risk classification. This is useful when ChatGPT/human review determines that a particular issue is unusually easy or difficult for its nominal risk class.
+An explicit model label wins over risk classification.
 
 ### Reasoning override
 
@@ -87,13 +205,11 @@ Use exactly zero or one of:
 
 The router fails closed if multiple model, risk, or effort labels conflict.
 
-## Post-benchmark routing adjustment
-
-Phase 2 produced two useful real measurements after the #91 baseline.
+## Real routing measurements
 
 ### #93 — Luna mechanical benchmark
 
-`Shashakar/RPG-Kingdom#93` ran as `risk:mechanical` -> Luna / low and completed in one Symphony turn and one worker lifetime.
+`Shashakar/RPG-Kingdom#93` ran as Luna / low and completed in one turn.
 
 Codex session totals:
 
@@ -102,13 +218,13 @@ Codex session totals:
 - 36,388 uncached input tokens;
 - 3,411 output tokens;
 - about 89.9% of input cached;
-- no visible movement in either the five-hour or weekly allowance meter.
+- no visible movement in either allowance meter.
 
-This validated Luna as a very cheap mechanical lane.
+This validated Luna as the cheap mechanical lane.
 
 ### #95 — Terra investigative benchmark
 
-`Shashakar/RPG-Kingdom#95` ran as Terra / medium and also completed in one Symphony turn and one worker lifetime. It correctly diagnosed a stale production-test assumption rather than changing the production scene/runtime to satisfy the test.
+`Shashakar/RPG-Kingdom#95` ran as Terra / medium and completed in one turn while correctly diagnosing a stale test assumption.
 
 Codex session totals:
 
@@ -120,65 +236,60 @@ Codex session totals:
 - five-hour allowance usage increased by 8 percentage points;
 - weekly allowance usage increased by 2 percentage points.
 
-The cache was already working well. The material allowance difference therefore justified making Terra an explicit investigative tier instead of the default for every normal C# task.
-
-## Astra policy
-
-Astra is part of the routing pool, but it is not the default senior model.
-
-Use Astra when the task is genuinely difficult end-to-end work: broad implementation plus verification, complex tool use, difficult engine-facing debugging, or work where fewer iterations are likely to offset Astra's higher allowance consumption. It is especially relevant once the later Unity worker integration can let the model observe and validate engine behavior directly.
-
-Use Sol for architecture-sensitive work that primarily needs strong reasoning over code/contracts but does not need the full end-to-end Astra profile.
-
-Astra may also be selected explicitly with `model:astra` when the human/ChatGPT planner has a concrete reason.
+The large difference from Luna justified deliberate model routing, but it does **not** justify stopping every Terra worker after exactly two turns. Dynamic continuation uses the live account budget instead.
 
 ## Context budget
 
-Model choice is only one part of efficiency. Worker prompts are also instructed to scale repository exploration to the risk class while still obeying RPG Kingdom's own `AGENTS.md` requirements.
+Model choice and turn policy are only part of efficiency. Worker prompts still scale repository exploration to the risk class while obeying RPG Kingdom's authoritative repository instructions.
 
-- Mechanical: repository-mandated reads plus directly affected files; no unrelated system inventory.
-- Normal: repository-mandated architecture/system docs plus affected implementation/tests, with a focused implementation path rather than broad debugging.
-- Investigative: enough affected runtime/test/system context to distinguish plausible root causes, stopping when evidence selects the correct boundary.
-- Architecture: affected system contracts and only the cross-system/save/event docs that the boundary actually touches.
-- End-to-end: enough cross-system/tool context to validate the whole task, without unrelated repository sweeps.
+- Mechanical: mandatory reads plus directly affected files.
+- Normal: mandatory architecture/system docs plus affected implementation/tests.
+- Investigative: enough runtime/test/system context to distinguish plausible root causes, stopping when evidence selects the boundary.
+- Architecture: affected contracts and only cross-system/save/event docs actually touched.
+- End-to-end: enough cross-system/tool context to validate the whole task without unrelated repository sweeps.
 
-The supervisor never overrides a read required by RPG Kingdom's authoritative repository instructions merely to save tokens.
+The Supervisor never overrides a repository-required read merely to save tokens.
 
 ## Fail-closed redispatch
 
-`symphony:ready` remains the GitHub dispatch lease, but it is no longer the only execution gate.
+`symphony:ready` remains the GitHub dispatch lease, but it is not the only execution gate.
 
-At the end of every worker lifetime, the workspace receives `.symphony-attempt-complete` before the guard makes any GitHub request. A subsequent Symphony worker lifetime reaches `before_run` and is rejected before Codex App Server starts unless the issue also carries a one-shot `symphony:rearm` approval. This remains true even if GitHub is temporarily unavailable when the first attempt ends.
+At the end of every worker lifetime, the workspace receives a persistent attempt marker. A later worker lifetime is rejected before Codex starts unless a human/ChatGPT review explicitly supplies one-shot `symphony:rearm` approval.
 
-When the GitHub API is available, the after-run guard also removes `symphony:ready` first and then adds `symphony:halted` for operator visibility.
-
-To approve a retry from the operator checkout, use the checked-in helper:
+Use:
 
 ```bash
 bash scripts/rearm-issue.sh <issue-number>
 ```
 
-The helper removes `symphony:halted` when present and requests both `symphony:rearm` and `symphony:ready`. It does not directly mutate the workspace marker or Unity lock. On the next `before_run`, the host consumes `symphony:rearm`, allows that one worker lifetime despite the persistent marker, and clears a stale Unity lock only when it is owned by the same GH issue. A lock owned by another issue is never reclaimed by this path.
+The helper requests `symphony:rearm` before `symphony:ready`. The host consumes the rearm approval during preflight. Re-adding `symphony:ready` alone is not a continuation approval.
 
-A human/ChatGPT review tool without host filesystem access may request the same continuation by adding `symphony:rearm` first and `symphony:ready` last. Do **not** re-add `symphony:ready` by itself after a completed attempt; the local guard will continue to reject that dispatch.
-
-If another preflight fails after the one-shot approval is consumed, another explicit review/rearm is required. Do not build an automatic retry loop around `symphony:halted` or `symphony:rearm`.
+Dynamic continuation does not weaken this rule. It is intended to let one healthy worker lifetime finish efficiently, thereby reducing the need for repeated rearm lifetimes.
 
 ## Regression-preservation validation
 
-A bounded fix is not complete merely because the assertion that originally exposed it becomes green. When the implementation changes behavior-bearing configuration or wiring, the worker must identify what existing behavior that configuration provided and gather focused preservation evidence for it.
+A bounded fix is not complete merely because the original failing assertion becomes green. When implementation changes behavior-bearing configuration or wiring, the worker must identify the existing behavior that configuration provided and gather focused preservation evidence for it.
 
-Examples include Animator/controller replacement, prefab or scene references, serialized asset links, input bindings, and other configuration where satisfying one contract can silently displace another. The GH-98/PR #100 animation review is the motivating case: parameter availability was proven, but the first fix did not prove that the player-specific motion-backed animation behavior remained intact.
+Examples include Animator/controller replacement, prefab or scene references, serialized asset links, input bindings, and other configuration where satisfying one contract can silently displace another.
 
-This requirement is intentionally focused. It does not justify a repository-wide regression sweep; it requires validation of the concrete existing behavior put at risk by the chosen implementation.
+This requirement remains focused; it does not justify repository-wide validation unrelated to the changed boundary.
 
-## Phase 2 acceptance status
+## Current acceptance status
 
-The routing/execution-budget core is validated by #93 and #95:
+The Supervisor now has real evidence for both sides of continuation control:
 
-- trivial mechanical work can complete in one Luna turn with negligible visible allowance movement;
-- genuine investigation can complete in one Terra turn without redispatch;
-- the worker-lifetime guard prevents the Phase 1 runaway-session failure mode;
-- model cost differences are large enough that higher tiers must remain deliberate rather than default.
+- #91 demonstrated that large fixed turn budgets can waste allowance;
+- #93 showed cheap Luna work can complete efficiently;
+- #95 measured the materially higher cost of Terra;
+- #110 demonstrated why report-only progress needs source-clean semantics;
+- #111 demonstrated why small static Terra turn caps can force repeated lifetimes and waste context.
 
-Continue to measure real tasks rather than spending allowance on synthetic Sol/Astra benchmarks. Use the next genuine architecture and end-to-end tasks to validate those lanes when they naturally occur.
+The resulting policy is therefore:
+
+1. route to the cheapest model appropriate for the task;
+2. retain a hard four-turn safety ceiling;
+3. decide each additional turn dynamically from current quota, observed spend, and progress;
+4. stop repeated ineffective behavior early;
+5. require explicit human/ChatGPT rearm only when a bounded worker lifetime still cannot complete.
+
+Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts.

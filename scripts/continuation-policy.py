@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Host-side, model-free continuation gate for Symphony worker turns.
 
-The hard Symphony max-turn count remains a safety ceiling. This policy decides whether a
-normal completed turn should automatically spend another turn. It uses only host-observable
-state: route labels, authoritative Codex rate limits, source-workspace progress, Unity run
-progress, completion mode, and cumulative rollout token telemetry.
+The hard Symphony max-turn count remains a safety ceiling. Normal continuation is earned
+turn-by-turn from authoritative quota, observed account spend, and host-observable progress.
+Route/model selection influences minimum reserve thresholds, but does not impose a smaller
+fixed automatic-turn cap.
 """
 from __future__ import annotations
 
@@ -81,8 +81,14 @@ def float_env(name: str, default: float) -> float:
 
 
 def auto_turn_limit(route: str) -> int:
-    defaults = {"luna": 4, "terra": 2, "sol": 2, "astra": 1}
-    return max(1, int_env(f"RPGK_AUTO_TURN_LIMIT_{route.upper()}", defaults[route]))
+    """Compatibility helper for turn-telemetry consumers.
+
+    Route-specific automatic caps were removed by GH-76. Return a deliberately high value so
+    callers that still compute ``min(hard_max, auto_turn_limit(route))`` receive the workflow hard
+    ceiling rather than reintroducing a model-specific cap.
+    """
+    _ = route
+    return 1_000_000
 
 
 def quota_thresholds(route: str) -> tuple[float, float]:
@@ -93,6 +99,17 @@ def quota_thresholds(route: str) -> tuple[float, float]:
         float_env("RPGK_CONTINUATION_MIN_PRIMARY_PERCENT", primary_default),
         float_env("RPGK_CONTINUATION_MIN_WEEKLY_PERCENT", weekly_default),
     )
+
+
+def spend_thresholds() -> dict[str, float]:
+    return {
+        "maxTurnPrimaryPercent": float_env("RPGK_CONTINUATION_MAX_TURN_PRIMARY_SPEND_PERCENT", 15.0),
+        "maxTurnWeeklyPercent": float_env("RPGK_CONTINUATION_MAX_TURN_WEEKLY_SPEND_PERCENT", 4.0),
+        "maxLifetimePrimaryPercent": float_env("RPGK_CONTINUATION_MAX_LIFETIME_PRIMARY_SPEND_PERCENT", 30.0),
+        "maxLifetimeWeeklyPercent": float_env("RPGK_CONTINUATION_MAX_LIFETIME_WEEKLY_SPEND_PERCENT", 8.0),
+        "maxTurnFreshTokens": float(int_env("RPGK_CONTINUATION_MAX_TURN_FRESH_TOKENS", 750_000)),
+        "maxLifetimeFreshTokens": float(int_env("RPGK_CONTINUATION_MAX_LIFETIME_FRESH_TOKENS", 2_000_000)),
+    }
 
 
 def run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -187,8 +204,8 @@ def active_worker(workspace: Path, issue: str) -> dict[str, Any] | None:
     return None
 
 
-def usage_snapshot(workspace: Path, issue: str) -> dict[str, Any]:
-    worker = active_worker(workspace, issue)
+def usage_snapshot(workspace: Path, issue: str, worker: dict[str, Any] | None = None) -> dict[str, Any]:
+    worker = worker or active_worker(workspace, issue)
     if not worker:
         return {"status": "unavailable", "reason": "active worker telemetry record not found"}
     return telemetry.find_rollout_usage(workspace, worker.get("startedAt"))
@@ -198,13 +215,27 @@ def token_delta(current: dict[str, Any], previous: dict[str, Any] | None) -> dic
     if current.get("status") != "available":
         return {"status": "unavailable", "reason": current.get("reason")}
     prior_usage = (previous or {}).get("usage") or {}
-    if prior_usage.get("status") != "available":
-        return {"status": "unavailable", "reason": "no prior cumulative token sample"}
     keys = ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens", "totalTokens")
+    if prior_usage.get("status") != "available":
+        return {
+            "status": "available",
+            **{key: max(0, int(current.get(key) or 0)) for key in keys},
+            "basis": "worker-start",
+        }
     return {
         "status": "available",
         **{key: max(0, int(current.get(key) or 0) - int(prior_usage.get(key) or 0)) for key in keys},
+        "basis": "previous-turn",
     }
+
+
+def fresh_tokens(usage: dict[str, Any]) -> int | None:
+    if usage.get("status") != "available":
+        return None
+    input_tokens = int(usage.get("inputTokens") or 0)
+    cached_tokens = int(usage.get("cachedInputTokens") or 0)
+    output_tokens = int(usage.get("outputTokens") or 0)
+    return max(0, input_tokens - cached_tokens) + max(0, output_tokens)
 
 
 def refresh_quota(workspace: Path) -> dict[str, Any]:
@@ -224,6 +255,32 @@ def quota_age_seconds(quota: dict[str, Any]) -> float | None:
     if observed is None:
         return None
     return max(0.0, (utc_now() - observed).total_seconds())
+
+
+def _remaining_percent(quota: dict[str, Any] | None, key: str) -> float | None:
+    if not quota or quota.get("status") != "available":
+        return None
+    value = (((quota.get("rateLimits") or {}).get(key) or {}).get("remainingPercent"))
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _reset_value(quota: dict[str, Any] | None, key: str) -> str | None:
+    if not quota or quota.get("status") != "available":
+        return None
+    value = (((quota.get("rateLimits") or {}).get(key) or {}).get("resetsAtIso"))
+    return str(value) if value else None
+
+
+def quota_spend(before: dict[str, Any] | None, after: dict[str, Any], key: str) -> float | None:
+    before_remaining = _remaining_percent(before, key)
+    after_remaining = _remaining_percent(after, key)
+    if before_remaining is None or after_remaining is None:
+        return None
+    before_reset = _reset_value(before, key)
+    after_reset = _reset_value(after, key)
+    if before_reset and after_reset and before_reset != after_reset:
+        return None
+    return max(0.0, before_remaining - after_remaining)
 
 
 def quota_decision(quota: dict[str, Any], route: str) -> tuple[bool, str, dict[str, Any]]:
@@ -246,12 +303,84 @@ def quota_decision(quota: dict[str, Any], route: str) -> tuple[bool, str, dict[s
         "minimumPrimaryPercent": min_primary,
         "minimumWeeklyPercent": min_weekly,
         "primaryReset": (rate.get("primary") or {}).get("resetsAtIso"),
+        "weeklyReset": (rate.get("secondary") or {}).get("resetsAtIso"),
     }
     if float(primary) < min_primary:
         return False, f"primary quota {primary}% is below continuation threshold {min_primary}%", detail
     if float(weekly) < min_weekly:
         return False, f"weekly quota {weekly}% is below continuation threshold {min_weekly}%", detail
     return True, "quota healthy for automatic continuation", detail
+
+
+def budget_decision(
+    quota: dict[str, Any],
+    worker: dict[str, Any] | None,
+    previous: dict[str, Any] | None,
+    usage: dict[str, Any],
+    usage_delta: dict[str, Any],
+) -> tuple[bool, str, dict[str, Any]]:
+    thresholds = spend_thresholds()
+    start_quota = (worker or {}).get("quotaBefore") if worker else None
+    previous_quota = (previous or {}).get("quota") or start_quota
+    turn_primary = quota_spend(previous_quota, quota, "primary")
+    turn_weekly = quota_spend(previous_quota, quota, "secondary")
+    lifetime_primary = quota_spend(start_quota, quota, "primary")
+    lifetime_weekly = quota_spend(start_quota, quota, "secondary")
+    turn_fresh = fresh_tokens(usage_delta)
+    lifetime_fresh = fresh_tokens(usage)
+
+    details: dict[str, Any] = {
+        "mode": "dynamic",
+        "accountQuotaIsGlobal": True,
+        "turnPrimarySpendPercent": turn_primary,
+        "turnWeeklySpendPercent": turn_weekly,
+        "lifetimePrimarySpendPercent": lifetime_primary,
+        "lifetimeWeeklySpendPercent": lifetime_weekly,
+        "turnFreshTokens": turn_fresh,
+        "lifetimeFreshTokens": lifetime_fresh,
+        **thresholds,
+    }
+
+    failures: list[str] = []
+    if turn_primary is not None and turn_primary > thresholds["maxTurnPrimaryPercent"]:
+        failures.append(
+            f"turn primary spend {turn_primary:g}pp exceeds {thresholds['maxTurnPrimaryPercent']:g}pp"
+        )
+    if turn_weekly is not None and turn_weekly > thresholds["maxTurnWeeklyPercent"]:
+        failures.append(
+            f"turn weekly spend {turn_weekly:g}pp exceeds {thresholds['maxTurnWeeklyPercent']:g}pp"
+        )
+    if lifetime_primary is not None and lifetime_primary > thresholds["maxLifetimePrimaryPercent"]:
+        failures.append(
+            f"lifetime primary spend {lifetime_primary:g}pp exceeds {thresholds['maxLifetimePrimaryPercent']:g}pp"
+        )
+    if lifetime_weekly is not None and lifetime_weekly > thresholds["maxLifetimeWeeklyPercent"]:
+        failures.append(
+            f"lifetime weekly spend {lifetime_weekly:g}pp exceeds {thresholds['maxLifetimeWeeklyPercent']:g}pp"
+        )
+
+    quota_cost_available = any(
+        value is not None for value in (turn_primary, turn_weekly, lifetime_primary, lifetime_weekly)
+    )
+    details["quotaCostAvailable"] = quota_cost_available
+    details["tokenFallbackUsed"] = not quota_cost_available
+    if not quota_cost_available:
+        if turn_fresh is not None and turn_fresh > thresholds["maxTurnFreshTokens"]:
+            failures.append(
+                f"turn fresh-token fallback {turn_fresh} exceeds {int(thresholds['maxTurnFreshTokens'])}"
+            )
+        if lifetime_fresh is not None and lifetime_fresh > thresholds["maxLifetimeFreshTokens"]:
+            failures.append(
+                f"lifetime fresh-token fallback {lifetime_fresh} exceeds {int(thresholds['maxLifetimeFreshTokens'])}"
+            )
+
+    if failures:
+        return False, "dynamic continuation budget exceeded: " + ", ".join(failures), details
+    if quota_cost_available:
+        return True, "dynamic continuation spend remains within budget", details
+    if turn_fresh is not None or lifetime_fresh is not None:
+        return True, "quota spend delta unavailable; fresh-token fallback remains within budget", details
+    return True, "spend deltas unavailable; current authoritative quota reserve remains the fail-safe budget", details
 
 
 def progress_decision(
@@ -271,7 +400,7 @@ def progress_decision(
             )
 
         if previous is None:
-            details.update({"workspaceChanged": False, "unityChanged": bool(unity)})
+            details.update({"workspaceChanged": False, "unityChanged": bool(unity), "consecutiveInvisibleTurns": 0})
             if unity:
                 return True, "report-only first turn produced Unity evidence and remains source-clean", details
             return (
@@ -284,7 +413,7 @@ def progress_decision(
         previous_unity = previous.get("unity")
         workspace_changed = current.get("fingerprint") != previous_workspace.get("fingerprint")
         unity_changed = bool(unity and unity.get("runId") != (previous_unity or {}).get("runId"))
-        details.update({"workspaceChanged": workspace_changed, "unityChanged": unity_changed})
+        details.update({"workspaceChanged": workspace_changed, "unityChanged": unity_changed, "consecutiveInvisibleTurns": 0})
 
         if workspace_changed:
             return (
@@ -301,18 +430,32 @@ def progress_decision(
         )
 
     if previous is None:
+        details = {
+            "reportOnly": False,
+            "workspaceChanged": bool(current.get("dirty")),
+            "unityChanged": bool(unity),
+            "analysisGraceUsed": False,
+            "consecutiveInvisibleTurns": 0,
+        }
         if current.get("dirty") or unity:
-            return True, "first turn produced source or Unity evidence", {"reportOnly": False}
-        return False, "first turn produced no source diff and no Unity evidence", {"reportOnly": False}
+            return True, "first turn produced source or Unity evidence", details
+        details["analysisGraceUsed"] = True
+        details["consecutiveInvisibleTurns"] = 1
+        return True, "first implementation turn may be analysis-only; granting one bounded analysis grace", details
 
     previous_workspace = previous.get("workspace") or {}
     previous_unity = previous.get("unity")
     workspace_changed = current.get("fingerprint") != previous_workspace.get("fingerprint")
     unity_changed = bool(unity and unity.get("runId") != (previous_unity or {}).get("runId"))
-    details = {"reportOnly": False, "workspaceChanged": workspace_changed, "unityChanged": unity_changed}
-
-    if not workspace_changed and not unity_changed:
-        return False, "no host-observable source or Unity progress since the prior turn", details
+    previous_progress = previous.get("progress") or {}
+    prior_invisible = int(previous_progress.get("consecutiveInvisibleTurns") or 0)
+    details = {
+        "reportOnly": False,
+        "workspaceChanged": workspace_changed,
+        "unityChanged": unity_changed,
+        "analysisGraceUsed": False,
+        "consecutiveInvisibleTurns": 0,
+    }
 
     if unity_changed and not workspace_changed and previous_unity:
         same_filter = unity.get("testFilter") == previous_unity.get("testFilter")
@@ -322,6 +465,14 @@ def progress_decision(
         prior_failed = int(previous_unity.get("failed") or 0) > 0
         if focused and same_filter and same_platform and current_failed and prior_failed:
             return False, "same focused Unity validation failed again without a source diff change", details
+
+    if not workspace_changed and not unity_changed:
+        if prior_invisible < 1:
+            details["analysisGraceUsed"] = True
+            details["consecutiveInvisibleTurns"] = prior_invisible + 1
+            return True, "no host-observable progress; granting one bounded analysis-only continuation", details
+        details["consecutiveInvisibleTurns"] = prior_invisible + 1
+        return False, "second consecutive host-invisible turn without source or Unity progress", details
 
     return True, "host-observable progress detected", details
 
@@ -350,20 +501,34 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
     quota = refresh_quota(workspace)
     workspace_state = workspace_snapshot(workspace)
     unity = latest_unity(workspace)
-    usage = usage_snapshot(workspace, issue)
+    worker = active_worker(workspace, issue)
+    usage = usage_snapshot(workspace, issue, worker)
     usage_delta = token_delta(usage, previous)
 
     allowed = True
     reasons: list[str] = []
-    limit = min(max_turns, auto_turn_limit(route))
-    if turn >= limit:
+    hard_limit_reached = turn >= max_turns
+    if hard_limit_reached:
         allowed = False
-        reasons.append(f"route {route} automatic turn limit reached ({limit} total turns)")
+        reasons.append(f"hard turn ceiling reached ({max_turns} total turns)")
+    else:
+        reasons.append(f"hard turn ceiling not reached ({turn}/{max_turns})")
 
     quota_allowed, quota_reason, quota_details = quota_decision(quota, route)
     if not quota_allowed:
         allowed = False
     reasons.append(quota_reason)
+
+    budget_allowed, budget_reason, budget_details = budget_decision(
+        quota,
+        worker,
+        previous,
+        usage,
+        usage_delta,
+    )
+    if not budget_allowed:
+        allowed = False
+    reasons.append(budget_reason)
 
     progress_allowed, progress_reason, progress_details = progress_decision(
         workspace_state,
@@ -377,18 +542,22 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
 
     decision = "continue" if allowed else "stop"
     record = {
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "observedAt": iso_now(),
         "issue": issue,
         "turn": turn,
         "hardMaxTurns": max_turns,
         "route": route,
         "completionMode": "report-only" if report_only else "implementation",
-        "automaticTurnLimit": limit,
+        "continuationBudgetMode": "dynamic",
+        # Compatibility field retained for existing dashboard/detail consumers. It now reflects
+        # the workflow hard ceiling rather than a smaller route-specific automatic cap.
+        "automaticTurnLimit": max_turns,
         "decision": decision,
         "reason": "; ".join(reasons),
         "quota": quota,
         "quotaDecision": quota_details,
+        "dynamicBudget": budget_details,
         "workspace": workspace_state,
         "unity": unity,
         "usage": usage,
@@ -403,9 +572,11 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
         hardMaxTurns=max_turns,
         route=route,
         completionMode=record["completionMode"],
+        continuationBudgetMode="dynamic",
         decision=decision,
         reason=record["reason"],
         quota=quota_details,
+        dynamicBudget=budget_details,
         progress=progress_details,
         turnUsageDelta=usage_delta,
     )
