@@ -390,6 +390,25 @@ def main() -> int:
             },
         )
 
+    def publish_active_response(
+        response: dict[str, Any],
+        *,
+        state: str,
+        observed_monotonic: float | None = None,
+    ) -> None:
+        nonlocal active, last_result, last_status_write
+        if active is None:
+            raise RuntimeError("cannot publish Git broker completion without an active operation")
+
+        completed = active
+        last_result = last_result_snapshot(response)
+        close_operation(completed)
+        active = None
+        write_status(state)
+        if observed_monotonic is not None:
+            last_status_write = observed_monotonic
+        write_response(completed.spec.request_path, response)
+
     stale_count = fail_stale_requests(workspace_root)
     write_status("ready")
     if stale_count:
@@ -402,12 +421,7 @@ def main() -> int:
             if active is not None:
                 if active.process.poll() is not None:
                     response = complete_operation(active)
-                    write_response(active.spec.request_path, response)
-                    last_result = last_result_snapshot(response)
-                    close_operation(active)
-                    active = None
-                    write_status("ready")
-                    last_status_write = now
+                    publish_active_response(response, state="ready", observed_monotonic=now)
                 elif now - active.started_monotonic >= max(args.command_timeout_seconds, 1):
                     terminate_process_group(active.process, args.kill_grace_seconds)
                     response = complete_operation(
@@ -416,12 +430,7 @@ def main() -> int:
                         exit_code_override=124,
                         extra_stderr="RPG Kingdom Git broker: host handoff exceeded the configured timeout; process group was terminated.\n",
                     )
-                    write_response(active.spec.request_path, response)
-                    last_result = last_result_snapshot(response)
-                    close_operation(active)
-                    active = None
-                    write_status("ready")
-                    last_status_write = now
+                    publish_active_response(response, state="ready", observed_monotonic=now)
                 elif now - last_status_write >= 1.0:
                     write_status("running", active_snapshot(active))
                     last_status_write = now
@@ -480,10 +489,9 @@ def main() -> int:
                 exit_code_override=90,
                 extra_stderr="RPG Kingdom Git broker: broker stopped while host handoff was active; process group was terminated.\n",
             )
-            write_response(active.spec.request_path, response)
-            last_result = last_result_snapshot(response)
-            close_operation(active)
-        write_status("stopped")
+            publish_active_response(response, state="stopped")
+        else:
+            write_status("stopped")
         try:
             (broker_root / "pid").unlink()
         except FileNotFoundError:
