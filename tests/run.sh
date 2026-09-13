@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/codex-router-test.sh" >/dev/null
+bash "$ROOT/tests/codex-concurrency-policy-test.sh"
 python3 "$ROOT/tests/codex-capability-policy-test.py"
 python3 "$ROOT/tests/first-party-skill-policy-test.py"
 bash "$ROOT/tests/codex-permissions-policy-test.sh"
@@ -71,6 +72,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/codex-app-server-router.sh"
+bash -n "$ROOT/scripts/codex-concurrency-policy.sh"
 bash -n "$ROOT/scripts/git-handoff.sh"
 bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"
