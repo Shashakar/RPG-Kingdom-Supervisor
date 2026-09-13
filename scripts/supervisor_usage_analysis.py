@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comparative worker usage analysis for Supervisor issue #46D."""
+"""Comparative worker usage analysis for Supervisor issues #46D and #34."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -73,6 +73,13 @@ def _sum(values: Iterable[float | int | None]) -> float | None:
     return sum(clean) if clean else None
 
 
+def _mcp_call_count(worker: dict[str, Any]) -> int | None:
+    summary = worker.get("_capabilityUsageSummary")
+    if not isinstance(summary, dict) or not summary.get("telemetryAvailable"):
+        return None
+    return int(summary.get("totalCalls") or 0)
+
+
 def _metric_group(name: str, workers: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "key": name,
@@ -86,6 +93,8 @@ def _metric_group(name: str, workers: list[dict[str, Any]]) -> dict[str, Any]:
         "medianPrimaryQuotaCostPoints": _median(_quota_cost(item, "primary") for item in workers),
         "secondaryQuotaSamples": sum(_quota_cost(item, "secondary") is not None for item in workers),
         "medianSecondaryQuotaCostPoints": _median(_quota_cost(item, "secondary") for item in workers),
+        "mcpCallSamples": sum(_mcp_call_count(item) is not None for item in workers),
+        "medianMcpCalls": _median(_mcp_call_count(item) for item in workers),
     }
 
 
@@ -94,6 +103,69 @@ def _group(workers: list[dict[str, Any]], key: Callable[[dict[str, Any]], str]) 
     for worker in workers:
         buckets[key(worker)].append(worker)
     return sorted((_metric_group(name, items) for name, items in buckets.items()), key=lambda item: (-item["workers"], item["key"]))
+
+
+def _selected_mcp(worker: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    capabilities = worker.get("capabilities") if isinstance(worker.get("capabilities"), dict) else {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in capabilities.get("mcp") or []:
+        if isinstance(item, dict) and item.get("name"):
+            result[str(item["name"])] = item
+    return result
+
+
+def _skill_bundle(worker: dict[str, Any]) -> str:
+    capabilities = worker.get("capabilities") if isinstance(worker.get("capabilities"), dict) else {}
+    skills = capabilities.get("selectedSkills") if isinstance(capabilities.get("selectedSkills"), list) else []
+    clean = sorted(str(item) for item in skills if str(item))
+    return "+".join(clean) if clean else "none"
+
+
+def _capability_usage(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    by_run: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if event.get("eventType") != "worker_turn_completed":
+            continue
+        run_id = event.get("workerRunId")
+        if not run_id:
+            continue
+        summary = by_run.setdefault(str(run_id), {"telemetryAvailable": False, "totalCalls": 0, "byCapability": {}})
+        mcp = event.get("mcpUsage") if isinstance(event.get("mcpUsage"), dict) else {}
+        if mcp.get("status") != "available":
+            continue
+        summary["telemetryAvailable"] = True
+        summary["totalCalls"] += int(mcp.get("totalCalls") or 0)
+        by_capability = mcp.get("byCapability") if isinstance(mcp.get("byCapability"), dict) else {}
+        for name, usage in by_capability.items():
+            if not isinstance(usage, dict):
+                continue
+            item = summary["byCapability"].setdefault(str(name), {"calls": 0, "tools": set()})
+            item["calls"] += int(usage.get("calls") or 0)
+            item["tools"].update(str(tool) for tool in usage.get("tools") or [] if str(tool))
+    for summary in by_run.values():
+        for item in summary["byCapability"].values():
+            item["used"] = item["calls"] > 0
+            item["tools"] = sorted(item["tools"])
+    return by_run
+
+
+def _capability_bucket(worker: dict[str, Any], name: str) -> str:
+    selected = _selected_mcp(worker).get(name)
+    if not selected or not selected.get("enabled"):
+        return "not_selected"
+    summary = worker.get("_capabilityUsageSummary")
+    if not isinstance(summary, dict) or not summary.get("telemetryAvailable"):
+        return "selected_unknown"
+    usage = summary.get("byCapability") if isinstance(summary.get("byCapability"), dict) else {}
+    calls = int((usage.get(name) or {}).get("calls") or 0) if isinstance(usage.get(name), dict) else 0
+    return "selected_used" if calls > 0 else "selected_unused"
+
+
+def _capability_names(workers: list[dict[str, Any]]) -> list[str]:
+    names = {"graphify", "context7"}
+    for worker in workers:
+        names.update(_selected_mcp(worker).keys())
+    return sorted(names)
 
 
 def _expensive(workers: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
@@ -107,10 +179,12 @@ def _expensive(workers: list[dict[str, Any]], limit: int = 12) -> list[dict[str,
             "model": worker.get("model"),
             "effort": worker.get("effort"),
             "risk": _risk(worker),
+            "skillBundle": _skill_bundle(worker),
             "outcome": worker.get("outcome"),
             "outcomeClass": _outcome_class(worker),
             "durationSeconds": worker.get("durationSeconds"),
             "totalTokens": _token_value(worker),
+            "mcpCalls": _mcp_call_count(worker),
             "primaryQuotaCostPoints": _quota_cost(worker, "primary"),
             "secondaryQuotaCostPoints": _quota_cost(worker, "secondary"),
             "startedAt": worker.get("startedAt"),
@@ -134,6 +208,7 @@ def _issue_rollups(workers: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "continuations": max(0, len(items) - 1),
             "roles": sorted({str(item.get("role") or "unknown") for item in items}),
             "totalTokens": _sum(_token_value(item) for item in items),
+            "mcpCalls": _sum(_mcp_call_count(item) for item in items),
             "primaryQuotaCostPoints": _sum(_quota_cost(item, "primary") for item in items),
             "totalDurationSeconds": _sum(item.get("durationSeconds") for item in items),
             "finalOutcome": ordered[-1].get("outcome") if ordered else None,
@@ -143,11 +218,23 @@ def _issue_rollups(workers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def analyze(workers: list[dict[str, Any]] | None = None, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
+def analyze(
+    workers: list[dict[str, Any]] | None = None,
+    limit: int = DEFAULT_LIMIT,
+    events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     workers = workers if workers is not None else supervisor_telemetry.recent_workers(limit)
-    workers = [item for item in workers if isinstance(item, dict)]
+    workers = [dict(item) for item in workers if isinstance(item, dict)]
+    events = events if events is not None else supervisor_telemetry.recent_events(max(2000, limit * 8))
+    usage_by_run = _capability_usage([item for item in events if isinstance(item, dict)])
+    for worker in workers:
+        worker["_capabilityUsageSummary"] = usage_by_run.get(str(worker.get("runId") or ""), {})
+
     tokens = [_token_value(item) for item in workers]
     primary = [_quota_cost(item, "primary") for item in workers]
+    mcp_samples = [_mcp_call_count(item) for item in workers]
+    capability_names = _capability_names(workers)
+    by_capability = {name: _group(workers, lambda item, n=name: _capability_bucket(item, n)) for name in capability_names}
     payload = {
         "protocolVersion": PROTOCOL_VERSION,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
@@ -156,6 +243,7 @@ def analyze(workers: list[dict[str, Any]] | None = None, limit: int = DEFAULT_LI
             "tokenTelemetry": {"available": sum(value is not None for value in tokens), "total": len(workers)},
             "primaryQuotaDelta": {"available": sum(value is not None for value in primary), "total": len(workers)},
             "riskClass": {"available": sum(_risk(item) not in {"unavailable", "conflicting"} for item in workers), "total": len(workers)},
+            "actualMcpUse": {"available": sum(value is not None for value in mcp_samples), "total": len(workers)},
         },
         "overall": _metric_group("all", workers),
         "byRole": _group(workers, lambda item: str(item.get("role") or "unknown")),
@@ -163,6 +251,8 @@ def analyze(workers: list[dict[str, Any]] | None = None, limit: int = DEFAULT_LI
         "byEffort": _group(workers, lambda item: str(item.get("effort") or "unknown")),
         "byRisk": _group(workers, _risk),
         "byOutcome": _group(workers, _outcome_class),
+        "bySkillBundle": _group(workers, _skill_bundle),
+        "byCapability": by_capability,
         "expensiveWorkers": _expensive(workers),
         "issueRollups": _issue_rollups(workers),
         "timingComparison": {
@@ -172,6 +262,8 @@ def analyze(workers: list[dict[str, Any]] | None = None, limit: int = DEFAULT_LI
         "notes": [
             "Quota cost is authoritative percentage-point consumption only when both before/after App Server samples are available.",
             "Token counts and quota percentage points are intentionally reported as separate metrics.",
+            "Capability actual-use groups come from attributable per-turn rollout MCP-call telemetry; selected_unknown means the capability was enabled but retained rollout evidence was insufficient to prove use or non-use.",
+            "A selected-but-unused capability is not treated as a failure; Context7 is intentionally available only as an on-demand external-documentation surface.",
             "Continuation counts are chronological same-issue lifetime counts; they do not claim causal retry linkage.",
             "Risk class is taken from the worker's persisted lifecycle labels and is unavailable for older records that did not retain it.",
         ],
