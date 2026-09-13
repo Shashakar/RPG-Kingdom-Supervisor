@@ -17,6 +17,14 @@ BROKER_HOST_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS:-1800}"
 BROKER_KILL_GRACE_SECONDS="${RPGK_UNITY_BROKER_KILL_GRACE_SECONDS:-5}"
 BROKER_STARTED=0
 BROKER_PID=""
+AUTHOR_BROKER_ROOT="$STATE_ROOT/unity-author-broker"
+AUTHOR_BROKER_STATUS="$AUTHOR_BROKER_ROOT/status.json"
+AUTHOR_BROKER_PID_FILE="$AUTHOR_BROKER_ROOT/pid"
+AUTHOR_BROKER_LOG="$AUTHOR_BROKER_ROOT/broker.log"
+AUTHOR_BROKER_HOST_TIMEOUT_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_HOST_TIMEOUT_SECONDS:-900}"
+AUTHOR_BROKER_KILL_GRACE_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_KILL_GRACE_SECONDS:-5}"
+AUTHOR_BROKER_STARTED=0
+AUTHOR_BROKER_PID=""
 GIT_BROKER_ROOT="$STATE_ROOT/git-broker"
 GIT_BROKER_STATUS="$GIT_BROKER_ROOT/status.json"
 GIT_BROKER_PID_FILE="$GIT_BROKER_ROOT/pid"
@@ -72,8 +80,6 @@ if [[ ! -f "$MAINTENANCE_SCRIPT" ]]; then
   exit 1
 fi
 
-# Reconcile any active-worker records left behind by a crashed prior Supervisor process and
-# prune expired local telemetry before new services start. This never mutates GitHub lifecycle.
 python3 "$MAINTENANCE_SCRIPT" --apply >/dev/null || {
   echo "ERROR: Supervisor telemetry maintenance failed; refusing to start with ambiguous local worker ownership." >&2
   exit 1
@@ -109,6 +115,14 @@ stop_unity_broker() {
   fi
 }
 
+stop_unity_author_broker() {
+  if (( AUTHOR_BROKER_STARTED == 1 )) && [[ -n "$AUTHOR_BROKER_PID" ]]; then
+    kill "$AUTHOR_BROKER_PID" 2>/dev/null || true
+    wait "$AUTHOR_BROKER_PID" 2>/dev/null || true
+    AUTHOR_BROKER_STARTED=0
+  fi
+}
+
 stop_git_broker() {
   if (( GIT_BROKER_STARTED == 1 )) && [[ -n "$GIT_BROKER_PID" ]]; then
     kill "$GIT_BROKER_PID" 2>/dev/null || true
@@ -137,6 +151,7 @@ cleanup_all() {
   cleanup_screen
   stop_review_watchdog
   stop_review_orchestrator
+  stop_unity_author_broker
   stop_unity_broker
   stop_git_broker
 }
@@ -149,10 +164,7 @@ start_unity_broker() {
     local existing_pid
     existing_pid="$(tr -d '[:space:]' < "$BROKER_PID_FILE")"
     if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
-      if [[ -f "$BROKER_STATUS" ]] && jq -e \
-        --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
-        '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' \
-        "$BROKER_STATUS" >/dev/null 2>&1; then
+      if [[ -f "$BROKER_STATUS" ]] && jq -e --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' "$BROKER_STATUS" >/dev/null 2>&1; then
         echo "RPG Kingdom Unity broker: reusing PID $existing_pid"
         return 0
       fi
@@ -178,11 +190,7 @@ start_unity_broker() {
       tail -n 40 "$BROKER_LOG" >&2 2>/dev/null || true
       return 1
     fi
-    if [[ -f "$BROKER_STATUS" ]] && jq -e \
-      --argjson pid "$BROKER_PID" \
-      --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
-      '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' \
-      "$BROKER_STATUS" >/dev/null 2>&1; then
+    if [[ -f "$BROKER_STATUS" ]] && jq -e --argjson pid "$BROKER_PID" --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' "$BROKER_STATUS" >/dev/null 2>&1; then
       echo "RPG Kingdom Unity broker: ready (PID $BROKER_PID)"
       return 0
     fi
@@ -194,6 +202,51 @@ start_unity_broker() {
   return 1
 }
 
+start_unity_author_broker() {
+  mkdir -p "$AUTHOR_BROKER_ROOT" "$WORKSPACE_ROOT"
+
+  if [[ -f "$AUTHOR_BROKER_PID_FILE" ]]; then
+    local existing_pid
+    existing_pid="$(tr -d '[:space:]' < "$AUTHOR_BROKER_PID_FILE")"
+    if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      if [[ -f "$AUTHOR_BROKER_STATUS" ]] && jq -e --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' "$AUTHOR_BROKER_STATUS" >/dev/null 2>&1; then
+        echo "RPG Kingdom Unity authoring broker: reusing PID $existing_pid"
+        return 0
+      fi
+      echo "ERROR: an incompatible Unity authoring broker is already running as PID $existing_pid." >&2
+      return 1
+    fi
+  fi
+
+  python3 -u "$SUPERVISOR_ROOT/scripts/unity-author-broker.py" \
+    --workspace-root "$WORKSPACE_ROOT" \
+    --state-root "$STATE_ROOT" \
+    --host-runner "$SUPERVISOR_ROOT/scripts/unity-author-host.sh" \
+    --command-timeout-seconds "$AUTHOR_BROKER_HOST_TIMEOUT_SECONDS" \
+    --kill-grace-seconds "$AUTHOR_BROKER_KILL_GRACE_SECONDS" \
+    >>"$AUTHOR_BROKER_LOG" 2>&1 &
+  AUTHOR_BROKER_PID=$!
+  AUTHOR_BROKER_STARTED=1
+
+  local attempt
+  for attempt in $(seq 1 50); do
+    if ! kill -0 "$AUTHOR_BROKER_PID" 2>/dev/null; then
+      echo "ERROR: Unity authoring broker exited during startup. Recent log:" >&2
+      tail -n 40 "$AUTHOR_BROKER_LOG" >&2 2>/dev/null || true
+      return 1
+    fi
+    if [[ -f "$AUTHOR_BROKER_STATUS" ]] && jq -e --argjson pid "$AUTHOR_BROKER_PID" --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' "$AUTHOR_BROKER_STATUS" >/dev/null 2>&1; then
+      echo "RPG Kingdom Unity authoring broker: ready (PID $AUTHOR_BROKER_PID)"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "ERROR: Unity authoring broker did not become ready within 5 seconds. Recent log:" >&2
+  tail -n 40 "$AUTHOR_BROKER_LOG" >&2 2>/dev/null || true
+  return 1
+}
+
 start_git_broker() {
   mkdir -p "$GIT_BROKER_ROOT" "$WORKSPACE_ROOT"
 
@@ -201,10 +254,7 @@ start_git_broker() {
     local existing_pid
     existing_pid="$(tr -d '[:space:]' < "$GIT_BROKER_PID_FILE")"
     if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
-      if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e \
-        --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
-        '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' \
-        "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
+      if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and (.state == "ready" or .state == "running") and .workspaceRoot == $root' "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
         echo "RPG Kingdom Git handoff broker: reusing PID $existing_pid"
         return 0
       fi
@@ -230,11 +280,7 @@ start_git_broker() {
       tail -n 40 "$GIT_BROKER_LOG" >&2 2>/dev/null || true
       return 1
     fi
-    if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e \
-      --argjson pid "$GIT_BROKER_PID" \
-      --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" \
-      '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' \
-      "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
+    if [[ -f "$GIT_BROKER_STATUS" ]] && jq -e --argjson pid "$GIT_BROKER_PID" --arg root "$(cd "$WORKSPACE_ROOT" && pwd)" '.protocolVersion == 1 and .state == "ready" and .pid == $pid and .workspaceRoot == $root' "$GIT_BROKER_STATUS" >/dev/null 2>&1; then
       echo "RPG Kingdom Git handoff broker: ready (PID $GIT_BROKER_PID)"
       return 0
     fi
@@ -262,12 +308,14 @@ start_review_orchestrator() {
 
 start_review_watchdog() {
   RPGK_REVIEW_WATCHDOG_SECONDS="${RPGK_REVIEW_WATCHDOG_SECONDS:-5}" \
-    bash "$SUPERVISOR_ROOT/scripts/review-orchestrator-watchdog.sh" \
-      "$REVIEW_PID" "$$" "$REVIEW_LOG" &
+    bash "$SUPERVISOR_ROOT/scripts/review-orchestrator-watchdog.sh" "$REVIEW_PID" "$$" "$REVIEW_LOG" &
   REVIEW_WATCHDOG_PID=$!
 }
 
 if ! start_unity_broker; then
+  exit 1
+fi
+if ! start_unity_author_broker; then
   exit 1
 fi
 if ! start_git_broker; then
