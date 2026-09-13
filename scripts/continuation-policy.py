@@ -4,7 +4,7 @@
 The hard Symphony max-turn count remains a safety ceiling. This policy decides whether a
 normal completed turn should automatically spend another turn. It uses only host-observable
 state: route labels, authoritative Codex rate limits, source-workspace progress, Unity run
-progress, and cumulative rollout token telemetry.
+progress, completion mode, and cumulative rollout token telemetry.
 """
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 STATE_NAME = ".symphony-continuation-state.json"
 STOP_NAME = ".symphony-continuation-stop.json"
 RUNTIME_PREFIXES = (".symphony-", "Logs/SymphonyUnity/")
+REPORT_ONLY_LABEL = "completion:report-only"
 
 
 def utc_now() -> datetime:
@@ -59,6 +60,10 @@ def route_class(labels: list[str]) -> str:
     if "risk:investigative" in label_set:
         return "terra"
     return "luna"
+
+
+def is_report_only(labels: list[str]) -> bool:
+    return REPORT_ONLY_LABEL in set(labels)
 
 
 def int_env(name: str, default: int) -> int:
@@ -249,26 +254,73 @@ def quota_decision(quota: dict[str, Any], route: str) -> tuple[bool, str, dict[s
     return True, "quota healthy for automatic continuation", detail
 
 
-def progress_decision(current: dict[str, Any], unity: dict[str, Any] | None, previous: dict[str, Any] | None) -> tuple[bool, str, dict[str, Any]]:
+def progress_decision(
+    current: dict[str, Any],
+    unity: dict[str, Any] | None,
+    previous: dict[str, Any] | None,
+    *,
+    report_only: bool = False,
+) -> tuple[bool, str, dict[str, Any]]:
+    if report_only:
+        details: dict[str, Any] = {"reportOnly": True, "workspaceDirty": bool(current.get("dirty"))}
+        if current.get("dirty"):
+            return (
+                False,
+                "report-only task changed the source/test workspace; report-only completion requires source-clean state",
+                details,
+            )
+
+        if previous is None:
+            details.update({"workspaceChanged": False, "unityChanged": bool(unity)})
+            if unity:
+                return True, "report-only first turn produced Unity evidence and remains source-clean", details
+            return (
+                True,
+                "report-only task remains source-clean; analysis and report synthesis may be host-invisible",
+                details,
+            )
+
+        previous_workspace = previous.get("workspace") or {}
+        previous_unity = previous.get("unity")
+        workspace_changed = current.get("fingerprint") != previous_workspace.get("fingerprint")
+        unity_changed = bool(unity and unity.get("runId") != (previous_unity or {}).get("runId"))
+        details.update({"workspaceChanged": workspace_changed, "unityChanged": unity_changed})
+
+        if workspace_changed:
+            return (
+                False,
+                "report-only workspace HEAD/status changed; report-only completion requires a stable source-clean workspace",
+                details,
+            )
+        if unity_changed:
+            return True, "report-only task produced new Unity evidence", details
+        return (
+            True,
+            "report-only task remains source-clean; artifact analysis and report synthesis may be host-invisible",
+            details,
+        )
+
     if previous is None:
         if current.get("dirty") or unity:
-            return True, "first turn produced source or Unity evidence", {}
-        return False, "first turn produced no source diff and no Unity evidence", {}
+            return True, "first turn produced source or Unity evidence", {"reportOnly": False}
+        return False, "first turn produced no source diff and no Unity evidence", {"reportOnly": False}
 
     previous_workspace = previous.get("workspace") or {}
     previous_unity = previous.get("unity")
     workspace_changed = current.get("fingerprint") != previous_workspace.get("fingerprint")
     unity_changed = bool(unity and unity.get("runId") != (previous_unity or {}).get("runId"))
-    details = {"workspaceChanged": workspace_changed, "unityChanged": unity_changed}
+    details = {"reportOnly": False, "workspaceChanged": workspace_changed, "unityChanged": unity_changed}
 
     if not workspace_changed and not unity_changed:
         return False, "no host-observable source or Unity progress since the prior turn", details
 
     if unity_changed and not workspace_changed and previous_unity:
         same_filter = unity.get("testFilter") == previous_unity.get("testFilter")
+        same_platform = unity.get("testPlatform") == previous_unity.get("testPlatform")
+        focused = bool(unity.get("testFilter"))
         current_failed = int(unity.get("failed") or 0) > 0
         prior_failed = int(previous_unity.get("failed") or 0) > 0
-        if same_filter and current_failed and prior_failed:
+        if focused and same_filter and same_platform and current_failed and prior_failed:
             return False, "same focused Unity validation failed again without a source diff change", details
 
     return True, "host-observable progress detected", details
@@ -294,6 +346,7 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
     state_path, stop_path = state_paths(workspace)
     previous = read_json(state_path) or None
     route = route_class(labels)
+    report_only = is_report_only(labels)
     quota = refresh_quota(workspace)
     workspace_state = workspace_snapshot(workspace)
     unity = latest_unity(workspace)
@@ -312,7 +365,12 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
         allowed = False
     reasons.append(quota_reason)
 
-    progress_allowed, progress_reason, progress_details = progress_decision(workspace_state, unity, previous)
+    progress_allowed, progress_reason, progress_details = progress_decision(
+        workspace_state,
+        unity,
+        previous,
+        report_only=report_only,
+    )
     if not progress_allowed:
         allowed = False
     reasons.append(progress_reason)
@@ -325,6 +383,7 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
         "turn": turn,
         "hardMaxTurns": max_turns,
         "route": route,
+        "completionMode": "report-only" if report_only else "implementation",
         "automaticTurnLimit": limit,
         "decision": decision,
         "reason": "; ".join(reasons),
@@ -343,6 +402,7 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
         turn=turn,
         hardMaxTurns=max_turns,
         route=route,
+        completionMode=record["completionMode"],
         decision=decision,
         reason=record["reason"],
         quota=quota_details,
