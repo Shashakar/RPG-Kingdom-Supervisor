@@ -72,8 +72,20 @@ def hydrate_lfs(workspace: Path, branch: str) -> None:
     run_git(workspace, "lfs", "checkout", timeout=300)
 
 
+def restore_clean_head(workspace: Path, head: str) -> None:
+    """Restore the pre-refresh clean continuation state after a failed host refresh."""
+    run_git(workspace, "merge", "--abort", check=False)
+    run_git(workspace, "reset", "--hard", head)
+
+
 def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]:
-    """Refresh a clean durable continuation branch using host-writable Git metadata."""
+    """Refresh a clean reviewed continuation branch using host-writable Git metadata.
+
+    The local branch is the durable continuation state even when it has never been pushed.
+    Remote feature state, when present, is reconciled without rewriting local history; current
+    ``origin/main`` is then merged into the continuation branch. Any failed workspace mutation is
+    rolled back to the exact pre-refresh clean HEAD.
+    """
     if not (workspace / ATTEMPT_MARKER).exists():
         return True, None
 
@@ -90,52 +102,62 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
     if dirty:
         return False, "workspace has uncommitted source changes; preserving prior work instead of refreshing"
 
-    run_git(workspace, "fetch", "--prune", "origin")
-    if not ref_exists(workspace, "refs/remotes/origin/main"):
-        return False, "origin/main is unavailable after fetch"
-
-    remote_ref = f"refs/remotes/origin/{branch}"
-    if not ref_exists(workspace, remote_ref):
-        return False, f"rearmed branch origin/{branch} is unavailable; preserving local-only continuation state"
-
-    local_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
-    remote_head = run_git(workspace, "rev-parse", remote_ref).stdout.strip()
-    if local_head != remote_head:
-        if is_ancestor(workspace, local_head, remote_ref):
-            run_git(workspace, "merge", "--ff-only", remote_ref)
-        elif is_ancestor(workspace, remote_ref, "HEAD"):
-            return False, f"workspace contains local commits not present on origin/{branch}; preserving unpushed work"
-        else:
-            return False, f"workspace branch '{branch}' diverged from origin/{branch}; preserving state for review"
-
-    if not is_ancestor(workspace, "refs/remotes/origin/main", "HEAD"):
-        name = os.environ.get("RPGK_GIT_AUTHOR_NAME", "RPG Kingdom Symphony")
-        email = os.environ.get("RPGK_GIT_AUTHOR_EMAIL", "symphony@local.invalid")
-        merge = run_git(
-            workspace,
-            "-c",
-            f"user.name={name}",
-            "-c",
-            f"user.email={email}",
-            "merge",
-            "--no-edit",
-            "refs/remotes/origin/main",
-            check=False,
-        )
-        if merge.returncode != 0:
-            run_git(workspace, "merge", "--abort", check=False)
-            message = merge.stderr.strip() or merge.stdout.strip() or "merge conflict"
-            return False, f"current main conflicts with the durable continuation branch: {message}"
+    original_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
 
     try:
-        hydrate_lfs(workspace, branch)
-    except RuntimeError as exc:
-        return False, str(exc)
+        run_git(workspace, "fetch", "--prune", "origin")
+        if not ref_exists(workspace, "refs/remotes/origin/main"):
+            return False, "origin/main is unavailable after fetch"
 
-    if run_git(workspace, "status", "--porcelain", "--untracked-files=all").stdout.strip():
-        return False, "workspace refresh left unexpected source changes"
+        remote_ref = f"refs/remotes/origin/{branch}"
+        if ref_exists(workspace, remote_ref):
+            local_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
+            remote_head = run_git(workspace, "rev-parse", remote_ref).stdout.strip()
+            if local_head != remote_head:
+                if is_ancestor(workspace, local_head, remote_ref):
+                    run_git(workspace, "merge", "--ff-only", remote_ref)
+                elif is_ancestor(workspace, remote_ref, "HEAD"):
+                    # The reviewed continuation contains clean local commits that have not been
+                    # pushed yet. They are valid durable state and can safely absorb current main.
+                    pass
+                else:
+                    return False, f"workspace branch '{branch}' diverged from origin/{branch}; preserving state for review"
+        # If origin/<branch> is absent, the clean local branch itself is the durable continuation
+        # state. Do not require a remote feature branch merely to absorb newly merged main.
 
-    return True, None
+        if not is_ancestor(workspace, "refs/remotes/origin/main", "HEAD"):
+            name = os.environ.get("RPGK_GIT_AUTHOR_NAME", "RPG Kingdom Symphony")
+            email = os.environ.get("RPGK_GIT_AUTHOR_EMAIL", "symphony@local.invalid")
+            merge = run_git(
+                workspace,
+                "-c",
+                f"user.name={name}",
+                "-c",
+                f"user.email={email}",
+                "merge",
+                "--no-edit",
+                "refs/remotes/origin/main",
+                check=False,
+            )
+            if merge.returncode != 0:
+                message = merge.stderr.strip() or merge.stdout.strip() or "merge conflict"
+                restore_clean_head(workspace, original_head)
+                return False, f"current main conflicts with the continuation branch: {message}"
+
+        try:
+            hydrate_lfs(workspace, branch)
+        except RuntimeError as exc:
+            restore_clean_head(workspace, original_head)
+            return False, str(exc)
+
+        if run_git(workspace, "status", "--porcelain", "--untracked-files=all").stdout.strip():
+            restore_clean_head(workspace, original_head)
+            return False, "workspace refresh left unexpected source changes"
+
+        return True, None
+    except (RuntimeError, subprocess.TimeoutExpired):
+        restore_clean_head(workspace, original_head)
+        raise
 
 
 def value_after(args: list[str], flag: str) -> str:
