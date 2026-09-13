@@ -6,6 +6,53 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 REMOTE="$TMP/remote.git"
 SEED="$TMP/seed"
+FAKE_SUPERVISOR="$TMP/fake-supervisor"
+DIRECT_SYNC="$TMP/direct-sync.py"
+mkdir -p "$FAKE_SUPERVISOR/scripts"
+
+cat > "$DIRECT_SYNC" <<'PY'
+#!/usr/bin/env python3
+import importlib.util
+from pathlib import Path
+import sys
+
+module_path = Path(sys.argv[1])
+workspace = Path(sys.argv[2])
+branch = sys.argv[3]
+spec = importlib.util.spec_from_file_location("rpgk_git_handoff_host_wrapper", module_path)
+if spec is None or spec.loader is None:
+    raise RuntimeError("failed to load git-handoff-host-wrapper.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+ok, message = module.sync_rearmed_branch(workspace, branch)
+if not ok:
+    print(message or "continuation workspace refresh blocked", file=sys.stderr)
+    raise SystemExit(73)
+print(f"refreshed {branch}")
+PY
+chmod +x "$DIRECT_SYNC"
+
+cat > "$FAKE_SUPERVISOR/scripts/git-handoff.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "prepare" ]] || { echo "test adapter supports prepare only" >&2; exit 64; }
+shift
+branch=""
+project="$PWD"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch) branch="$2"; shift 2 ;;
+    --project) project="$2"; shift 2 ;;
+    *) echo "unexpected test adapter argument: $1" >&2; exit 64 ;;
+  esac
+done
+[[ -n "$branch" ]] || { echo "missing branch" >&2; exit 64; }
+python3 "$RPGK_TEST_DIRECT_SYNC" \
+  "$RPGK_TEST_REAL_SUPERVISOR_ROOT/scripts/git-handoff-host-wrapper.py" \
+  "$project" \
+  "$branch"
+SH
+chmod +x "$FAKE_SUPERVISOR/scripts/git-handoff.sh"
 
 git init --bare -q "$REMOTE"
 git init -q "$SEED"
@@ -48,8 +95,9 @@ run_refresh() {
   local path="$1"
   (
     cd "$path"
-    RPGK_SUPERVISOR_ROOT="$ROOT" \
-    RPGK_EXPECTED_ORIGIN_URL="$REMOTE" \
+    RPGK_SUPERVISOR_ROOT="$FAKE_SUPERVISOR" \
+    RPGK_TEST_DIRECT_SYNC="$DIRECT_SYNC" \
+    RPGK_TEST_REAL_SUPERVISOR_ROOT="$ROOT" \
       bash "$ROOT/scripts/refresh-rearmed-workspace.sh"
   )
 }
