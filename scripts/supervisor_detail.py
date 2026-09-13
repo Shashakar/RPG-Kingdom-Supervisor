@@ -81,6 +81,24 @@ def _git_for_worker(worker: dict[str, Any], workspace_root: Path) -> list[dict[s
     ]
 
 
+def _turn_history_for_worker(run_id: str) -> list[dict[str, Any]]:
+    path = supervisor_telemetry.state_root() / "telemetry" / "events.jsonl"
+    values: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for raw in handle:
+                try:
+                    value = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if value.get("eventType") == "worker_turn_completed" and value.get("workerRunId") == run_id:
+                    values.append(value)
+    except OSError:
+        return []
+    values.sort(key=lambda item: int(item.get("turn") or 0))
+    return values
+
+
 def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool = True) -> dict[str, Any] | None:
     worker, worker_state = _load_worker(run_id)
     if worker is None:
@@ -99,6 +117,7 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
     ]
     unity_runs = _unity_for_worker(worker, workspace_root)
     git_events = _git_for_worker(worker, workspace_root)
+    turn_history = _turn_history_for_worker(run_id)
     issue_workers = _all_issue_workers(issue)
     review_events = [event for event in related_activity if event.get("category") == "review"]
     artifacts = []
@@ -115,6 +134,7 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
         "worker": worker,
         "currentLifecycle": current,
         "continuationLineage": _lineage(issue_workers, run_id),
+        "turnHistory": turn_history,
         "activity": worker_activity,
         "reviewHistory": review_events,
         "unityRuns": unity_runs,

@@ -104,10 +104,65 @@ QUOTA_FRESHNESS_SCRIPT = r"""
 </script>
 """
 
+TURN_HISTORY_SCRIPT = r"""
+<script>
+(function(){
+  const baseOpenWorker = openWorker;
+  const quotaValue = (turn, windowName) => {
+    const value = turn?.quotaAfter?.rateLimits?.[windowName]?.remainingPercent;
+    return value === null || value === undefined ? '—' : `${Math.round(Number(value) * 10) / 10}%`;
+  };
+  const tokenValue = (turn, key) => {
+    const delta = turn?.tokenDelta || {};
+    return delta.status === 'available' ? fmtNum(delta[key] || 0) : '—';
+  };
+  const yesNo = value => value === true ? 'yes' : value === false ? 'no' : '—';
+  function turnHistoryBlock(turns){
+    if (!turns.length) return '';
+    const last = turns[turns.length - 1] || {};
+    const rows = turns.map(turn => `<tr>
+      <td>${esc(turn.turn)}</td>
+      <td>${esc(fmtDuration(turn.durationSeconds))}</td>
+      <td>${esc(turn.decision || '—')}</td>
+      <td>${esc(tokenValue(turn, 'totalTokens'))}</td>
+      <td>${esc(tokenValue(turn, 'cachedInputTokens'))}</td>
+      <td>${esc(quotaValue(turn, 'primary'))}</td>
+      <td>${esc(quotaValue(turn, 'secondary'))}</td>
+      <td>${esc(yesNo(turn.progress?.workspaceChanged))}</td>
+      <td>${esc(turn.unityAfter?.runId || '—')}</td>
+      <td>${esc(turn.reason || '—')}</td>
+    </tr>`).join('');
+    return `<details class="details-box" open>
+      <summary>Per-turn continuation evidence</summary>
+      <div class="details-body">
+        <div class="panel-sub" style="margin-bottom:10px">Hard cap ${esc(last.hardMaxTurns ?? '—')} · automatic route cap ${esc(last.automaticTurnLimit ?? '—')} · route ${esc(last.route || '—')}</div>
+        <div class="scroll"><table><thead><tr><th>Turn</th><th>Duration</th><th>Decision</th><th>Total Δ</th><th>Cached Δ</th><th>5h after</th><th>Weekly after</th><th>Diff changed</th><th>Latest Unity</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="usage-note">Token deltas keep cached input separate. Quota percentages are authoritative App Server snapshots and are never inferred from token counts.</div>
+      </div>
+    </details>`;
+  }
+  openWorker = async function(id){
+    await baseOpenWorker(id);
+    try {
+      const response = await fetch('/api/worker/' + encodeURIComponent(id), {cache:'no-store'});
+      if (!response.ok) return;
+      const detail = await response.json();
+      const block = turnHistoryBlock(detail.turnHistory || []);
+      const content = document.getElementById('detail-content');
+      if (content && block) content.insertAdjacentHTML('beforeend', block);
+    } catch (_) {
+      // The base worker drawer remains usable when turn-history telemetry is unavailable.
+    }
+  };
+})();
+</script>
+"""
+
 
 def rendered_page() -> str:
     marker = "</body>"
-    return PAGE.replace(marker, QUOTA_FRESHNESS_SCRIPT + marker, 1) if marker in PAGE else PAGE + QUOTA_FRESHNESS_SCRIPT
+    extras = QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT
+    return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
 def normalize_issue(value: str | None) -> str | None:

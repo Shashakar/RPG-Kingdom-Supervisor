@@ -44,6 +44,17 @@ for text in (
     assert text in python_text, text
 assert "tokenUsage" not in python_text.split("QUOTA_FRESHNESS_SCRIPT", 1)[1].split('"""', 1)[0]
 
+# #60 worker detail exposes per-turn spend/progress without turning the dashboard into a mutation surface.
+for text in (
+    "TURN_HISTORY_SCRIPT",
+    "Per-turn continuation evidence",
+    "turnHistory",
+    "automatic route cap",
+    "Cached Δ",
+    "Quota percentages are authoritative App Server snapshots",
+):
+    assert text in python_text, text
+
 # Initial overview answers operator questions before deeper diagnostics.
 for text in (
     "System overview",
