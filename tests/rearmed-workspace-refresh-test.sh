@@ -79,19 +79,26 @@ grep -Fq "uncommitted source changes" "$TMP/dirty.err" || { echo "dirty continua
 [[ "$(git -C "$dirty_workspace" rev-parse HEAD)" == "$dirty_head" ]] || { echo "dirty continuation HEAD changed" >&2; exit 1; }
 [[ -f "$dirty_workspace/local-only.txt" ]] || { echo "dirty continuation source work was discarded" >&2; exit 1; }
 
-# Clean but unpushed commits are also preserved rather than implicitly rewritten against main.
+# Clean unpushed commits are durable continuation state and remain intact while current main is integrated.
 local_workspace="$(prepare_workspace GH-125 codex/test-refresh)"
 printf 'unpushed\n' > "$local_workspace/unpushed.txt"
 git -C "$local_workspace" add unpushed.txt
 git -C "$local_workspace" commit -qm "local only"
-local_head="$(git -C "$local_workspace" rev-parse HEAD)"
-set +e
-run_refresh "$local_workspace" >"$TMP/local.out" 2>"$TMP/local.err"
-status=$?
-set -e
-[[ "$status" -eq 73 ]] || { echo "expected unpushed continuation to fail closed with 73, got $status" >&2; exit 1; }
-grep -Fq "local commits not present" "$TMP/local.err" || { echo "unpushed continuation failure was not explained" >&2; exit 1; }
-[[ "$(git -C "$local_workspace" rev-parse HEAD)" == "$local_head" ]] || { echo "unpushed continuation HEAD changed" >&2; exit 1; }
+local_commit="$(git -C "$local_workspace" rev-parse HEAD)"
+run_refresh "$local_workspace" >/dev/null
+git -C "$local_workspace" merge-base --is-ancestor "$local_commit" HEAD || {
+  echo "local continuation commit was not preserved" >&2
+  exit 1
+}
+git -C "$local_workspace" merge-base --is-ancestor origin/main HEAD || {
+  echo "locally-ahead continuation does not contain current main" >&2
+  exit 1
+}
+[[ -f "$local_workspace/unpushed.txt" ]] || { echo "unpushed continuation work was discarded" >&2; exit 1; }
+[[ -z "$(git -C "$local_workspace" status --porcelain --untracked-files=all)" ]] || {
+  echo "locally-ahead continuation refresh left a dirty worktree" >&2
+  exit 1
+}
 
 # A stale durable PR branch that conflicts with newly merged main must halt before Codex and leave
 # no half-merged index/worktree behind.
@@ -118,7 +125,7 @@ run_refresh "$conflict_workspace" >"$TMP/conflict.out" 2>"$TMP/conflict.err"
 status=$?
 set -e
 [[ "$status" -eq 73 ]] || { echo "expected conflicting continuation to fail closed with 73, got $status" >&2; exit 1; }
-grep -Fq "conflicts with the durable continuation branch" "$TMP/conflict.err" || {
+grep -Fq "conflicts with the continuation branch" "$TMP/conflict.err" || {
   echo "conflicting continuation failure was not explained" >&2
   exit 1
 }
