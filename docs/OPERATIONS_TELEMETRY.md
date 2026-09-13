@@ -1,6 +1,6 @@
 # Supervisor Operations Telemetry
 
-This document defines the durable telemetry, service-health, lifecycle-queue, and activity-correlation contracts for Supervisor issue #46.
+This document defines the durable telemetry, service-health, lifecycle-queue, activity-correlation, and concurrent-worker accounting contracts for Supervisor issues #46 and #48.
 
 The goal is to make the dashboard consume structured Supervisor-owned state and authoritative GitHub lifecycle data instead of reconstructing operations from terminals or screenshots. The console deliberately favors reliable raw records and simple tables/cards over speculative charts.
 
@@ -27,7 +27,7 @@ By default, state lives under:
 
 `RPGK_SUPERVISOR_STATE_ROOT` overrides that root.
 
-Relevant telemetry files:
+Relevant telemetry/lock files:
 
 ```text
 symphony/status.json
@@ -40,9 +40,12 @@ workers/active/<role>.json
 workers/history/<run-id>.json
 workers/history.jsonl
 telemetry/events.jsonl
+locks/codex-mutation.lock
+locks/codex-review.lock
+locks/issues/GH-<issue>.lock
 ```
 
-JSON snapshots are written atomically. JSONL history writes use a local file lock so review/implementation telemetry cannot interleave partial records.
+JSON snapshots are written atomically. JSONL history writes use a local file lock so concurrent review/implementation telemetry cannot interleave partial records.
 
 Lifecycle queues are **not** persisted under this state root. They are a live read-only projection of current GitHub issue labels plus structured review metadata.
 
@@ -81,9 +84,25 @@ The current Codex protocol exposes these rate-limit windows through App Server. 
 
 Sampling is fail-soft for worker execution. If App Server/account data is unavailable, `usage/current.json` becomes an explicit `unavailable` snapshot rather than blocking implementation or fabricating a percentage.
 
+## Role-aware Codex concurrency
+
+GH-48 replaces the former global Codex session lock with two bounded role slots:
+
+```text
+mutation: implementation | repair | report-only   capacity 1
+review:   independent read-only review             capacity 1
+maximum total Codex worker processes               2
+```
+
+`scripts/codex-concurrency-policy.sh` is the host-owned mapping. A per-issue lock is also held for the entire worker lifetime. This permits unrelated implementation + review concurrency while preventing review from observing a branch that is still being mutated for the same issue.
+
+The review worker acquires its role slot and then attempts the issue lock nonblocking. If that issue is currently owned, review exits before Codex or telemetry starts and is retried by the existing `symphony:agent-review` polling lifecycle. Implementation/repair workers wait for the mutation slot and issue ownership without spending a Codex turn.
+
+Two mutation workers are still prohibited. Two reviewers are still prohibited. Unity/Git resource locks and no-auto-merge behavior are unchanged.
+
 ## Worker lifetime telemetry
 
-The Codex implementation router and independent review worker create active records only **after** acquiring the existing Codex session lock. This prevents queued work from appearing active before it owns the slot.
+The Codex implementation router and independent review worker create active records only **after** acquiring their role slot and per-issue ownership. This prevents queued work from appearing active before it owns the relevant Codex capacity.
 
 Roles are recorded separately:
 
@@ -100,15 +119,15 @@ Each active/completed record can contain:
 - start/end time and duration;
 - worker process PID while active;
 - per-thread token totals where uniquely attributable;
-- authoritative quota snapshot before and after the lifetime;
-- percentage-point quota delta only when both authoritative samples are available;
+- authoritative account quota snapshot before and after the lifetime;
+- percentage-point quota delta from those snapshots;
 - final lifecycle/verdict outcome.
 
 Implementation/repair/report-only completion is finalized from `after-run-guard.sh`, after lifecycle mutation/reconciliation has occurred. Review completion is finalized by the review worker after its structured verdict exists.
 
 ### Token attribution
 
-Per-worker tokens are read from Codex rollout/session `token_count` records. Supervisor prefers a rollout that contains the worker workspace path. A single rollout in the worker time window may be accepted as a fallback while the current global Codex lock guarantees one Codex worker at a time. Ambiguous multiple-session windows are reported as unavailable rather than guessed.
+Per-worker tokens are read from Codex rollout/session `token_count` records. Supervisor prefers a rollout that contains the worker workspace path. A single rollout in the worker time window may be accepted as a fallback only when it is uniquely attributable; ambiguous multiple-session windows are reported as unavailable rather than guessed.
 
 The stored token fields are:
 
@@ -118,7 +137,15 @@ The stored token fields are:
 - reasoning-output tokens when exposed;
 - total tokens.
 
-These token values are not converted into quota percentages.
+These token values are not converted into quota percentages. They remain attributable when implementation and review overlap because each worker has a distinct rollout and same-issue overlap is prohibited.
+
+### Quota attribution under concurrency
+
+Quota percentages are account-global. If implementation and review overlap, either worker's before/after quota samples include account consumption from both lifetimes. Those samples remain valid account observations, but the delta is **not uniquely attributable** to either worker.
+
+`scripts/supervisor_usage_analysis.py` detects retained lifetime overlap and excludes those workers from per-worker quota-cost medians/rankings while preserving their token telemetry. Worker detail similarly marks quota attribution unavailable for an overlapping lifetime and exposes the overlapping run IDs. Raw account snapshots remain available for diagnostics.
+
+This distinction is mandatory: concurrency must not turn an authoritative global quota sample into a fabricated per-worker cost.
 
 ## Lifecycle queues
 
@@ -189,7 +216,11 @@ The localhost-only dashboard exposes:
 
 - `/api/operations` for service health, quota, active workers, and recent worker lifetimes;
 - `/api/lifecycle` for GitHub lifecycle queues and the unified cross-system activity timeline;
+- `/api/usage-analysis` for cost/efficiency analysis with overlap-safe quota attribution;
+- per-worker detail with concurrent-lifetime context;
 - existing per-issue diagnostics and Unity history/detail endpoints.
+
+The active worker list is role-labelled and may contain at most one mutation worker and one reviewer. That makes both occupied role slots and their issue owners visible without adding process-control actions.
 
 The top-level UI visually separates human-review, human-attention, halted/quota, and report-complete work from automated queues. It provides only read-only navigation to issues/PRs and existing Unity run detail. It does not add lifecycle mutation, merge, process-kill, force-unlock, or other privileged controls.
 
@@ -204,9 +235,12 @@ The deterministic suite covers:
 - role/model/effort capture;
 - rollout token attribution;
 - before/after quota percentage-point delta;
+- overlap-safe quota attribution under implementation + review concurrency;
 - explicit unavailable behavior;
 - secret redaction;
 - App Server rate-limit normalization through a fake JSON-RPC server;
+- role-slot contention: one mutation, one review, maximum two total;
+- same-issue lock exclusion and unrelated-issue concurrency;
 - reviewer telemetry integration;
 - lifecycle queue precedence, including `rework + ready` overlap;
 - human-review, human-attention, halted/quota, and active implementation fixtures;
@@ -221,7 +255,3 @@ Run:
 ```bash
 bash tests/run.sh
 ```
-
-## Remaining #46 work
-
-46A delivered the telemetry/service-health foundation and 46B adds lifecycle queues plus the unified activity timeline. The remaining umbrella work is intentionally separate: retention/reconciliation controls, richer worker/run detail, and comparative usage analysis for later #34 plugin/context-efficiency experiments. Those slices should continue building on the same authority boundaries rather than adding parallel state formats.
