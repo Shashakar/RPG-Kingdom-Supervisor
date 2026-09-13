@@ -4,12 +4,13 @@ set -euo pipefail
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 RPGK_REPO="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
-CODEX_LOCK="$STATE_ROOT/locks/codex-session.lock"
 
 # shellcheck source=routing-policy.sh
 source "$SUPERVISOR_ROOT/scripts/routing-policy.sh"
 # shellcheck source=codex-permission-profile.sh
 source "$SUPERVISOR_ROOT/scripts/codex-permission-profile.sh"
+# shellcheck source=codex-concurrency-policy.sh
+source "$SUPERVISOR_ROOT/scripts/codex-concurrency-policy.sh"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -77,12 +78,17 @@ if [[ -s "$capability_args_file" ]]; then
   mapfile -d '' -t capability_args < "$capability_args_file"
 fi
 
-# Implementation, repair, report-only work, and independent review currently share one host-level
-# Codex session slot. Hold it while sampling quota and publishing the active worker record so
-# telemetry cannot race a second Codex process.
-mkdir -p "$(dirname "$CODEX_LOCK")"
-exec 9>"$CODEX_LOCK"
+# Implementation, repair, and report-only work share exactly one mutation slot. Independent
+# read-only review owns a separate slot, so unrelated implementation + review work may overlap.
+# The per-issue lock remains held for the full Codex lifetime and prevents a reviewer from reading
+# an issue while that same workspace is still being mutated.
+slot_lock="$(rpgk_codex_slot_lock_path "$STATE_ROOT" "$role")"
+issue_lock="$(rpgk_codex_issue_lock_path "$STATE_ROOT" "$identifier")"
+mkdir -p "$(dirname "$slot_lock")" "$(dirname "$issue_lock")"
+exec 9>"$slot_lock"
 flock 9
+exec 8>"$issue_lock"
+flock 8
 
 python3 "$SUPERVISOR_ROOT/scripts/codex-usage-snapshot.py" --write --quiet || true
 if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
@@ -97,7 +103,8 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
 fi
 
 # exec preserves this shell PID in the active worker record, allowing the dashboard to distinguish
-# a live worker from stale state without introducing a second wrapper process.
+# a live worker from stale state without introducing a second wrapper process. Open flock file
+# descriptors are inherited by Codex, so both the mutation slot and issue ownership remain held.
 exec codex \
   --config shell_environment_policy.inherit=all \
   "${RPGK_CODEX_PERMISSION_ARGS[@]}" \

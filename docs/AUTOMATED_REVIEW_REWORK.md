@@ -18,7 +18,19 @@ A successful Git handoff removes `symphony:ready`. During `after_run`, Superviso
 symphony:agent-review
 ```
 
-The review sidecar launched by `scripts/run-symphony.sh` watches that state and starts a distinct, read-only Codex reviewer. Reviewer and implementation sessions share `~/.local/state/rpg-kingdom-supervisor/locks/codex-session.lock`, preserving the current one-agent-at-a-time budget.
+The review sidecar launched by `scripts/run-symphony.sh` watches that state and starts a distinct, read-only Codex reviewer.
+
+Codex concurrency is role-aware:
+
+```text
+mutation slot: implementation | repair | report-only   capacity 1
+review slot:   independent review                      capacity 1
+maximum concurrent Codex processes                    2
+```
+
+The mutation and review slots use separate host `flock` files, so review for issue A may run while implementation/repair for unrelated issue B is active. Both roles also hold a per-issue lock for the entire Codex lifetime. A reviewer therefore never reads a workspace while that same issue is still being mutated. If the issue lock is already owned, review exits with a retryable deferral before starting Codex or worker telemetry; the issue remains in `symphony:agent-review` for the next poll.
+
+Implementation/repair/report-only still share one mutation slot, so this change does **not** permit two mutating Codex workers. Review remains read-only and does not use Unity or Git mutation interfaces.
 
 The reviewer uses `codex exec --sandbox read-only --output-schema ...` and must emit the schema in `schemas/review-verdict.schema.json`:
 
@@ -141,9 +153,19 @@ export RPGK_REVIEW_EFFORT=high
 
 Reviewer cost is intentionally not optimized below the quality needed for an independent gate.
 
+## Concurrency and usage accounting
+
+Per-thread token counts remain attributable because implementation and review use distinct Codex rollouts/workspaces and same-issue overlap is prohibited.
+
+Codex quota percentages are account-global, however. When two worker lifetimes overlap, the quota movement observed between either worker's before/after snapshots includes activity from both workers. Supervisor usage analysis therefore excludes overlapping lifetimes from **per-worker quota-cost** medians/rankings instead of pretending the shared account change belongs to either worker. Token usage remains available.
+
+Worker detail exposes the overlap relationship and treats the per-worker quota delta as unavailable for attribution while preserving the raw observed before/after account snapshots for diagnostics.
+
 ## Dashboard
 
-The localhost Supervisor dashboard now displays:
+The localhost Supervisor dashboard displays active worker lifetimes with their issue and role. With role-aware concurrency, the active list may legitimately contain one mutation worker and one reviewer at the same time. That pair is the maximum supported Codex concurrency under this policy.
+
+The dashboard also displays:
 
 - lifecycle state;
 - review cycle;
@@ -167,7 +189,7 @@ bash scripts/install-labels.sh
 bash tests/run.sh
 ```
 
-Restart Supervisor so `scripts/run-symphony.sh` launches the review sidecar.
+Restart Supervisor so `scripts/run-symphony.sh` and the review sidecar use the new role-aware lock policy.
 
 For a controlled smoke test, use an implementation-ready RPG Kingdom issue and allow it to reach PR handoff without manually adding review/rearm labels. Expected autonomous path for a clean PR:
 
@@ -178,6 +200,8 @@ symphony:ready
 -> structured independent review
 -> symphony:human-review
 ```
+
+With a second unrelated implementation issue ready at the same time, the reviewer and that implementation worker may now run concurrently. A reviewer must never overlap mutation of its own issue/workspace.
 
 For a deliberately repairable review finding, expected path is:
 

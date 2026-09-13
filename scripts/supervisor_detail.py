@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Worker-lifetime drill-down collector for Supervisor issue #46C."""
+"""Worker-lifetime drill-down collector for Supervisor issues #46C and #48."""
 from __future__ import annotations
 
 import argparse
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,16 @@ def _all_issue_workers(issue: int) -> list[dict[str, Any]]:
     return values
 
 
+def _all_workers() -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    for path in (supervisor_telemetry.state_root() / "workers" / "history").glob("*.json"):
+        value = supervisor_telemetry.read_json(path)
+        if value:
+            values.append(value)
+    values.extend(supervisor_telemetry.active_workers())
+    return values
+
+
 def _lineage(workers: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     ids = [str(item.get("runId")) for item in workers]
     if run_id not in ids:
@@ -63,6 +73,40 @@ def _inside_worker(worker: dict[str, Any], value: Any, tolerance_seconds: int = 
     if ended is None:
         return when >= started - timedelta(seconds=tolerance_seconds)
     return started - timedelta(seconds=tolerance_seconds) <= when <= ended + timedelta(seconds=tolerance_seconds)
+
+
+def _overlap_context(worker: dict[str, Any]) -> dict[str, Any]:
+    started = supervisor_activity.parse_time(worker.get("startedAt"))
+    if started is None:
+        return {"status": "unknown", "overlappingRunIds": [], "quotaAttribution": "unknown"}
+    now = datetime.now(timezone.utc)
+    ended = supervisor_activity.parse_time(worker.get("endedAt")) or now
+    run_id = str(worker.get("runId") or "")
+    overlaps: list[str] = []
+    for other in _all_workers():
+        other_id = str(other.get("runId") or "")
+        if not other_id or other_id == run_id:
+            continue
+        other_started = supervisor_activity.parse_time(other.get("startedAt"))
+        if other_started is None:
+            continue
+        other_ended = supervisor_activity.parse_time(other.get("endedAt")) or now
+        if started < other_ended and other_started < ended:
+            overlaps.append(other_id)
+    overlaps = sorted(set(overlaps))
+    if overlaps:
+        return {
+            "status": "overlapped",
+            "overlappingRunIds": overlaps,
+            "quotaAttribution": "unavailable",
+            "reason": "Account-global quota changed while another Codex worker overlapped this lifetime; before/after quota delta is not uniquely attributable to either worker.",
+        }
+    return {
+        "status": "exclusive",
+        "overlappingRunIds": [],
+        "quotaAttribution": "available-if-sampled",
+        "reason": "No other retained Codex worker lifetime overlaps this interval.",
+    }
 
 
 def _unity_for_worker(worker: dict[str, Any], workspace_root: Path) -> list[dict[str, Any]]:
@@ -106,6 +150,15 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
     issue = worker.get("issue")
     if not isinstance(issue, int):
         return None
+    worker = dict(worker)
+    concurrency = _overlap_context(worker)
+    if concurrency["status"] == "overlapped" and isinstance(worker.get("quotaDelta"), dict) and worker["quotaDelta"].get("status") == "available":
+        worker["observedQuotaDelta"] = worker["quotaDelta"]
+        worker["quotaDelta"] = {
+            "status": "unavailable",
+            "reason": concurrency["reason"],
+            "overlappingRunIds": concurrency["overlappingRunIds"],
+        }
     workspace_root = workspace_root or supervisor_activity._workspace_root()
     activity = supervisor_activity.collect(workspace_root=workspace_root, limit=500, use_cache=use_cache)
     current = next((item for item in activity.get("items", []) if item.get("issue") == issue), None)
@@ -132,6 +185,7 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
         "generatedAt": supervisor_activity.iso_now(),
         "workerState": worker_state,
         "worker": worker,
+        "concurrency": concurrency,
         "currentLifecycle": current,
         "continuationLineage": _lineage(issue_workers, run_id),
         "turnHistory": turn_history,

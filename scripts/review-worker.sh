@@ -14,13 +14,24 @@ effort="$5"
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 SCHEMA="$SUPERVISOR_ROOT/schemas/review-verdict.schema.json"
-LOCK_FILE="$STATE_ROOT/locks/codex-session.lock"
 RUN_LOG="${output_file}.codex.log"
 TELEMETRY_STARTED=0
 
+# shellcheck source=codex-concurrency-policy.sh
+source "$SUPERVISOR_ROOT/scripts/codex-concurrency-policy.sh"
+
+workspace_name="$(basename "$workspace")"
+if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
+  echo "RPG Kingdom review worker: expected workspace basename GH-<issue>, got '$workspace_name'" >&2
+  exit 64
+fi
+identifier="$workspace_name"
+slot_lock="$(rpgk_codex_slot_lock_path "$STATE_ROOT" review)"
+issue_lock="$(rpgk_codex_issue_lock_path "$STATE_ROOT" "$identifier")"
+
 [[ -f "$prompt_file" ]] || { echo "Review prompt missing: $prompt_file" >&2; exit 64; }
 [[ -f "$SCHEMA" ]] || { echo "Review schema missing: $SCHEMA" >&2; exit 64; }
-mkdir -p "$(dirname "$output_file")" "$(dirname "$LOCK_FILE")"
+mkdir -p "$(dirname "$output_file")" "$(dirname "$slot_lock")" "$(dirname "$issue_lock")"
 
 finish_telemetry() {
   if (( TELEMETRY_STARTED == 0 )); then
@@ -35,11 +46,17 @@ finish_telemetry() {
 }
 trap finish_telemetry EXIT
 
-# The reviewer is intentionally independent and read-only. It may inspect repository state,
-# ignored validation artifacts, and Git history, but it cannot mutate the implementation.
+# Review has its own single Codex slot and may overlap an unrelated mutation worker. The issue lock
+# is deliberately nonblocking: if the same issue/workspace is still being mutated, defer this review
+# instead of reading a moving branch or monopolizing the review slot while waiting.
 unset SYMPHONY_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
-exec 9>"$LOCK_FILE"
+exec 9>"$slot_lock"
 flock 9
+exec 8>"$issue_lock"
+if ! flock -n 8; then
+  echo "RPG Kingdom review worker: deferred $identifier because the issue workspace is owned by an active mutation/review lifetime" >&2
+  exit 75
+fi
 
 python3 "$SUPERVISOR_ROOT/scripts/codex-usage-snapshot.py" --write --quiet || true
 if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \

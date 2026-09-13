@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comparative worker usage analysis for Supervisor issues #46D and #34."""
+"""Comparative worker usage analysis for Supervisor issues #46D, #34, and #48."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -36,6 +36,11 @@ def _token_value(worker: dict[str, Any], field: str = "totalTokens") -> int | No
 
 
 def _quota_cost(worker: dict[str, Any], window: str) -> float | None:
+    # Codex quota is account-global. A before/after sample spanning another live Codex worker is
+    # authoritative for the account but cannot be attributed to this worker, so do not count it as
+    # per-worker cost.
+    if worker.get("_overlappingRunIds"):
+        return None
     delta = worker.get("quotaDelta") if isinstance(worker.get("quotaDelta"), dict) else {}
     if delta.get("status") != "available":
         return None
@@ -80,6 +85,25 @@ def _mcp_call_count(worker: dict[str, Any]) -> int | None:
     return int(summary.get("totalCalls") or 0)
 
 
+def _overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    a_start, b_start = parse_time(a.get("startedAt")), parse_time(b.get("startedAt"))
+    a_end, b_end = parse_time(a.get("endedAt")), parse_time(b.get("endedAt"))
+    if not a_start or not b_start or not a_end or not b_end:
+        return False
+    return a_start < b_end and b_start < a_end
+
+
+def _annotate_overlaps(workers: list[dict[str, Any]]) -> None:
+    for worker in workers:
+        worker["_overlappingRunIds"] = []
+    for index, worker in enumerate(workers):
+        for other in workers[index + 1:]:
+            if not _overlap(worker, other):
+                continue
+            worker["_overlappingRunIds"].append(str(other.get("runId") or "unknown"))
+            other["_overlappingRunIds"].append(str(worker.get("runId") or "unknown"))
+
+
 def _metric_group(name: str, workers: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "key": name,
@@ -93,6 +117,7 @@ def _metric_group(name: str, workers: list[dict[str, Any]]) -> dict[str, Any]:
         "medianPrimaryQuotaCostPoints": _median(_quota_cost(item, "primary") for item in workers),
         "secondaryQuotaSamples": sum(_quota_cost(item, "secondary") is not None for item in workers),
         "medianSecondaryQuotaCostPoints": _median(_quota_cost(item, "secondary") for item in workers),
+        "overlappingWorkers": sum(bool(item.get("_overlappingRunIds")) for item in workers),
         "mcpCallSamples": sum(_mcp_call_count(item) is not None for item in workers),
         "medianMcpCalls": _median(_mcp_call_count(item) for item in workers),
     }
@@ -171,6 +196,7 @@ def _capability_names(workers: list[dict[str, Any]]) -> list[str]:
 def _expensive(workers: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
     rows = []
     for worker in workers:
+        overlaps = list(worker.get("_overlappingRunIds") or [])
         rows.append({
             "runId": worker.get("runId"),
             "identifier": worker.get("identifier"),
@@ -187,6 +213,8 @@ def _expensive(workers: list[dict[str, Any]], limit: int = 12) -> list[dict[str,
             "mcpCalls": _mcp_call_count(worker),
             "primaryQuotaCostPoints": _quota_cost(worker, "primary"),
             "secondaryQuotaCostPoints": _quota_cost(worker, "secondary"),
+            "quotaAttribution": "unavailable-overlap" if overlaps else "exclusive-lifetime",
+            "overlappingRunIds": overlaps,
             "startedAt": worker.get("startedAt"),
         })
     rows.sort(key=lambda row: (row["primaryQuotaCostPoints"] if row["primaryQuotaCostPoints"] is not None else -1, row["totalTokens"] if row["totalTokens"] is not None else -1), reverse=True)
@@ -225,6 +253,7 @@ def analyze(
 ) -> dict[str, Any]:
     workers = workers if workers is not None else supervisor_telemetry.recent_workers(limit)
     workers = [dict(item) for item in workers if isinstance(item, dict)]
+    _annotate_overlaps(workers)
     events = events if events is not None else supervisor_telemetry.recent_events(max(2000, limit * 8))
     usage_by_run = _capability_usage([item for item in events if isinstance(item, dict)])
     for worker in workers:
@@ -242,6 +271,7 @@ def analyze(
         "coverage": {
             "tokenTelemetry": {"available": sum(value is not None for value in tokens), "total": len(workers)},
             "primaryQuotaDelta": {"available": sum(value is not None for value in primary), "total": len(workers)},
+            "quotaAttributionBlockedByOverlap": {"workers": sum(bool(item.get("_overlappingRunIds")) for item in workers), "total": len(workers)},
             "riskClass": {"available": sum(_risk(item) not in {"unavailable", "conflicting"} for item in workers), "total": len(workers)},
             "actualMcpUse": {"available": sum(value is not None for value in mcp_samples), "total": len(workers)},
         },
@@ -260,7 +290,9 @@ def analyze(
             "reason": "Codex telemetry does not expose authoritative model-reasoning wall-clock time separately from the worker lifetime, so Unity validation wait time cannot be compared to model reasoning time without inventing a metric.",
         },
         "notes": [
-            "Quota cost is authoritative percentage-point consumption only when both before/after App Server samples are available.",
+            "Quota cost is authoritative percentage-point consumption only when both before/after App Server samples are available and the worker lifetime did not overlap another Codex worker.",
+            "When implementation and review overlap, the account-global quota change is intentionally excluded from per-worker cost analysis because it is not uniquely attributable.",
+            "Token counts remain attributable from each worker's Codex rollout and are not discarded merely because lifetimes overlap.",
             "Token counts and quota percentage points are intentionally reported as separate metrics.",
             "Capability actual-use groups come from attributable per-turn rollout MCP-call telemetry; selected_unknown means the capability was enabled but retained rollout evidence was insufficient to prove use or non-use.",
             "A selected-but-unused capability is not treated as a failure; Context7 is intentionally available only as an on-demand external-documentation surface.",
