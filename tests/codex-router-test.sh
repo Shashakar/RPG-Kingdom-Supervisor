@@ -55,7 +55,7 @@ MOCK
 chmod +x "$TMP/bin/codex"
 
 export RPGK_ROUTER_DRY_RUN=0
-export RPGK_TEST_LABELS="risk:normal"
+export RPGK_TEST_LABELS="risk:mechanical"
 export RPGK_TEST_CODEX_ARGS="$TMP/codex-args.txt"
 export SYMPHONY_GITHUB_TOKEN="test-secret-must-not-reach-codex"
 bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null
@@ -68,7 +68,7 @@ if grep -Fq '".git"="write"' "$RPGK_TEST_CODEX_ARGS"; then
   exit 1
 fi
 grep -Fxq 'model="gpt-5.6-luna"' "$RPGK_TEST_CODEX_ARGS"
-grep -Fxq 'model_reasoning_effort=medium' "$RPGK_TEST_CODEX_ARGS"
+grep -Fxq 'model_reasoning_effort=low' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
 
 python3 - "$TMP/state" <<'PY'
@@ -80,14 +80,18 @@ value = json.loads(active.read_text(encoding="utf-8"))
 assert value["identifier"] == "GH-321"
 assert value["role"] == "implementation"
 assert value["model"] == "gpt-5.6-luna"
-assert value["effort"] == "medium"
+assert value["effort"] == "low"
 cap = value["capabilities"]
 assert cap["route"] == "luna"
-assert cap["selectedSkills"] == []
+assert cap["selectedSkills"] == ["rpgk-mechanical-change"]
+selected = [item for item in cap["skillCatalog"] if item["selected"]]
+assert len(selected) == 1
+assert selected[0]["name"] == "rpgk-mechanical-change"
 assert cap["mcp"][0]["name"] == "graphify"
 assert cap["mcp"][0]["enabled"] is False
 persisted = json.loads((root / "capabilities" / "GH-321.json").read_text(encoding="utf-8"))
 assert persisted["route"] == "luna"
+assert persisted["selectedSkills"] == ["rpgk-mechanical-change"]
 PY
 
 echo "codex-router-test: PASS"
