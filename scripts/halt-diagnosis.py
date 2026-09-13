@@ -36,6 +36,14 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _active_run_id(issue: int, root: Path) -> str | None:
+    for path in (root / "workers" / "active").glob("*.json"):
+        value = _read_json(path)
+        if value.get("issue") == issue and value.get("runId"):
+            return str(value["runId"])
+    return None
+
+
 def _latest_turn(workspace: Path) -> dict[str, Any] | None:
     path = workspace / TURN_HISTORY
     latest: dict[str, Any] | None = None
@@ -154,15 +162,18 @@ def _render_markdown(payload: dict[str, Any]) -> str:
 
 
 def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, state_root: Path | None = None) -> dict[str, Any]:
+    root = state_root or telemetry.state_root()
     continuation = _read_json(workspace / CONTINUATION_MARKER)
     usage = _read_json(workspace / USAGE_MARKER)
     latest_turn = _latest_turn(workspace)
     task_status, unavailable_reason = worker_status.read_fresh_status(workspace, issue, expected_boundary)
     classification, reason = _deterministic_stop(kind, latest_turn, continuation, usage)
+    run_id = _active_run_id(issue, root)
     payload: dict[str, Any] = {
         "protocolVersion": 1,
         "observedAt": telemetry.iso_now(),
         "issue": issue,
+        "workerRunId": run_id,
         "supervisor": {"classification": classification, "reason": reason},
         "taskStatus": task_status,
         "taskStatusUnavailableReason": unavailable_reason,
@@ -173,11 +184,11 @@ def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, s
     }
     payload["markdown"] = _render_markdown(payload)
     payload = telemetry.sanitize(payload)
-    root = state_root or telemetry.state_root()
     telemetry.atomic_json(root / "halt-diagnostics" / f"GH-{issue}.json", payload)
     telemetry.append_event(
         "worker_halt_diagnosed",
         issue=issue,
+        workerRunId=run_id,
         supervisorClassification=classification,
         supervisorReason=reason,
         taskClassification=(task_status or {}).get("classification"),
