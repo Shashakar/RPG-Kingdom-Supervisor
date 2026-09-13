@@ -23,6 +23,7 @@ python3 "$ROOT/tests/supervisor-activity-test.py"
 python3 "$ROOT/tests/supervisor-maintenance-test.py"
 python3 "$ROOT/tests/supervisor-detail-test.py"
 python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
+python3 "$ROOT/tests/codex-concurrent-usage-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
