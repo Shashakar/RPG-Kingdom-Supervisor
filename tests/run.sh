@@ -16,6 +16,7 @@ python3 "$ROOT/tests/symphony-continuation-transform-test.py"
 python3 "$ROOT/tests/symphony-skill-roots-transform-test.py"
 python3 "$ROOT/tests/continuation-policy-test.py"
 python3 "$ROOT/tests/turn-telemetry-test.py"
+python3 "$ROOT/tests/halt-diagnosis-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
@@ -54,6 +55,8 @@ python3 -m py_compile \
   "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/continuation-policy.py" \
   "$ROOT/scripts/turn-telemetry.py" \
+  "$ROOT/scripts/worker-status.py" \
+  "$ROOT/scripts/halt-diagnosis.py" \
   "$ROOT/scripts/git-handoff-host-wrapper.py" \
   "$ROOT/scripts/patch-symphony-continuation-policy.py" \
   "$ROOT/scripts/patch-symphony-skill-roots.py" \

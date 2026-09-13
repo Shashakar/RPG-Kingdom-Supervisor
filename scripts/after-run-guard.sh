@@ -12,6 +12,7 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 SCRIPT_ROOT="$(dirname "${BASH_SOURCE[0]}")"
 REVIEW_STATE_WRITER="${RPGK_REVIEW_STATE_WRITER:-$SCRIPT_ROOT/queue-agent-review.py}"
 REPORT_RECONCILER="${RPGK_REPORT_RECONCILER:-$SCRIPT_ROOT/reconcile-report-completion.py}"
+HALT_DIAGNOSIS="${RPGK_HALT_DIAGNOSIS:-$SCRIPT_ROOT/halt-diagnosis.py}"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -102,6 +103,20 @@ ready_present() {
   jq -e '.[] | select((.name | ascii_downcase) == "symphony:ready")' >/dev/null <<<"$labels_json"
 }
 
+halt_diagnosis_markdown() {
+  local kind="$1"
+  if [[ ! -f "$HALT_DIAGNOSIS" ]]; then
+    return 0
+  fi
+  python3 "$HALT_DIAGNOSIS" \
+    --workspace "$PWD" \
+    --issue "$issue_number" \
+    --attempt-boundary "$prior_attempt_boundary" \
+    --kind "$kind" \
+    --state-root "$STATE_ROOT" \
+    --markdown-only 2>/dev/null || true
+}
+
 enqueue_agent_review() {
   local branch encoded_branch pulls pr_number pr_head
   branch="$(git branch --show-current 2>/dev/null || true)"
@@ -180,11 +195,12 @@ api POST "/issues/$issue_number/labels" '{"labels":["symphony:halted"]}' >/dev/n
 if [[ -n "$quota_json" ]] && jq -e '.reason == "usage_limit_exceeded"' >/dev/null 2>&1 <<<"$quota_json"; then
   retry_at="$(jq -r '.retry_at // empty' <<<"$quota_json")"
   quota_message="$(jq -r '.message // empty' <<<"$quota_json")"
+  diagnosis="$(halt_diagnosis_markdown usage_limit_exceeded)"
 
   comment=$(cat <<EOF
 Symphony stopped this worker lifetime because Codex reported \`usage_limit_exceeded\`.
 
-No continuation turns were launched after the quota terminal condition, so this is **not** an \`agent.max_turns\` or implementation-budget exhaustion. The issue has been halted and its dispatch lease removed. A reviewed rearm is appropriate once Codex quota is available again.$([[ -n "$retry_at" ]] && printf '\n\nReported retry/reset time: `%s`.' "$retry_at")$([[ -n "$quota_message" ]] && printf '\n\nCodex message: `%s`' "$quota_message")
+No continuation turns were launched after the quota terminal condition, so this is **not** an \`agent.max_turns\` or implementation-budget exhaustion. The issue has been halted and its dispatch lease removed. A reviewed rearm is appropriate once Codex quota is available again.$([[ -n "$retry_at" ]] && printf '\n\nReported retry/reset time: `%s`.' "$retry_at")$([[ -n "$quota_message" ]] && printf '\n\nCodex message: `%s`' "$quota_message")$([[ -n "$diagnosis" ]] && printf '\n\n%s' "$diagnosis")
 EOF
 )
   comment_json="$(jq -n --arg body "$comment" '{body:$body}')"
@@ -204,6 +220,7 @@ if [[ -n "$continuation_json" ]] && jq -e '.decision == "stop"' >/dev/null 2>&1 
   total_tokens="$(jq -r '.usage.totalTokens // "unavailable"' <<<"$continuation_json")"
   unity_run="$(jq -r '.unity.runId // "none"' <<<"$continuation_json")"
   unity_result="$(jq -r '.unity.result // "none"' <<<"$continuation_json")"
+  diagnosis="$(halt_diagnosis_markdown continuation_policy)"
 
   comment=$(cat <<EOF
 Symphony stopped automatic continuation after turn **$turn/$hard_max** because the Supervisor continuation policy declined another model turn.
@@ -215,7 +232,7 @@ Symphony stopped automatic continuation after turn **$turn/$hard_max** because t
 - Cumulative rollout tokens observed: **$total_tokens**
 - Latest Unity evidence: \`$unity_run\` — \`$unity_result\`
 
-Useful workspace changes and validation artifacts were preserved. This is distinct from Codex \`usage_limit_exceeded\` and from blindly reaching \`agent.max_turns\`. Review the preserved work before using the one-shot rearm path.
+Useful workspace changes and validation artifacts were preserved. This is distinct from Codex \`usage_limit_exceeded\` and from blindly reaching \`agent.max_turns\`. Review the preserved work before using the one-shot rearm path.$([[ -n "$diagnosis" ]] && printf '\n\n%s' "$diagnosis")
 EOF
 )
   comment_json="$(jq -n --arg body "$comment" '{body:$body}')"
@@ -224,14 +241,23 @@ EOF
   exit 0
 fi
 
-comment=$(cat <<'EOF'
-Symphony's Phase 2 budget guard stopped automatic redispatch because this worker attempt ended while `symphony:ready` was still present.
+diagnosis="$(halt_diagnosis_markdown worker_lifetime_ended)"
+if [[ -n "$diagnosis" ]]; then
+  comment="$diagnosis"
+else
+  comment=$(cat <<'EOF'
+## Symphony halt diagnosis
 
-This usually means the task exhausted the configured turn budget or the worker failed before completing the PR handoff. The workspace is also locally marked as having consumed its worker-lifetime budget, so another Codex App Server session will not start even if the GitHub lease cleanup is delayed. Review the Symphony/Codex logs and current workspace/PR state before retrying. Explicitly rearm the issue only after deciding another bounded run is justified.
+**Supervisor stop:** `worker_lifetime_ended` — worker lifetime ended while the dispatch lease remained and no trusted completion/handoff was observed.
+
+**Task status:** unavailable — no structured task-status record was available.
+
+**Recommended next action:** inspect the preserved workspace/latest validation before deciding whether to rearm; do not assume the task merely needs more turns.
 EOF
 )
+fi
 comment_json="$(jq -n --arg body "$comment" '{body:$body}')"
 api POST "/issues/$issue_number/comments" "$comment_json" >/dev/null
 rm -f -- "$USAGE_LIMIT_MARKER"
 
-echo "RPG Kingdom budget guard: halted GH-$issue_number and removed symphony:ready" >&2
+echo "RPG Kingdom budget guard: halted GH-$issue_number and published structured halt diagnosis" >&2

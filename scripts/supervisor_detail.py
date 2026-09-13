@@ -143,6 +143,13 @@ def _turn_history_for_worker(run_id: str) -> list[dict[str, Any]]:
     return values
 
 
+def _halt_diagnosis(issue: int, run_id: str) -> dict[str, Any] | None:
+    value = supervisor_telemetry.read_json(supervisor_telemetry.state_root() / "halt-diagnostics" / f"GH-{issue}.json")
+    if not value or value.get("workerRunId") != run_id:
+        return None
+    return value
+
+
 def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool = True) -> dict[str, Any] | None:
     worker, worker_state = _load_worker(run_id)
     if worker is None:
@@ -187,6 +194,7 @@ def collect(run_id: str, *, workspace_root: Path | None = None, use_cache: bool 
         "worker": worker,
         "concurrency": concurrency,
         "currentLifecycle": current,
+        "haltDiagnosis": _halt_diagnosis(issue, run_id),
         "continuationLineage": _lineage(issue_workers, run_id),
         "turnHistory": turn_history,
         "activity": worker_activity,
