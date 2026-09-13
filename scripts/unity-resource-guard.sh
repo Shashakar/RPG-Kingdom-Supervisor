@@ -173,7 +173,7 @@ mkdir -p "$AUTHORING_DIR"
 rm -f -- "$AUTHORING_MARKER"
 if [[ "$mechanical_authoring" == "true" || "$structural_authoring" == "true" ]]; then
   authoring_tier="mechanical"
-  [[ "$structural_authoring" == "true" ]] && authoring_tier="structural"
+  [[ "$structural_authoring" == "true" ]] && authoring_tier="mechanical-structural"
   jq -cn \
     --arg issue "$issue_identifier" \
     --arg workspace "$PWD" \
