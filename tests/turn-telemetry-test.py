@@ -68,12 +68,26 @@ snapshots = iter([
 policy_end_1 = {
     "observedAt": "2026-09-13T01:02:00+00:00", "quota": quota_76,
     "usage": usage_1, "workspace": workspace_1, "unity": unity_1,
-    "reason": "quota healthy; host-observable progress detected",
+    "continuationBudgetMode": "dynamic",
+    "dynamicBudget": {
+        "turnPrimarySpendPercent": 4,
+        "turnWeeklySpendPercent": 1,
+        "lifetimePrimarySpendPercent": 4,
+        "lifetimeWeeklySpendPercent": 1,
+    },
+    "reason": "hard turn ceiling not reached (1/4); quota healthy; dynamic continuation spend remains within budget; host-observable progress detected",
 }
 policy_end_2 = {
     "observedAt": "2026-09-13T01:05:00+00:00", "quota": quota_70,
     "usage": usage_2, "workspace": workspace_2, "unity": unity_2,
-    "reason": "route terra automatic turn limit reached (2 total turns)",
+    "continuationBudgetMode": "dynamic",
+    "dynamicBudget": {
+        "turnPrimarySpendPercent": 4,
+        "turnWeeklySpendPercent": 1,
+        "lifetimePrimarySpendPercent": 10,
+        "lifetimeWeeklySpendPercent": 3,
+    },
+    "reason": "hard turn ceiling not reached (2/4); dynamic continuation budget exceeded: turn primary spend 16pp exceeds 15pp",
 }
 
 events: list[dict] = []
@@ -88,7 +102,10 @@ with tempfile.TemporaryDirectory() as temp:
     assert turns.start_turn(workspace, "GH-108", 1, 4, ["risk:investigative"]) == 0
     assert turns.finish_turn(workspace, "GH-108", 1, "continue", json.dumps(policy_end_1)) == 0
     first = json.loads((workspace / turns.HISTORY_NAME).read_text(encoding="utf-8").splitlines()[0])
-    assert first["automaticTurnLimit"] == 2
+    # Dynamic continuation no longer gives Terra a smaller route cap. Turn telemetry retains this
+    # compatibility field, but it now reflects the workflow hard ceiling.
+    assert first["automaticTurnLimit"] == 4
+    assert first["hardMaxTurns"] == 4
     assert first["tokenDelta"]["totalTokens"] == 1080
     assert first["tokenDelta"]["cachedInputTokens"] == 900
     assert first["tokenDelta"]["basis"].startswith("first-turn cumulative")
@@ -96,6 +113,8 @@ with tempfile.TemporaryDirectory() as temp:
     assert first["progress"]["workspaceChanged"] is True
     assert first["progress"]["unityChanged"] is True
     assert first["continuationPolicy"]["quota"] == quota_76
+    assert first["continuationPolicy"]["continuationBudgetMode"] == "dynamic"
+    assert first["continuationPolicy"]["dynamicBudget"]["turnPrimarySpendPercent"] == 4
     assert first["mcpUsage"]["status"] == "unavailable"
 
     assert turns.start_turn(workspace, "GH-108", 2, 4, ["risk:investigative"]) == 0
@@ -104,11 +123,13 @@ with tempfile.TemporaryDirectory() as temp:
     assert len(lines) == 2
     second = json.loads(lines[1])
     assert second["decision"] == "continuation-budget-stop"
+    assert second["automaticTurnLimit"] == 4
     assert second["tokenDelta"]["totalTokens"] == 170
     assert second["tokenDelta"]["cachedInputTokens"] == 140
     assert second["tokenDelta"]["inputTokens"] == 160
     assert second["quotaDelta"]["primary"]["remainingPercentagePointDelta"] == -4
-    assert "automatic turn limit reached" in second["reason"]
+    assert "dynamic continuation budget exceeded" in second["reason"]
+    assert "automatic turn limit reached" not in second["reason"]
     assert second["unityAfter"]["runId"] == "unity-2"
 
     # Rollout MCP records are deduplicated by call id. A begin/end pair counts once, and
