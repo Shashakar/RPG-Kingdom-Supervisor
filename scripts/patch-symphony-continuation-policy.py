@@ -41,6 +41,22 @@ def main() -> int:
 
     replace_once(
         agent_runner,
+        '''    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+
+    with {:ok, turn_session} <-
+           AppServer.run_turn(
+''',
+        '''    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+
+    with :ok <- start_turn_telemetry(workspace, issue, turn_number, max_turns),
+         {:ok, turn_session} <-
+           AppServer.run_turn(
+''',
+        "turn telemetry start",
+    )
+
+    replace_once(
+        agent_runner,
         '''        {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
@@ -58,30 +74,43 @@ def main() -> int:
         '''        {:continue, refreshed_issue} when turn_number < max_turns ->
           case continuation_policy(workspace, refreshed_issue, turn_number, max_turns) do
             {:continue, reason} ->
-              Logger.info(
-                "Continuing agent run for #{issue_context(refreshed_issue)} after continuation policy approval turn=#{turn_number}/#{max_turns} policy=#{inspect(reason)}"
-              )
+              with :ok <- finish_turn_telemetry(workspace, refreshed_issue, turn_number, "continue", reason) do
+                Logger.info(
+                  "Continuing agent run for #{issue_context(refreshed_issue)} after continuation policy approval turn=#{turn_number}/#{max_turns} policy=#{inspect(reason)}"
+                )
 
-              do_run_codex_turns(
-                app_session,
-                workspace,
-                refreshed_issue,
-                codex_update_recipient,
-                opts,
-                issue_state_fetcher,
-                turn_number + 1,
-                max_turns
-              )
+                do_run_codex_turns(
+                  app_session,
+                  workspace,
+                  refreshed_issue,
+                  codex_update_recipient,
+                  opts,
+                  issue_state_fetcher,
+                  turn_number + 1,
+                  max_turns
+                )
+              end
 
             {:stop, reason} ->
-              Logger.warning(
-                "Continuation policy stopped automatic turn for #{issue_context(refreshed_issue)} turn=#{turn_number}/#{max_turns} policy=#{inspect(reason)}"
-              )
+              with :ok <- finish_turn_telemetry(workspace, refreshed_issue, turn_number, "continuation-budget-stop", reason) do
+                Logger.warning(
+                  "Continuation policy stopped automatic turn for #{issue_context(refreshed_issue)} turn=#{turn_number}/#{max_turns} policy=#{inspect(reason)}"
+                )
 
-              :ok
+                :ok
+              end
 
             {:error, reason} ->
-              {:error, reason}
+              case finish_turn_telemetry(
+                     workspace,
+                     refreshed_issue,
+                     turn_number,
+                     "continuation-policy-error",
+                     inspect(reason)
+                   ) do
+                :ok -> {:error, reason}
+                {:error, telemetry_reason} -> {:error, telemetry_reason}
+              end
           end
 ''',
         "normal continuation branch",
@@ -89,14 +118,67 @@ def main() -> int:
 
     replace_once(
         agent_runner,
+        '''        {:continue, refreshed_issue} ->
+          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+
+          :ok
+
+        {:done, _refreshed_issue} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+''',
+        '''        {:continue, refreshed_issue} ->
+          with :ok <-
+                 finish_turn_telemetry(
+                   workspace,
+                   refreshed_issue,
+                   turn_number,
+                   "hard-turn-cap",
+                   "agent.max_turns reached while the issue remained active and routable"
+                 ) do
+            Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+            :ok
+          end
+
+        {:done, refreshed_issue} ->
+          finish_turn_telemetry(
+            workspace,
+            refreshed_issue,
+            turn_number,
+            "tracker-complete",
+            "tracker item is no longer active/routable after the completed turn"
+          )
+
+        {:error, reason} ->
+          case finish_turn_telemetry(
+                 workspace,
+                 issue,
+                 turn_number,
+                 "tracker-refresh-error",
+                 inspect(reason)
+               ) do
+            :ok -> {:error, reason}
+            {:error, telemetry_reason} -> {:error, telemetry_reason}
+          end
+''',
+        "terminal turn outcomes",
+    )
+
+    replace_once(
+        agent_runner,
         '''  defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
 ''',
-        '''  defp continuation_policy_script do
+        '''  defp supervisor_script(name) do
     supervisor_root =
       System.get_env("RPGK_SUPERVISOR_ROOT") || Path.expand("~/src/RPG-Kingdom-Supervisor")
 
-    Path.join(supervisor_root, "scripts/continuation-policy.py")
+    Path.join([supervisor_root, "scripts", name])
   end
+
+  defp continuation_policy_script, do: supervisor_script("continuation-policy.py")
+  defp turn_telemetry_script, do: supervisor_script("turn-telemetry.py")
 
   defp rpgk_supervisor_workspace?(workspace) do
     Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace))
@@ -112,6 +194,58 @@ def main() -> int:
            ) do
         {_output, 0} -> :ok
         {output, status} -> raise "continuation policy reset failed status=#{status}: #{String.trim(output)}"
+      end
+    else
+      :ok
+    end
+  end
+
+  defp start_turn_telemetry(workspace, issue, turn_number, max_turns) do
+    if rpgk_supervisor_workspace?(workspace) do
+      args = [
+        turn_telemetry_script(),
+        "start",
+        "--workspace",
+        workspace,
+        "--issue",
+        issue.identifier,
+        "--turn",
+        Integer.to_string(turn_number),
+        "--max-turns",
+        Integer.to_string(max_turns),
+        "--labels-json",
+        Jason.encode!(issue.labels || [])
+      ]
+
+      case System.cmd("python3", args, cd: workspace, stderr_to_stdout: true) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, {:turn_telemetry_start_failed, status, String.trim(output)}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp finish_turn_telemetry(workspace, issue, turn_number, decision, reason) do
+    if rpgk_supervisor_workspace?(workspace) do
+      args = [
+        turn_telemetry_script(),
+        "finish",
+        "--workspace",
+        workspace,
+        "--issue",
+        issue.identifier,
+        "--turn",
+        Integer.to_string(turn_number),
+        "--decision",
+        decision,
+        "--reason",
+        reason
+      ]
+
+      case System.cmd("python3", args, cd: workspace, stderr_to_stdout: true) do
+        {_output, 0} -> :ok
+        {output, status} -> {:error, {:turn_telemetry_finish_failed, status, String.trim(output)}}
       end
     else
       :ok

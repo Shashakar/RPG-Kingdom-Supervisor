@@ -20,9 +20,16 @@ workers = [
     worker,
     {**worker,"runId":"GH-46-review-r3","role":"review","startedAt":"2026-09-12T01:20:00+00:00","endedAt":"2026-09-12T01:25:00+00:00"},
 ]
+turn_history = [{
+    "eventType":"worker_turn_completed","workerRunId":"GH-46-repair-r2","issue":"GH-46","turn":1,
+    "hardMaxTurns":4,"automaticTurnLimit":2,"decision":"continue","durationSeconds":120,
+    "tokenDelta":{"status":"available","totalTokens":1000,"cachedInputTokens":900},
+    "quotaAfter":{"status":"available","rateLimits":{"primary":{"remainingPercent":77},"secondary":{"remainingPercent":88}}},
+}]
 
 supervisor_detail._load_worker = lambda run_id: (worker, "completed")
 supervisor_detail._all_issue_workers = lambda issue: workers
+supervisor_detail._turn_history_for_worker = lambda run_id: turn_history
 supervisor_detail.supervisor_activity.collect = lambda **kwargs: {
     "items":[{"issue":46,"lifecycleState":"human_review","prNumber":55,"headSha":"abc123"}],
     "activity":[
@@ -48,6 +55,9 @@ assert value["currentLifecycle"]["lifecycleState"] == "human_review"
 assert value["continuationLineage"]["previousRunId"] == "GH-46-implementation-r1"
 assert value["continuationLineage"]["nextRunId"] == "GH-46-review-r3"
 assert value["continuationLineage"]["sequence"] == 2
+assert value["turnHistory"][0]["turn"] == 1
+assert value["turnHistory"][0]["automaticTurnLimit"] == 2
+assert value["turnHistory"][0]["tokenDelta"]["cachedInputTokens"] == 900
 assert value["unityRuns"][0]["requestId"] == "unity-2"
 assert value["gitHandoffs"][0]["prNumber"] == 55
 assert any(item["kind"] == "resultsXml" for item in value["artifacts"])

@@ -14,7 +14,16 @@ fixture = '''defmodule SymphonyElixir.AgentRunner do
   end
 
   defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
-    case continue_with_issue?(issue, issue_state_fetcher) do
+    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+
+    with {:ok, turn_session} <-
+           AppServer.run_turn(
+             app_session,
+             prompt,
+             issue,
+             on_message: codex_message_handler(codex_update_recipient, issue)
+           ) do
+      case continue_with_issue?(issue, issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
@@ -28,6 +37,18 @@ fixture = '''defmodule SymphonyElixir.AgentRunner do
             turn_number + 1,
             max_turns
           )
+
+        {:continue, refreshed_issue} ->
+          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+
+          :ok
+
+        {:done, _refreshed_issue} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -51,6 +72,13 @@ with tempfile.TemporaryDirectory() as temp:
     assert proc.returncode == 0, proc.stderr
     text = path.read_text(encoding="utf-8")
     assert "reset_continuation_policy!(workspace)" in text
+    assert "start_turn_telemetry(workspace, issue, turn_number, max_turns)" in text
+    assert 'finish_turn_telemetry(workspace, refreshed_issue, turn_number, "continue", reason)' in text
+    assert '"continuation-budget-stop"' in text
+    assert '"hard-turn-cap"' in text
+    assert '"tracker-complete"' in text
+    assert '"tracker-refresh-error"' in text
+    assert "turn-telemetry.py" in text
     assert "continuation_policy(workspace, refreshed_issue, turn_number, max_turns)" in text
     assert "Continuation policy stopped automatic turn" in text
     assert "continuation-policy.py" in text

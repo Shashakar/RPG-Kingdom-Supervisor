@@ -24,6 +24,10 @@ The sticky header keeps overall health, active-worker state, Codex quota, refres
 
 Worker lifetime details and Unity run details open in a dismissible drawer so operators can inspect raw diagnostics without losing their place in the dashboard.
 
+For workers that ran under the #60 continuation instrumentation, the worker drawer also renders **Per-turn continuation evidence**. Each row shows the turn duration, continuation/terminal decision, total and cached token delta, authoritative primary/weekly quota remaining after the turn, whether the workspace changed, latest Unity run, and the reason the next turn was allowed or denied. The row also carries the hard worker cap and route-specific automatic continuation cap so `agent.max_turns` is visibly separate from continuation permission.
+
+Per-turn quota values are historical App Server snapshots. They are not reconstructed from tokens and are not replaced with the dashboard's current global quota after a reset window rolls over.
+
 ## Safety boundary
 
 The dashboard exposes observability only. It must not add issue/PR lifecycle mutation, merge, rearm, process-kill, force-unlock, or other operational mutation controls. Those behaviors remain owned by their existing host-side adapters and workflows.
