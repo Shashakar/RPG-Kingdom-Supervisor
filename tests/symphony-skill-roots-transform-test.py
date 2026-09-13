@@ -59,8 +59,19 @@ with tempfile.TemporaryDirectory() as temp:
     assert 'configure_supervisor_skill_roots(port, workspace)' in app_text
     assert 'Regex.match?(~r/^GH-\\d+$/, Path.basename(workspace))' in app_text
     assert 'else\n      :ok\n    end' in app_text
-    assert '$rpgk-investigate-bug' in runner_text
-    assert 'risk:investigative' in runner_text
+
+    expected = {
+        "risk:mechanical": "$rpgk-mechanical-change",
+        "risk:investigative": "$rpgk-investigate-bug",
+        "risk:architecture": "$rpgk-architecture-change",
+        "risk:end-to-end": "$rpgk-end-to-end-change",
+    }
+    for risk, marker in expected.items():
+        assert risk in runner_text
+        assert marker in runner_text
+    assert 'case selected do' in runner_text
+    assert '[marker] -> marker <> "\\n\\n" <> prompt' in runner_text
+    assert '_ -> prompt' in runner_text
 
     proc2 = subprocess.run(
         [sys.executable, str(TRANSFORM), str(root)],
