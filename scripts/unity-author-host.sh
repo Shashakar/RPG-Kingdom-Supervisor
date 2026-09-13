@@ -39,11 +39,17 @@ expected_request_dir="$project/Logs/SymphonyUnity/.author-broker/requests"
 [[ -f "$LOCK_DIR/owner" && "$(cat "$LOCK_DIR/owner")" == "$issue_identifier" ]] || { echo "RPG Kingdom Unity authoring: unity-editor is not locked for $issue_identifier" >&2; exit 82; }
 [[ -f "$LOCK_DIR/workspace" && "$(cd "$(cat "$LOCK_DIR/workspace")" && pwd)" == "$project" ]] || { echo "RPG Kingdom Unity authoring: Unity lock workspace mismatch" >&2; exit 82; }
 
+requested_tier="$(jq -r '.authoring.tier // empty' "$request")"
+if [[ "$requested_tier" != "mechanical" && "$requested_tier" != "mechanical-structural" ]]; then
+  echo "RPG Kingdom Unity authoring: unsupported requested tier '$requested_tier'" >&2
+  exit 64
+fi
+
 authorization="$STATE_ROOT/authoring/$issue_identifier.json"
-if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" '
-  .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and .tier == "mechanical"
+if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier "$requested_tier" '
+  .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and .tier == $tier
 ' "$authorization" >/dev/null 2>&1; then
-  echo "RPG Kingdom Unity authoring: current dispatch lacks Tier-1 mechanical authoring authorization" >&2
+  echo "RPG Kingdom Unity authoring: current dispatch is not authorized for requested tier '$requested_tier'" >&2
   exit 83
 fi
 
