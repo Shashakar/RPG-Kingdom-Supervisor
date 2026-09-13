@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-owned broker for explicitly authorized Tier-1 Unity scene authoring."""
+"""Host-owned broker for explicitly authorized Unity scene authoring."""
 from __future__ import annotations
 
 import argparse
@@ -10,12 +10,12 @@ from pathlib import Path
 import re
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 from typing import Any
 
 PROTOCOL_VERSION = 1
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -102,7 +102,7 @@ def validate_shared_lock(state_root: Path, workspace: Path) -> str | None:
     return None
 
 
-def validate_authorization(state_root: Path, workspace: Path) -> str | None:
+def validate_authorization(state_root: Path, workspace: Path, requested_tier: str) -> str | None:
     match = ISSUE_WORKSPACE.fullmatch(workspace.name)
     if match is None:
         return "workspace is not a GH issue workspace"
@@ -114,8 +114,13 @@ def validate_authorization(state_root: Path, workspace: Path) -> str | None:
         return f"{expected} has no current scene-authoring authorization"
     if payload.get("protocolVersion") != PROTOCOL_VERSION:
         return "scene-authoring authorization uses an unsupported protocol version"
-    if payload.get("issue") != expected or payload.get("tier") != "mechanical":
-        return "current issue is not authorized for Tier-1 mechanical scene authoring"
+    if payload.get("issue") != expected:
+        return "scene-authoring authorization belongs to a different issue"
+    authorized_tier = payload.get("tier")
+    if authorized_tier not in SUPPORTED_TIERS:
+        return f"scene-authoring authorization has unsupported tier '{authorized_tier}'"
+    if authorized_tier != requested_tier:
+        return f"scene-authoring authorization tier '{authorized_tier}' does not permit requested tier '{requested_tier}'"
     try:
         authorized_workspace = Path(str(payload.get("workspace", ""))).resolve()
     except OSError:
@@ -136,8 +141,11 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         authoring = payload.get("authoring")
         if not isinstance(authoring, dict):
             raise ValueError("authoring payload is required")
-        if authoring.get("protocolVersion") != PROTOCOL_VERSION or authoring.get("tier") != "mechanical":
-            raise ValueError("only protocolVersion=1 Tier-1 mechanical authoring is supported")
+        if authoring.get("protocolVersion") != PROTOCOL_VERSION:
+            raise ValueError("unsupported authoring protocol version")
+        requested_tier = authoring.get("tier")
+        if requested_tier not in SUPPORTED_TIERS:
+            raise ValueError(f"unsupported scene-authoring tier '{requested_tier}'")
         scene = authoring.get("scene")
         operations = authoring.get("operations")
         if not isinstance(scene, str) or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene:
@@ -158,7 +166,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    error = validate_authorization(state_root, workspace)
+    error = validate_authorization(state_root, workspace, requested_tier)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
     return workspace, payload, None
@@ -238,7 +246,15 @@ def main() -> int:
             request_id = request_path.stem
             ack_path, _ = request_paths(request_path)
             atomic_json(ack_path, {"protocolVersion": 1, "requestId": request_id, "pid": os.getpid(), "acceptedAt": utc_now()})
-            active = {"requestId": request_id, "issue": workspace.name, "workspace": str(workspace), "scene": payload["authoring"]["scene"], "startedAt": utc_now()}
+            authoring = payload["authoring"]
+            active = {
+                "requestId": request_id,
+                "issue": workspace.name,
+                "workspace": str(workspace),
+                "tier": authoring["tier"],
+                "scene": authoring["scene"],
+                "startedAt": utc_now(),
+            }
             atomic_json(status_path, status_payload(os.getpid(), workspace_root, "running", active=active, last_result=last_result))
 
             process = subprocess.Popen(
@@ -263,7 +279,6 @@ def main() -> int:
                 stdout, stderr = process.communicate()
                 completed = response(request_id, "TimedOut", 85, stdout, stderr + "RPG Kingdom Unity authoring broker: host authoring operation timed out.\n")
             last_result = completed
-            # Publish durable broker state before the client-visible response, matching the Git broker contract.
             atomic_json(status_path, status_payload(os.getpid(), workspace_root, "ready", last_result=last_result))
             write_response(request_path, completed)
     finally:
