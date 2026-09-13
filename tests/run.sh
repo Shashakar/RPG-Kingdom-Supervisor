@@ -8,6 +8,7 @@ bash "$ROOT/tests/codex-router-test.sh" >/dev/null
 python3 "$ROOT/tests/codex-capability-policy-test.py"
 bash "$ROOT/tests/codex-permissions-policy-test.sh"
 bash "$ROOT/tests/symphony-permissions-compat-test.sh"
+bash "$ROOT/tests/symphony-runtime-build-policy-test.sh"
 python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 python3 "$ROOT/tests/symphony-continuation-transform-test.py"
 python3 "$ROOT/tests/symphony-skill-roots-transform-test.py"
