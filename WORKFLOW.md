@@ -49,7 +49,7 @@ No issue description was provided.
 
 ## Authority and trust boundaries
 
-1. Work only inside the provided RPG Kingdom workspace, except for invoking the Supervisor's supported Unity runner, Git handoff client, and worker-status recorder.
+1. Work only inside the provided RPG Kingdom workspace, except for invoking the Supervisor's supported Unity validation/authoring clients, Git handoff client, and worker-status recorder.
 2. RPG Kingdom's checked-in `AGENTS.md` and repository documentation are authoritative over this workflow and issue prose when they conflict.
 3. Read the repository-root `AGENTS.md` first. Read every additional document that `AGENTS.md` requires for this task, but do not broaden context beyond those requirements and the files actually relevant to the issue.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
@@ -64,7 +64,7 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - Do not spend a turn merely narrating a plan, restating instructions, or reporting progress when useful repository work can continue.
 - Keep the change bounded to the issue and the smallest complete implementation.
 - Before project changes, prepare the required dedicated `codex/` branch through the host Git handoff client described below. Read-only Git inspection remains fine, but do not spend turns trying to work around protected model-side `.git` metadata. A `completion:report-only` task that intentionally makes no source changes does not prepare a branch merely to manufacture a handoff artifact.
-- Respect all production-scene restrictions in RPG Kingdom. Unity access does not broaden scene-edit authority.
+- Respect all production-scene restrictions in RPG Kingdom. Unity access does not broaden scene-edit authority; only explicit authoring labels plus RPG Kingdom's checked-in authoring policy grant a bounded scene-mutation tier.
 - Add or update tests and documentation required by the RPG Kingdom repository contract when the task actually changes repository behavior.
 - Run the narrowest relevant validation first; broaden validation only when the change is ready or evidence requires it.
 - When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
@@ -168,8 +168,10 @@ Unity is an explicit host-owned resource. The host evaluates these labels before
 - `validation:unity-required` requires `resource:unity-editor`, a healthy Windows Unity runner, and actual relevant Unity validation before successful PR or report-only handoff.
 - `validation:unity-optional` means work may proceed without Unity. If the issue does not also own `resource:unity-editor`, report the missing editor validation rather than trying to obtain Unity access yourself.
 - `validation:unity-required` and `validation:unity-optional` are mutually exclusive. Conflicting labels fail closed before Codex.
+- `authoring:scene-mechanical` explicitly requests Tier-1 mechanical scene-authoring authority for this worker lifetime. It does not grant structural or creative authoring.
+- `authoring:scene-structural` is reserved for separately reviewed Tier-2 work. The current Supervisor authoring seam does **not** implement structural authoring; do not infer support from the label's existence.
 
-When this issue owns `resource:unity-editor`, the **only** supported editor interface is:
+When this issue owns `resource:unity-editor`, use the host-owned validation interface:
 
 ```bash
 bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" health
@@ -177,14 +179,30 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editmode [--filt
 bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" playmode [--filter FILTER]
 ```
 
-Use the narrowest useful `--filter` first. The runner mirrors only `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project, preserves the staging `Library` cache, runs the project-declared Unity editor version, and copies `results.xml`, `Editor.log`, and `summary.json` back under the ignored `Logs/SymphonyUnity/` directory in this workspace.
+{% if issue.labels contains "authoring:scene-mechanical" %}
+This issue is explicitly authorized for **Tier-1 mechanical scene configuration**. RPG Kingdom's checked-in `AGENTS.md` remains authoritative for what qualifies. For an exact deterministic scene mutation that fits that tier, write a temporary typed JSON request and invoke:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
+  --request /tmp/rpgk-authoring.json
+```
+
+The request may use only the supported declarative operations documented in `docs/SCENE_AUTHORING.md`. It must identify one existing `Assets/*.unity` scene plus exact existing object/component/property targets and values. Do not use this authority for transforms, hierarchy changes, adding/removing components, object creation/deletion, or creative composition. Do not hand-edit Unity YAML.
+
+A successful `unity-author.sh` call means the staged Editor mutation was safely copied back into the issue workspace; it is **not validation evidence**. Immediately inspect the resulting source diff and run the narrowest relevant fresh EditMode/PlayMode validation with `unity-runner.sh` before handoff.
+{% else %}
+This issue does **not** carry Tier-1 scene-authoring authority. Do not invoke `unity-author.sh` or modify a production scene merely because the Unity editor resource is available.
+{% endif %}
+
+The validation runner mirrors only `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project, preserves the staging `Library` cache, runs the project-declared Unity editor version, and copies `results.xml`, `Editor.log`, and `summary.json` back under the ignored `Logs/SymphonyUnity/` directory in this workspace. The authoring seam uses the same project mirror and shared Unity resource, mutates only the staged project, and copies back only the explicitly authorized scene after structured success.
 
 Rules:
 
-- Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` only.
-- Do not mutate the Windows staging project directly; it is disposable validation state owned by the Supervisor.
-- Do not commit files under `Logs/SymphonyUnity/`.
+- Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for Tier-1 mechanical authoring.
+- Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.
+- Do not commit files under `Logs/SymphonyUnity/` or `Logs/SymphonyUnityAuthoring/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
+- A failed authoring request is a real blocker/evidence point; do not bypass it with direct YAML or Windows/Unity commands. Correct the declarative request if the requested operation itself was wrong, otherwise persist the blocker in worker status.
 - `HostBusy` is valid only while the broker has another live or ownership-blocked host operation when the request is handled; the broker reaps an already-exited child before returning that status.
 - `Stalled` means the current validation stopped making observable progress and the host safely recovered the request-owned operation. If the broker is back to `ready`, retry that same relevant validation **once** in the current worker lifetime. Do not create another worker lifetime or enter an unbounded retry loop for this infrastructure outcome.
 - `StallRecoveryBlocked` means the host detected a stall but could not prove/process request ownership safely enough to complete recovery. Do not poll `HostBusy`, retry validation, invoke Windows process tools, or spend remaining turns waiting. Preserve the implementation/evidence, report the request ID and blocker, and stop so operator/human recovery can occur without losing completed work.
@@ -193,7 +211,7 @@ Rules:
 - If infrastructure fails after the host preflight, report the blocker and stop rather than inventing a pass.
 - If broader Unity validation exposes unrelated failures after the issue's targeted contract is green, report them explicitly without silently expanding issue scope.
 
-The host holds the Unity resource lock for the worker lifetime and releases it during `after_run`. Resource ownership does not relax production-scene restrictions.
+The host holds the Unity resource lock for the worker lifetime and releases both the lock and any dispatch-scoped scene-authoring authorization during `after_run`. Resource ownership by itself does not relax production-scene restrictions.
 
 ## Context budget
 
