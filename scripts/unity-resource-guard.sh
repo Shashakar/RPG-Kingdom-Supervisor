@@ -22,6 +22,8 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
 fi
 issue_number="${BASH_REMATCH[1]}"
 issue_identifier="GH-$issue_number"
+AUTHORING_DIR="$STATE_ROOT/authoring"
+AUTHORING_MARKER="$AUTHORING_DIR/$issue_identifier.json"
 
 if [[ -z "$TOKEN" ]]; then
   echo "RPG Kingdom Unity guard: SYMPHONY_GITHUB_TOKEN is missing; cannot inspect issue labels safely" >&2
@@ -55,7 +57,6 @@ halt_issue() {
     return 0
   fi
 
-  # Revoke the dispatch lease first so the next tracker poll cannot start Codex.
   api DELETE "/issues/$issue_number/labels/symphony%3Aready" >/dev/null 2>&1 || true
   api POST "/issues/$issue_number/labels" '{"labels":["symphony:halted"]}' >/dev/null
 
@@ -118,8 +119,6 @@ try_recover_stale_lock() {
 
   quarantine="$STATE_ROOT/locks/unity-editor.lock.reclaimed.$$.${RANDOM}"
   if ! mv -- "$LOCK_DIR" "$quarantine" 2>/dev/null; then
-    # Another contender changed the lease after we inspected it. Do not guess; let the caller
-    # re-attempt normal atomic acquisition against the current lock state.
     echo "RPG Kingdom Unity guard: stale-lock recovery raced with another contender; retrying acquisition" >&2
     return 2
   fi
@@ -163,6 +162,28 @@ acquire_lock() {
 
 labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
 labels="$(jq -r '.[].name' <<<"$labels_json")"
+
+mechanical_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-mechanical")' <<<"$labels_json")"
+structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-structural")' <<<"$labels_json")"
+if [[ "$mechanical_authoring" == "true" && "$structural_authoring" == "true" ]]; then
+  halt_issue "conflicting scene-authoring labels: mechanical and structural authority cannot be granted together"
+  exit 75
+fi
+mkdir -p "$AUTHORING_DIR"
+rm -f -- "$AUTHORING_MARKER"
+if [[ "$mechanical_authoring" == "true" || "$structural_authoring" == "true" ]]; then
+  authoring_tier="mechanical"
+  [[ "$structural_authoring" == "true" ]] && authoring_tier="structural"
+  jq -cn \
+    --arg issue "$issue_identifier" \
+    --arg workspace "$PWD" \
+    --arg tier "$authoring_tier" \
+    --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,authorizedAt:$authorizedAt}' \
+    > "$AUTHORING_MARKER.tmp.$$"
+  mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
+  echo "RPG Kingdom Unity guard: recorded $authoring_tier scene-authoring authority for $issue_identifier"
+fi
 
 set +e
 policy="$(rpgk_select_unity_policy "$labels" 2> >(cat >&2))"
