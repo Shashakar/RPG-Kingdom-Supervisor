@@ -83,8 +83,8 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
 
     The local branch is the durable continuation state even when it has never been pushed.
     Remote feature state, when present, is reconciled without rewriting local history; current
-    ``origin/main`` is then merged into the continuation branch. Any failed mutation is rolled
-    back to the exact pre-refresh clean HEAD.
+    ``origin/main`` is then merged into the continuation branch. Any failed workspace mutation is
+    rolled back to the exact pre-refresh clean HEAD.
     """
     if not (workspace / ATTEMPT_MARKER).exists():
         return True, None
@@ -103,7 +103,6 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
         return False, "workspace has uncommitted source changes; preserving prior work instead of refreshing"
 
     original_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
-    mutated = False
 
     try:
         run_git(workspace, "fetch", "--prune", "origin")
@@ -117,7 +116,6 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
             if local_head != remote_head:
                 if is_ancestor(workspace, local_head, remote_ref):
                     run_git(workspace, "merge", "--ff-only", remote_ref)
-                    mutated = True
                 elif is_ancestor(workspace, remote_ref, "HEAD"):
                     # The reviewed continuation contains clean local commits that have not been
                     # pushed yet. They are valid durable state and can safely absorb current main.
@@ -145,24 +143,20 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
                 message = merge.stderr.strip() or merge.stdout.strip() or "merge conflict"
                 restore_clean_head(workspace, original_head)
                 return False, f"current main conflicts with the continuation branch: {message}"
-            mutated = True
 
         try:
             hydrate_lfs(workspace, branch)
         except RuntimeError as exc:
-            if mutated:
-                restore_clean_head(workspace, original_head)
+            restore_clean_head(workspace, original_head)
             return False, str(exc)
 
         if run_git(workspace, "status", "--porcelain", "--untracked-files=all").stdout.strip():
-            if mutated:
-                restore_clean_head(workspace, original_head)
+            restore_clean_head(workspace, original_head)
             return False, "workspace refresh left unexpected source changes"
 
         return True, None
     except (RuntimeError, subprocess.TimeoutExpired):
-        if mutated:
-            restore_clean_head(workspace, original_head)
+        restore_clean_head(workspace, original_head)
         raise
 
 
