@@ -99,16 +99,32 @@ def main() -> int:
   end
 
   defp maybe_route_first_party_skill(issue, prompt) do
-    labels = Map.get(issue, :labels, []) || []
+    labels =
+      issue
+      |> Map.get(:labels, [])
+      |> Kernel.||([])
+      |> Enum.map(&(String.downcase(to_string(&1))))
+      |> MapSet.new()
 
-    if Enum.any?(labels, &(String.downcase(to_string(&1)) == "risk:investigative")) do
-      "$rpgk-investigate-bug\\n\\n" <> prompt
-    else
-      prompt
+    markers = [
+      {"risk:mechanical", "$rpgk-mechanical-change"},
+      {"risk:investigative", "$rpgk-investigate-bug"},
+      {"risk:architecture", "$rpgk-architecture-change"},
+      {"risk:end-to-end", "$rpgk-end-to-end-change"}
+    ]
+
+    selected =
+      markers
+      |> Enum.filter(fn {risk, _marker} -> MapSet.member?(labels, risk) end)
+      |> Enum.map(fn {_risk, marker} -> marker end)
+
+    case selected do
+      [marker] -> marker <> "\\n\\n" <> prompt
+      _ -> prompt
     end
   end
 ''',
-        "investigative first-turn skill routing",
+        "risk-specific first-turn skill routing",
     )
 
     print("RPG Kingdom Symphony first-party skill-root transform: PASS")
