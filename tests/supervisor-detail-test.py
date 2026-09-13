@@ -30,6 +30,11 @@ turn_history = [{
 supervisor_detail._load_worker = lambda run_id: (worker, "completed")
 supervisor_detail._all_issue_workers = lambda issue: workers
 supervisor_detail._turn_history_for_worker = lambda run_id: turn_history
+supervisor_detail._halt_diagnosis = lambda issue, run_id: {
+    "issue":issue,"workerRunId":run_id,
+    "supervisor":{"classification":"hard_turn_ceiling"},
+    "taskStatus":{"classification":"validation_failed"},
+}
 supervisor_detail.supervisor_activity.collect = lambda **kwargs: {
     "items":[{"issue":46,"lifecycleState":"human_review","prNumber":55,"headSha":"abc123"}],
     "activity":[
@@ -52,6 +57,8 @@ assert value is not None
 assert value["workerState"] == "completed"
 assert value["worker"]["tokenUsage"]["totalTokens"] == 1234
 assert value["currentLifecycle"]["lifecycleState"] == "human_review"
+assert value["haltDiagnosis"]["supervisor"]["classification"] == "hard_turn_ceiling"
+assert value["haltDiagnosis"]["taskStatus"]["classification"] == "validation_failed"
 assert value["continuationLineage"]["previousRunId"] == "GH-46-implementation-r1"
 assert value["continuationLineage"]["nextRunId"] == "GH-46-review-r3"
 assert value["continuationLineage"]["sequence"] == 2
