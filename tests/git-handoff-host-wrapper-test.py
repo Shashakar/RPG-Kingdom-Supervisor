@@ -67,7 +67,6 @@ def main() -> int:
         workspace = clone_workspace(root, remote, "GH-91")
         git(workspace, "switch", "-c", "codex/gh-91-local")
         local_feature = commit_file(workspace, "feature.txt", "local feature\n", "local feature")
-        assert module.remote_branch_sha if hasattr(module, "remote_branch_sha") else True
         main_update = commit_file(seed, "main-update.txt", "main update\n", "advance main")
         git(seed, "push", "origin", "main")
 
@@ -136,7 +135,7 @@ def main() -> int:
         assert_clean(workspace)
 
         # Dirty source work is never discarded automatically.
-        remote, seed = init_repo(root, "dirty")
+        remote, _seed = init_repo(root, "dirty")
         workspace = clone_workspace(root, remote, "GH-95")
         git(workspace, "switch", "-c", "codex/gh-95-dirty")
         (workspace / "local-edit.txt").write_text("keep me\n", encoding="utf-8")
