@@ -152,8 +152,17 @@ def finish_turn(workspace: Path, issue: str, turn: int, decision: str, reason: s
         print("turn telemetry: turn-start snapshot does not match finishing turn", file=sys.stderr)
         return 70
 
-    ended = _snapshot(workspace, issue)
     human_reason, policy_record = _decode_reason(reason)
+    if policy_record is not None:
+        ended = {
+            "observedAt": policy_record.get("observedAt") or policy.iso_now(),
+            "quota": policy_record.get("quota") or {"status": "unavailable", "reason": "policy record omitted quota"},
+            "usage": policy_record.get("usage") or {"status": "unavailable", "reason": "policy record omitted usage"},
+            "workspace": policy_record.get("workspace") or policy.workspace_snapshot(workspace),
+            "unity": policy_record.get("unity"),
+        }
+    else:
+        ended = _snapshot(workspace, issue)
     before_workspace = started.get("workspace") or {}
     after_workspace = ended.get("workspace") or {}
     before_unity = started.get("unity")
