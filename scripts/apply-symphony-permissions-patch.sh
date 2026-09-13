@@ -92,6 +92,12 @@ mise exec -- mix test \
   test/symphony_elixir/app_server_test.exs \
   test/symphony_elixir/core_test.exs
 
+# `bin/symphony` is an escript built from the current source tree. Tests compile
+# patched modules into Mix's test build but do not refresh that executable. Build
+# it explicitly so the runtime launched by run-symphony.sh cannot silently use
+# pre-patch AgentRunner/AppServer code.
+mise exec -- mix build
+
 git -C "$SYMPHONY_REPO_ROOT" diff --check
 git -C "$SYMPHONY_REPO_ROOT" add \
   elixir/lib/symphony_elixir/agent_runner.ex \
