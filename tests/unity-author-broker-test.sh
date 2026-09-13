@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euxo pipefail
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
@@ -48,9 +48,11 @@ wait_for_file "$STATE/unity-author-broker/status.json"
 
 write_request() {
   local id="$1" tier="${2:-mechanical}"
-  cat > "$REQUESTS/$id.json" <<JSON
+  local temp="$REQUESTS/.$id.json.tmp.$$.$RANDOM"
+  cat > "$temp" <<JSON
 {"protocolVersion":1,"requestId":"$id","operation":"author","authoring":{"protocolVersion":1,"tier":"$tier","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","operations":[{"kind":"set-string","objectPath":"Node","componentType":"StableIdentity","propertyPath":"stableId","stringValue":"node-02"}]}}
 JSON
+  mv "$temp" "$REQUESTS/$id.json"
 }
 
 write_request ok-1
