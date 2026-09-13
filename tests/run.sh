@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/codex-router-test.sh" >/dev/null
 python3 "$ROOT/tests/codex-capability-policy-test.py"
+python3 "$ROOT/tests/first-party-skill-policy-test.py"
 bash "$ROOT/tests/codex-permissions-policy-test.sh"
 bash "$ROOT/tests/symphony-permissions-compat-test.sh"
 bash "$ROOT/tests/symphony-runtime-build-policy-test.sh"
@@ -47,6 +48,7 @@ bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
   "$ROOT/scripts/codex-capability-policy.py" \
+  "$ROOT/scripts/first-party-skill-policy.py" \
   "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/continuation-policy.py" \
   "$ROOT/scripts/turn-telemetry.py" \
