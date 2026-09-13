@@ -2,8 +2,8 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
-ACK_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_ACK_TIMEOUT_SECONDS:-10}"
-RUN_TIMEOUT_SECONDS="${RPGK_UNITY_BROKER_TIMEOUT_SECONDS:-3600}"
+ACK_TIMEOUT_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS:-10}"
+RUN_TIMEOUT_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS:-3600}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -53,7 +53,7 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ || "$(dirname "$project")" != "$works
   exit 81
 fi
 
-broker_dir="$project/Logs/SymphonyUnity/.broker"
+broker_dir="$project/Logs/SymphonyUnity/.author-broker"
 request_dir="$broker_dir/requests"
 ack_dir="$broker_dir/acks"
 response_dir="$broker_dir/responses"
@@ -72,7 +72,7 @@ jq -cn \
   --arg requestId "$request_id" \
   --arg requestedAt "$requested_at" \
   --slurpfile authoring "$authoring_request" \
-  '{protocolVersion:1,requestId:$requestId,operation:"author",testFilter:"",requestedAt:$requestedAt,authoring:$authoring[0]}' \
+  '{protocolVersion:1,requestId:$requestId,operation:"author",requestedAt:$requestedAt,authoring:$authoring[0]}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$request_path.tmp.$$"
