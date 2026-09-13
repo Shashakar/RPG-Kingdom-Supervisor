@@ -10,8 +10,10 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   exit 0
 fi
 issue_identifier="GH-${BASH_REMATCH[1]}"
+AUTHORING_MARKER="$STATE_ROOT/authoring/$issue_identifier.json"
 
 if [[ ! -d "$LOCK_DIR" ]]; then
+  rm -f -- "$AUTHORING_MARKER"
   exit 0
 fi
 
@@ -24,4 +26,5 @@ if [[ "$owner" != "$issue_identifier" ]]; then
 fi
 
 rm -rf -- "$LOCK_DIR"
+rm -f -- "$AUTHORING_MARKER"
 echo "RPG Kingdom Unity resource release: released unity-editor for $issue_identifier"

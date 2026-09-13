@@ -40,6 +40,9 @@ bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
 bash "$ROOT/tests/unity-runner-host-syntax-test.sh"
 bash "$ROOT/tests/unity-broker-test.sh"
+bash "$ROOT/tests/unity-author-broker-test.sh"
+bash "$ROOT/tests/unity-author-client-test.sh"
+bash "$ROOT/tests/unity-authoring-policy-test.sh"
 python3 "$ROOT/tests/unity-run-history-test.py"
 bash "$ROOT/tests/git-handoff-broker-test.sh"
 python3 "$ROOT/tests/git-handoff-host-test.py"
@@ -73,8 +76,10 @@ python3 -m py_compile \
   "$ROOT/scripts/supervisor_maintenance.py" \
   "$ROOT/scripts/supervisor_telemetry.py" \
   "$ROOT/scripts/supervisor_usage_analysis.py" \
+  "$ROOT/scripts/unity-author-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
+bash -n "$ROOT/scripts/before-run-guard.sh"
 bash -n "$ROOT/scripts/codex-app-server-router.sh"
 bash -n "$ROOT/scripts/codex-concurrency-policy.sh"
 bash -n "$ROOT/scripts/git-handoff.sh"
@@ -82,6 +87,8 @@ bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
+bash -n "$ROOT/scripts/unity-author.sh"
+bash -n "$ROOT/scripts/unity-author-host.sh"
 python3 -m json.tool "$ROOT/schemas/review-verdict.schema.json" >/dev/null
 
 echo "supervisor-tests: PASS"
