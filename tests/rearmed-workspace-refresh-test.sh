@@ -46,7 +46,12 @@ prepare_workspace() {
 
 run_refresh() {
   local path="$1"
-  (cd "$path" && RPGK_EXPECTED_ORIGIN_URL="$REMOTE" bash "$ROOT/scripts/refresh-rearmed-workspace.sh")
+  (
+    cd "$path"
+    RPGK_SUPERVISOR_ROOT="$ROOT" \
+    RPGK_EXPECTED_ORIGIN_URL="$REMOTE" \
+      bash "$ROOT/scripts/refresh-rearmed-workspace.sh"
+  )
 }
 
 # A clean continuation branch that is durable on origin should absorb current main on the host.
