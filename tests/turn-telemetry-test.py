@@ -44,6 +44,13 @@ workspace_2 = {"head": "a", "fingerprint": "w2", "dirty": True, "gitStatus": " M
 unity_1 = {"runId": "unity-1", "result": "failed", "testFilter": "Focused", "failed": 1}
 unity_2 = {"runId": "unity-2", "result": "failed", "testFilter": "Focused", "failed": 1}
 
+capabilities = {
+    "mcp": [
+        {"name": "graphify", "mcpServer": "rpgk_graphify", "enabled": True},
+        {"name": "context7", "mcpServer": "rpgk_context7", "enabled": True},
+    ]
+}
+
 # Only turn-start snapshots should call the turn telemetry probe for continuation-policy exits.
 # The finish path must reuse the policy's already-fresh ending sample instead of probing quota again.
 snapshots = iter([
@@ -72,6 +79,7 @@ policy_end_2 = {
 events: list[dict] = []
 turns._snapshot = lambda workspace, issue: next(snapshots)
 turns._worker_run_id = lambda workspace, issue: "GH-108-implementation-test"
+turns._worker_capabilities = lambda workspace, issue: capabilities
 turns._ensure_local_excludes = lambda workspace: None
 turns.telemetry.append_event = lambda event_type, **fields: events.append({"eventType": event_type, **fields})
 
@@ -88,6 +96,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert first["progress"]["workspaceChanged"] is True
     assert first["progress"]["unityChanged"] is True
     assert first["continuationPolicy"]["quota"] == quota_76
+    assert first["mcpUsage"]["status"] == "unavailable"
 
     assert turns.start_turn(workspace, "GH-108", 2, 4, ["risk:investigative"]) == 0
     assert turns.finish_turn(workspace, "GH-108", 2, "continuation-budget-stop", json.dumps(policy_end_2)) == 0
@@ -101,6 +110,29 @@ with tempfile.TemporaryDirectory() as temp:
     assert second["quotaDelta"]["primary"]["remainingPercentagePointDelta"] == -4
     assert "automatic turn limit reached" in second["reason"]
     assert second["unityAfter"]["runId"] == "unity-2"
+
+    # Rollout MCP records are deduplicated by call id. A begin/end pair counts once, and
+    # enabled-but-unused Context7 remains distinguishable from Graphify actually being used.
+    rollout = workspace / "rollout-mcp.jsonl"
+    rollout.write_text("\n".join(json.dumps(item) for item in [
+        {"payload": {"type": "mcp_tool_call_begin", "call_id": "call-g1", "invocation": {"server": "rpgk_graphify", "tool": "find_references"}}},
+        {"payload": {"type": "mcp_tool_call_end", "call_id": "call-g1", "invocation": {"server": "rpgk_graphify", "tool": "find_references"}}},
+        {"payload": {"type": "mcp_tool_call", "id": "call-g2", "server": "rpgk_graphify", "tool": "dependency_path", "status": "completed"}},
+        {"payload": {"type": "function_call", "call_id": "call-c1", "name": "mcp__rpgk_context7__query-docs"}},
+    ]) + "\n", encoding="utf-8")
+    mcp_after = turns._rollout_mcp_snapshot({"status": "available", "source": str(rollout)})
+    assert mcp_after["callCount"] == 3
+    mcp_delta = turns._mcp_delta({"status": "unavailable"}, mcp_after, 1, capabilities)
+    assert mcp_delta["status"] == "available"
+    assert mcp_delta["totalCalls"] == 3
+    assert mcp_delta["byCapability"]["graphify"]["calls"] == 2
+    assert mcp_delta["byCapability"]["graphify"]["used"] is True
+    assert mcp_delta["byCapability"]["context7"]["calls"] == 1
+    assert mcp_delta["byCapability"]["context7"]["tools"] == ["query-docs"]
+
+    before = {"status": "available", "calls": [mcp_after["calls"][0]]}
+    second_delta = turns._mcp_delta(before, mcp_after, 2, capabilities)
+    assert second_delta["totalCalls"] == 2
 
 assert [event["eventType"] for event in events] == [
     "worker_turn_started", "worker_turn_completed", "worker_turn_started", "worker_turn_completed",
