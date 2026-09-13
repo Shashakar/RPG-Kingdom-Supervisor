@@ -21,6 +21,9 @@ try:
     os.environ.pop("RPGK_GRAPHIFY_ENABLED", None)
     os.environ.pop("RPGK_GRAPHIFY_ALLOW_STALE", None)
     os.environ.pop("RPGK_GRAPHIFY_EXPECTED_VERSION", None)
+    os.environ.pop("RPGK_CONTEXT7_URL", None)
+    # Keep Graphify fixtures isolated; Context7 gets its own routing assertions below.
+    os.environ["RPGK_CONTEXT7_ENABLED"] = "off"
 
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
@@ -61,6 +64,8 @@ try:
         assert graph_state["expectedVersion"] == "0.9.58"
         assert graph_state["readOnly"] is True
         assert graph_state["freshness"]["fresh"] is True
+        assert payload["mcp"][1]["name"] == "context7"
+        assert payload["mcp"][1]["enabled"] is False
         assert any("mcp_servers.rpgk_graphify.command" in value for value in args)
         assert any(str(graph) in value for value in args)
 
@@ -83,6 +88,7 @@ try:
         payload, args = policy.route_payload("luna", "GH-200", temp_path, ["risk:normal"])
         assert payload["selectedSkills"] == []
         assert payload["mcp"][0]["enabled"] is False
+        assert payload["mcp"][1]["enabled"] is False
         assert args == []
 
         # The canonical graph must represent the same main revision the worker cloned. A freshly
@@ -125,6 +131,38 @@ try:
         decoded = args_path.read_bytes().split(b"\0")
         assert decoded[-1] == b""
         assert decoded[:-1] == [item.encode("utf-8") for item in args]
+
+        # Context7 is offered only to deep routes in auto mode. It is a remote read-only docs
+        # endpoint, so Supervisor neither installs it nor passes an API credential.
+        os.environ["RPGK_GRAPHIFY_ENABLED"] = "off"
+        os.environ["RPGK_CONTEXT7_ENABLED"] = "auto"
+        payload, args = policy.route_payload("terra", "GH-300", temp_path, ["risk:investigative"])
+        context7 = next(item for item in payload["mcp"] if item["name"] == "context7")
+        assert context7["enabled"] is True
+        assert context7["readOnly"] is True
+        assert context7["purpose"] == "external-library-documentation"
+        assert context7["credentialsProvidedBySupervisor"] is False
+        assert context7["url"] == "https://mcp.context7.com/mcp"
+        assert any("mcp_servers.rpgk_context7.url" in value for value in args)
+        assert not any("api_key" in value.lower() or "authorization" in value.lower() for value in args)
+
+        payload, args = policy.route_payload("luna", "GH-301", temp_path, ["risk:normal"])
+        context7 = next(item for item in payload["mcp"] if item["name"] == "context7")
+        assert context7["enabled"] is False
+        assert args == []
+
+        os.environ["RPGK_CONTEXT7_ENABLED"] = "on"
+        payload, args = policy.route_payload("luna", "GH-302", temp_path, ["risk:mechanical"])
+        assert next(item for item in payload["mcp"] if item["name"] == "context7")["enabled"] is True
+        assert any("mcp_servers.rpgk_context7.url" in value for value in args)
+
+        os.environ["RPGK_CONTEXT7_URL"] = "http://insecure.example/mcp"
+        try:
+            policy.route_payload("luna", "GH-303", temp_path, ["risk:mechanical"])
+        except RuntimeError as exc:
+            assert "absolute https URL" in str(exc)
+        else:
+            raise AssertionError("explicit insecure Context7 configuration did not fail")
 finally:
     os.environ.clear()
     os.environ.update(old_env)
