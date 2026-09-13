@@ -10,6 +10,7 @@ for file in \
   "$ROOT/scripts/review-worker.sh" \
   "$ROOT/scripts/run-symphony.sh" \
   "$ROOT/scripts/codex-app-server-router.sh" \
+  "$ROOT/scripts/codex-concurrency-policy.sh" \
   "$ROOT/scripts/after-run-guard.sh" \
   "$ROOT/scripts/install-labels.sh" \
   "$ROOT/schemas/review-verdict.schema.json"; do
@@ -19,8 +20,16 @@ done
 grep -Fq 'review-orchestrator-service.py' "$ROOT/scripts/run-symphony.sh"
 grep -Fq 'review-orchestrator-watchdog.sh' "$ROOT/scripts/run-symphony.sh"
 grep -Fq 'review-orchestrator.py' "$ROOT/scripts/review-orchestrator-service.py"
-grep -Fq 'codex-session.lock' "$ROOT/scripts/codex-app-server-router.sh"
-grep -Fq 'codex-session.lock' "$ROOT/scripts/review-worker.sh"
+grep -Fq 'rpgk_codex_slot_lock_path "$STATE_ROOT" "$role"' "$ROOT/scripts/codex-app-server-router.sh"
+grep -Fq 'rpgk_codex_slot_lock_path "$STATE_ROOT" review' "$ROOT/scripts/review-worker.sh"
+grep -Fq 'rpgk_codex_issue_lock_path' "$ROOT/scripts/codex-app-server-router.sh"
+grep -Fq 'rpgk_codex_issue_lock_path' "$ROOT/scripts/review-worker.sh"
+grep -Fq 'implementation|repair|report-only)' "$ROOT/scripts/codex-concurrency-policy.sh"
+grep -Fq 'review)' "$ROOT/scripts/codex-concurrency-policy.sh"
+if grep -Fq 'codex-session.lock' "$ROOT/scripts/codex-app-server-router.sh" "$ROOT/scripts/review-worker.sh"; then
+  echo "review-workflow-policy-test: legacy global Codex lock is still active" >&2
+  exit 1
+fi
 grep -Fq -- '--sandbox read-only' "$ROOT/scripts/review-worker.sh"
 grep -Fq -- '--output-schema' "$ROOT/scripts/review-worker.sh"
 grep -Fq 'symphony:agent-review' "$ROOT/scripts/after-run-guard.sh"
