@@ -9,6 +9,7 @@ schema="$SYMPHONY_ROOT/lib/symphony_elixir/config/schema.ex"
 config="$SYMPHONY_ROOT/lib/symphony_elixir/config.ex"
 app_server="$SYMPHONY_ROOT/lib/symphony_elixir/codex/app_server.ex"
 agent_runner="$SYMPHONY_ROOT/lib/symphony_elixir/agent_runner.ex"
+runtime="$SYMPHONY_ROOT/bin/symphony"
 
 for file in "$schema" "$config" "$app_server" "$agent_runner"; do
   if [[ ! -f "$file" ]]; then
@@ -83,5 +84,22 @@ if ! grep -Fq '$rpgk-investigate-bug' "$agent_runner"; then
   echo "ERROR: Symphony AgentRunner does not route the investigative first-party skill on the first turn" >&2
   exit 1
 fi
+
+# `run-symphony.sh` launches the escript at bin/symphony, not Mix's compiled test
+# modules. Refuse a source-valid but stale executable: that exact mismatch caused
+# GH-108 to keep using the old unconditional 4-turn continuation path after the
+# patched source and its tests were already green.
+if [[ ! -x "$runtime" ]]; then
+  echo "ERROR: patched Symphony runtime executable is missing: $runtime" >&2
+  echo "Run the compatibility installer so it rebuilds the escript." >&2
+  exit 1
+fi
+for source in "$schema" "$config" "$app_server" "$agent_runner"; do
+  if [[ "$source" -nt "$runtime" ]]; then
+    echo "ERROR: Symphony runtime executable is stale relative to patched source: $source" >&2
+    echo "Run the compatibility installer so bin/symphony is rebuilt." >&2
+    exit 1
+  fi
+done
 
 echo "RPG Kingdom Symphony compatibility: PASS"
