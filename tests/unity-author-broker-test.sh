@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap '[[ -n "${BROKER_PID:-}" ]] && kill "$BROKER_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap 'status=$?; if (( status != 0 )); then echo "--- unity author broker log ---" >&2; cat "$TMP/broker.log" >&2 2>/dev/null || true; echo "--- responses ---" >&2; find "$TMP" -path "*/responses/*.json" -type f -print -exec cat {} \; >&2 2>/dev/null || true; fi; [[ -n "${BROKER_PID:-}" ]] && kill "$BROKER_PID" 2>/dev/null || true; rm -rf "$TMP"; exit $status' EXIT
 
 WORKSPACES="$TMP/workspaces"
 STATE="$TMP/state"
