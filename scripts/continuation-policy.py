@@ -80,6 +80,17 @@ def float_env(name: str, default: float) -> float:
         return default
 
 
+def auto_turn_limit(route: str) -> int:
+    """Compatibility helper for turn-telemetry consumers.
+
+    Route-specific automatic caps were removed by GH-76. Return a deliberately high value so
+    callers that still compute ``min(hard_max, auto_turn_limit(route))`` receive the workflow hard
+    ceiling rather than reintroducing a model-specific cap.
+    """
+    _ = route
+    return 1_000_000
+
+
 def quota_thresholds(route: str) -> tuple[float, float]:
     expensive = route in {"terra", "sol", "astra"}
     primary_default = 35.0 if expensive else 20.0
