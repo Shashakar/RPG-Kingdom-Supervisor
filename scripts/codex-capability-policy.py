@@ -3,7 +3,7 @@
 
 This policy is intentionally host-owned. It never installs third-party software, never rewrites
 RPG Kingdom AGENTS.md, and never broadens the Codex permission profile. It selects only approved
-capabilities that are already present and records why an optional capability was omitted.
+capabilities and records why an optional capability was omitted.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -26,8 +27,10 @@ import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 
 DEEP_ROUTES = {"terra", "sol", "astra"}
 GRAPHIFY_SERVER = "rpgk_graphify"
+CONTEXT7_SERVER = "rpgk_context7"
 INVESTIGATIVE_SKILL = "rpgk-investigate-bug"
 EVALUATED_GRAPHIFY_VERSION = "0.9.58"
+DEFAULT_CONTEXT7_URL = "https://mcp.context7.com/mcp"
 
 
 def iso_now() -> str:
@@ -229,6 +232,62 @@ def graphify_state(route: str, workspace: Path | None = None) -> tuple[dict[str,
     return state, args
 
 
+def _valid_context7_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
+def context7_state(route: str) -> tuple[dict[str, Any], list[str]]:
+    """Select Context7 without installing software or injecting provider credentials.
+
+    Auto mode offers the read-only external-documentation MCP only to deep routes. Operators may
+    force it on for a particular experiment. Runtime reachability is intentionally left to Codex's
+    normal MCP status/usage path so an unnecessary external docs provider does not add a preflight
+    network dependency to every worker start.
+    """
+    mode = env_mode("RPGK_CONTEXT7_ENABLED", "auto")
+    selected_by_route = route in DEEP_ROUTES
+    requested = mode == "on" or (mode == "auto" and selected_by_route)
+    url = os.environ.get("RPGK_CONTEXT7_URL", DEFAULT_CONTEXT7_URL).strip() or DEFAULT_CONTEXT7_URL
+    valid = _valid_context7_url(url)
+    available = valid
+
+    if mode == "off":
+        reason = "disabled by RPGK_CONTEXT7_ENABLED"
+    elif not selected_by_route and mode == "auto":
+        reason = "route does not request external documentation tooling"
+    elif not valid:
+        reason = "Context7 URL must be an absolute https URL"
+    else:
+        reason = "configured remote documentation endpoint; runtime use remains optional"
+
+    state = {
+        "name": "context7",
+        "mcpServer": CONTEXT7_SERVER,
+        "mode": mode,
+        "selectedByRoute": selected_by_route,
+        "requested": requested,
+        "available": available,
+        "enabled": requested and available,
+        "reason": reason,
+        "url": url,
+        "readOnly": True,
+        "purpose": "external-library-documentation",
+        "credentialsProvidedBySupervisor": False,
+    }
+    if mode == "on" and requested and not available:
+        raise RuntimeError(f"Context7 was explicitly required but is unavailable: {reason}")
+    if not state["enabled"]:
+        return state, []
+
+    args = [
+        "--config", f"mcp_servers.{CONTEXT7_SERVER}.url={json.dumps(url)}",
+        "--config", f"mcp_servers.{CONTEXT7_SERVER}.startup_timeout_sec=10",
+        "--config", f"mcp_servers.{CONTEXT7_SERVER}.tool_timeout_sec=30",
+    ]
+    return state, args
+
+
 def route_payload(route: str, issue: str, workspace: Path, labels: list[str] | None = None) -> tuple[dict[str, Any], list[str]]:
     if route not in {"luna", "terra", "sol", "astra"}:
         raise RuntimeError(f"unsupported route: {route}")
@@ -236,7 +295,9 @@ def route_payload(route: str, issue: str, workspace: Path, labels: list[str] | N
     skill = skill_state(normalized_labels)
     if skill["selected"] and not skill["available"]:
         raise RuntimeError(f"selected first-party skill is missing: {skill['path']}")
-    graphify, args = graphify_state(route, workspace)
+    graphify, graphify_args = graphify_state(route, workspace)
+    context7, context7_args = context7_state(route)
+    args = [*graphify_args, *context7_args]
     payload = {
         "protocolVersion": 1,
         "observedAt": iso_now(),
@@ -246,7 +307,7 @@ def route_payload(route: str, issue: str, workspace: Path, labels: list[str] | N
         "riskLabels": [item for item in normalized_labels if item.startswith("risk:")],
         "selectedSkills": [skill["name"]] if skill["selected"] else [],
         "skillCatalog": [skill],
-        "mcp": [graphify],
+        "mcp": [graphify, context7],
         "codexConfigArgCount": len(args) // 2,
     }
     return telemetry.sanitize(payload), args
@@ -281,7 +342,11 @@ def status_payload() -> dict[str, Any]:
             graphify, _ = graphify_state(route, None)
         except RuntimeError as exc:
             graphify = {"name": "graphify", "enabled": False, "available": False, "reason": str(exc)}
-        routes[route] = {"skill": skill, "graphify": graphify}
+        try:
+            context7, _ = context7_state(route)
+        except RuntimeError as exc:
+            context7 = {"name": "context7", "enabled": False, "available": False, "reason": str(exc)}
+        routes[route] = {"skill": skill, "mcp": [graphify, context7], "graphify": graphify, "context7": context7}
     codex = executable("codex")
     version = None
     if codex:
