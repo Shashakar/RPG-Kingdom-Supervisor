@@ -4,13 +4,14 @@ Supervisor #34 extends model routing into a controlled **context/tool routing** 
 
 The implemented capability surface now includes:
 
-- a Supervisor-owned `rpgk-investigate-bug` skill for `risk:investigative` issues;
+- Supervisor-owned progressive-disclosure skills for `risk:mechanical`, `risk:investigative`, `risk:architecture`, and `risk:end-to-end` workers;
+- no extra procedural skill for ordinary `risk:normal` work, keeping the default instruction surface small;
 - optional local Graphify MCP access for Terra, Sol, and Astra routes when a fresh graph is already available;
 - optional remote Context7 MCP access for Terra, Sol, and Astra routes for current external-library documentation;
 - durable per-turn telemetry that distinguishes a capability being selected from it actually being used;
 - comparative usage diagnostics for selected+used, selected+unused, selected+unknown, and not-selected worker groups.
 
-Additional first-party skills and the Ponytail experiment remain later #34 work. They should be added only when their selection boundary can remain explicit and measurable.
+Ponytail remains deliberately disabled because the current Codex plugin surface does not provide the worker-level positive allowlisting boundary Supervisor requires. The useful low-risk minimal-change behavior is implemented as a Supervisor-owned skill instead.
 
 ## Authority
 
@@ -18,32 +19,50 @@ RPG Kingdom's checked-in `AGENTS.md` and repository documentation remain authori
 
 Workers must not install Graphify or Context7, rewrite `AGENTS.md`, mutate user-level Codex configuration, or repair host capability setup from inside an issue workspace.
 
-## First-party investigative skill
+## First-party skill policy
 
-The skill is stored at:
+First-party procedural guidance lives under `skills/` and is selected by `scripts/first-party-skill-policy.py`. The Codex capability router first selects the approved MCP/tool surface, then the first-party skill policy augments the same capability snapshot before the durable worker record is created.
 
-```text
-skills/rpgk-investigate-bug/SKILL.md
-```
+The Symphony compatibility layer registers the Supervisor `skills/` directory with App Server through `skills/extraRoots/set`. On the **first** model turn only, it prefixes the matching skill marker so Codex loads the detailed body through progressive disclosure rather than copying that procedure into every worker prompt.
 
-The Symphony compatibility layer registers the Supervisor `skills/` directory at App Server startup with `skills/extraRoots/set`.
+Selection is deterministic from the existing risk label:
 
-For a `risk:investigative` issue, the first-turn prompt is prefixed with:
+| Risk class | First-party skill |
+| --- | --- |
+| `risk:mechanical` | `rpgk-mechanical-change` |
+| `risk:normal` | none |
+| `risk:investigative` | `rpgk-investigate-bug` |
+| `risk:architecture` | `rpgk-architecture-change` |
+| `risk:end-to-end` | `rpgk-end-to-end-change` |
 
-```text
-$rpgk-investigate-bug
-```
+An explicit model override does not change the skill. Task semantics come from the risk label; model/effort routing and procedural skill routing remain separate decisions. Conflicting risk labels fail before a worker is allowed to start.
 
-That marker asks Codex to load the detailed skill on demand. The full skill body is not copied into `WORKFLOW.md`, and the marker is not repeated on continuation turns. An explicit `model:terra` override on a non-investigative issue does **not** select the investigative skill; task semantics come from the risk label, not the model name.
+### `rpgk-mechanical-change`
 
-The skill tells the worker to:
+This is the controlled replacement for the useful part of the proposed Ponytail experiment. It instructs low-risk workers to:
 
-1. reproduce the narrow failure first;
-2. prefer graph queries for the initial structural pass when Graphify is available;
-3. stop broad exploration after evidence identifies the owning boundary;
-4. implement the smallest coherent fix;
-5. validate narrowly before broadening;
-6. preserve a precise continuation point if Supervisor stops the worker.
+1. confirm the already-known owning boundary rather than rediscovering the architecture;
+2. make the smallest **complete** change, not merely the smallest line count;
+3. avoid opportunistic refactors, cleanup, abstraction, and dependency work;
+4. preserve system ownership and stop/reclassify if the task unexpectedly requires architecture work;
+5. validate exactly the changed behavior; and
+6. stop once acceptance is satisfied rather than spending remaining turns searching for more improvements.
+
+Because this is our own skill, Supervisor can select it by risk class without inheriting unrelated user plugin state or giving a third-party methodology ownership of branching, tests, review, handoff, or merge policy.
+
+### `rpgk-investigate-bug`
+
+Investigative workers are told to reproduce narrowly, use Graphify for the initial structural pass when available, stop broad exploration once evidence identifies the owning boundary, distinguish production defects from stale fixtures/infrastructure, implement the smallest coherent fix, and validate from narrow to broad.
+
+### `rpgk-architecture-change`
+
+Architecture workers must establish current ownership/contracts first, state the boundary being changed, keep designs bounded, migrate consumers through public contracts, update save/event/system documentation when required, and prove the new contract with deterministic tests before broad integration validation.
+
+### `rpgk-end-to-end-change`
+
+End-to-end workers map the complete path before editing, preserve each system's ownership, implement in dependency order, use Context7 only for genuine external-library questions, validate each owner before the full path, avoid unrelated cleanup, and account explicitly for any remaining human-authored scene/asset step.
+
+The skill files remain supplements to `AGENTS.md`; they cannot weaken or replace repository architecture/safety rules.
 
 ## Graphify policy
 
@@ -209,23 +228,19 @@ This lets us compare Graphify used vs not used and Context7 used vs not used wit
 
 ## Ponytail experiment status
 
-Ponytail remains **disabled** for now. This is deliberate rather than unfinished installation work.
+Ponytail remains **disabled**. This is deliberate rather than unfinished installation work.
 
 The current Codex plugin surface supports plugin discovery/installation and global disabling, but the evaluated client does not yet give Supervisor a sufficiently clean positive per-worker selection boundary for one installed plugin without potentially inheriting unrelated user plugin state. That conflicts with #34's explicit allowlist requirement. The upstream tracking discussion is `openai/codex#30967`.
 
-Do not work around that limitation by installing Ponytail into RPG Kingdom, rewriting `AGENTS.md`, or globally enabling user plugin state. Revisit the bounded experiment when Codex can select an installed plugin/capability by logical identity per worker/thread, or when a separate reviewed process-local Ponytail surface can provide equivalent isolation.
+Do not work around that limitation by installing Ponytail into RPG Kingdom, rewriting `AGENTS.md`, or globally enabling user plugin state. Revisit the experiment when Codex can select an installed plugin/capability by logical identity per worker/thread, or when a separate reviewed process-local Ponytail surface can provide equivalent isolation.
 
-When that boundary exists, the intended experiment remains:
-
-- `risk:mechanical` -> Full (or closest supported minimal-change mode);
-- `risk:normal` -> Lite/observe-only if supported;
-- investigative/architecture/end-to-end -> off.
+The intended low-risk behavior is already covered by `rpgk-mechanical-change`, which is narrower and fully controlled by Supervisor. If Ponytail later becomes safely isolatable, it should be evaluated against that skill rather than assumed to be an improvement.
 
 ## Adding or removing an approved integration
 
-An integration belongs in `scripts/codex-capability-policy.py`, not in RPG Kingdom repository instructions or user-global Codex state.
+Third-party MCP/tool integrations belong in `scripts/codex-capability-policy.py`, not in RPG Kingdom repository instructions or user-global Codex state.
 
-A reviewed addition should:
+A reviewed MCP/tool addition should:
 
 1. define a stable Supervisor capability name and MCP/server identity;
 2. document its authority and read/write boundary;
@@ -237,7 +252,9 @@ A reviewed addition should:
 8. add deterministic policy and telemetry tests;
 9. preserve named permissions, credential scrubbing, Git/Unity brokers, bounded turns, review, and no-auto-merge guarantees.
 
-Removal is the inverse: disable it by policy first, remove its process-local configuration and documentation, retain historical telemetry compatibility, then remove any host bootstrap only after no active worker depends on it.
+First-party procedural skills belong under `skills/` and in `scripts/first-party-skill-policy.py`. A new automatically selected skill also requires the matching first-turn marker in the Symphony skill-root transform and deterministic tests proving that the policy and marker use the same risk/task boundary. Core invariants remain in RPG Kingdom `AGENTS.md`; a skill is only appropriate for procedure that can safely be loaded on demand.
+
+Removal is the inverse: disable it by policy first, remove its process-local configuration or marker, retain historical telemetry compatibility, then remove any host bootstrap only after no active worker depends on it.
 
 ## Safety boundaries
 
@@ -246,6 +263,7 @@ Removal is the inverse: disable it by policy first, remove its process-local con
 - Existing named-permission, runtime workspace root, credential scrubbing, Git handoff, Unity broker, turn-budget, review/rework, and no-auto-merge boundaries remain unchanged.
 - Graphify absence in `auto` mode never escalates the model or creates another worker lifetime.
 - Context7 selection never requires a model call and does not force the worker to query external docs.
+- First-party skills add no host permissions and cannot override checked-in RPG Kingdom instructions.
 - Third-party installer-generated `AGENTS.md`, hooks, or global Codex configuration are not part of the Supervisor contract.
 - Ponytail remains disabled until its per-worker selection boundary is safe enough to preserve the allowlist.
 
