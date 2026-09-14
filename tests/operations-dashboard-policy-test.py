@@ -107,6 +107,36 @@ assert ".mono,code,pre,.metric-value,.pill,.timeline-time" in html
 assert "Operator attention" in html
 assert "Pruning:" in html
 
+# #88 adds a first-class narrow/tall operator mode without replacing the desktop template.
+for text in (
+    "COMPACT_LAYOUT_STYLE",
+    'id="compact-operator-layout"',
+    "@media (max-width:560px)",
+    "@media (max-width:390px)",
+    ".tabs{display:flex;flex-wrap:nowrap",
+    ".overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))",
+    ".queue.empty{display:none}",
+    ".detail-drawer.open{grid-template-columns:1fr}",
+    ".detail-panel{height:100dvh",
+    ".header-status{display:flex;flex-wrap:nowrap",
+    ".service-strip{grid-template-columns:repeat(2,minmax(0,1fr))",
+):
+    assert text in python_text, text
+assert "COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT" in python_text
+
+# Core operator content remains present; compact mode only changes presentation.
+for identifier in (
+    'id="metric-health"',
+    'id="metric-workers"',
+    'id="metric-actions"',
+    'id="metric-quota"',
+    'id="active-workers"',
+    'id="queues"',
+    'id="activity"',
+    'id="detail-drawer"',
+):
+    assert identifier in html, identifier
+
 # The dashboard is a read-only renderer. Lifecycle/process mutation belongs to host
 # adapters and must never be introduced as a dashboard convenience action.
 for forbidden in (
