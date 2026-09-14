@@ -134,17 +134,22 @@ def main() -> int:
         assert git(workspace, "rev-parse", "HEAD") == local_head
         assert_clean(workspace)
 
-        # Dirty source work is never discarded automatically.
-        remote, _seed = init_repo(root, "dirty")
+        # Dirty source work is preserved through the host-owned continuation transaction.
+        remote, seed = init_repo(root, "dirty")
         workspace = clone_workspace(root, remote, "GH-95")
         git(workspace, "switch", "-c", "codex/gh-95-dirty")
         (workspace / "local-edit.txt").write_text("keep me\n", encoding="utf-8")
         dirty_head = git(workspace, "rev-parse", "HEAD")
+        main_update = commit_file(seed, "dependency.txt", "new dependency\n", "advance main")
+        git(seed, "push", "origin", "main")
+
         ok, message = module.sync_rearmed_branch(workspace, "codex/gh-95-dirty")
-        assert not ok
-        assert message is not None and "uncommitted source changes" in message
-        assert git(workspace, "rev-parse", "HEAD") == dirty_head
-        assert (workspace / "local-edit.txt").is_file()
+        assert ok, message
+        assert git(workspace, "rev-parse", "HEAD") != dirty_head
+        assert module.is_ancestor(workspace, main_update, "HEAD")
+        assert (workspace / "local-edit.txt").read_text(encoding="utf-8") == "keep me\n"
+        assert git(workspace, "status", "--porcelain", "--untracked-files=all") == "?? local-edit.txt"
+        assert not (workspace / ".git" / "MERGE_HEAD").exists()
 
         # A main merge conflict rolls all host mutations back to the exact original clean HEAD.
         remote, seed = init_repo(root, "conflict")
