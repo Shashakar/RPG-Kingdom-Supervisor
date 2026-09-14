@@ -267,9 +267,10 @@ def main() -> int:
             ok, message = sync_rearmed_branch(workspace, branch)
         except (RuntimeError, subprocess.TimeoutExpired) as exc:
             return emit_error("GitFailed", 71, f"continuation workspace refresh failed: {exc}")
+
+        raw_evidence = os.environ.get(SYNC_EVIDENCE_ENV, "")
         if not ok:
             details: dict[str, Any] = {}
-            raw_evidence = os.environ.get(SYNC_EVIDENCE_ENV, "")
             if raw_evidence:
                 try:
                     parsed = json.loads(raw_evidence)
@@ -278,6 +279,18 @@ def main() -> int:
                 except json.JSONDecodeError:
                     pass
             return emit_error("ContinuationSyncBlocked", 73, message or "continuation workspace refresh blocked", details=details)
+
+        if raw_evidence:
+            try:
+                parsed = json.loads(raw_evidence)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("performed"):
+                print(
+                    json.dumps({"continuationSync": parsed}, separators=(",", ":"), sort_keys=True),
+                    file=sys.stderr,
+                    flush=True,
+                )
 
     if operation == "handoff" and completion_mode == "report-only":
         report_core = Path(__file__).with_name("report-complete-host.py")
