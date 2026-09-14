@@ -158,10 +158,90 @@ TURN_HISTORY_SCRIPT = r"""
 </script>
 """
 
+COMPACT_LAYOUT_STYLE = r"""
+<style id="compact-operator-layout">
+@media (max-width:560px){
+  body{font-size:12px}
+  header{backdrop-filter:blur(6px)}
+  .header-inner{display:block;padding:6px 8px}
+  .brand{display:none}
+  .header-status{display:flex;flex-wrap:nowrap;justify-content:flex-start;gap:4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .header-status::-webkit-scrollbar,.tabs::-webkit-scrollbar{display:none}
+  .header-chip{flex:0 0 auto;max-width:132px;padding:3px 6px;font-size:10px;overflow:hidden;text-overflow:ellipsis}
+  #stamp{display:none}
+  #refresh-button{flex:0 0 auto;padding:4px 7px;font-size:11px;position:sticky;right:0;background:#222a35}
+  main{padding:8px 8px 28px}
+  .tabs{display:flex;flex-wrap:nowrap;gap:4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;margin-bottom:8px}
+  .tab{flex:0 0 auto;scroll-snap-align:start;padding:5px 8px;font-size:11px}
+  .section-head{align-items:center;margin:0 0 6px}
+  .section-head h2{font-size:14px}
+  .section-head p{display:none}
+  .section-head button{padding:5px 7px;font-size:11px}
+  .overview-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px}
+  .hero-card,.hero-card.wide{grid-column:span 1;padding:8px;border-radius:8px}
+  .hero-label{font-size:9px;letter-spacing:.035em}
+  .metric-value{font-size:18px;margin-top:2px}
+  .metric-note{font-size:10px;margin-top:3px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+  .banner{padding:8px 9px;margin-bottom:8px}
+  .service-strip{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-bottom:8px}
+  .service{padding:7px 8px;border-radius:8px}
+  .service-name{font-size:11px}
+  .service-meta{display:none}
+  .pill{padding:2px 5px;font-size:9px}
+  .panel{padding:8px;margin-bottom:8px;border-radius:8px}
+  .panel h3{font-size:13px;margin-bottom:6px}
+  .compact-list{gap:5px}
+  .worker-summary{grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:8px;border-radius:7px}
+  .worker-summary strong{font-size:12px}
+  .worker-summary .small{font-size:10px}
+  .worker-summary>:nth-child(n+3){font-size:10px;text-align:right}
+  .queue-grid{grid-template-columns:1fr;gap:5px}
+  .queue{padding:8px;border-radius:8px}
+  .queue.empty{display:none}
+  .queue-item{padding:7px 0}
+  .queue-title,.queue-item-title{font-size:12px}
+  .meta{font-size:10px}
+  .timeline-item{grid-template-columns:minmax(0,1fr) auto;gap:2px 6px;padding:8px 0}
+  .timeline-category{grid-column:1;grid-row:1;font-size:9px}
+  .timeline-time{grid-column:2;grid-row:1;font-size:9px;text-align:right}
+  .timeline-item>div:last-child{grid-column:1/-1}
+  .timeline-title{font-size:12px}
+  .details-box{margin-bottom:8px;border-radius:8px}
+  details>summary{padding:8px 10px;font-size:12px}
+  .details-body{padding:0 9px 9px}
+  .summary-metrics,.analysis-grid,.issue-grid{grid-template-columns:1fr;gap:6px}
+  .mini-metric{padding:8px}
+  .mini-metric b{font-size:16px}
+  .issue-shell{grid-template-columns:1fr;gap:8px}
+  .issue-nav{position:static;padding:8px;border-radius:8px}
+  .kv{grid-template-columns:1fr;gap:2px}
+  .scroll{max-height:none}
+  th,td{padding:6px 5px;font-size:10px}
+  .detail-drawer.open{grid-template-columns:1fr}
+  .detail-backdrop{display:none}
+  .detail-panel{height:100dvh;padding:10px;border-left:0}
+  .detail-panel-head{position:sticky;top:0;z-index:2;background:#10151c;padding:4px 0 8px;margin-bottom:8px}
+  .detail-panel-head h2{font-size:14px}
+  .pre{max-height:50vh;padding:8px;font-size:10px}
+  .toolbar{gap:5px;margin-bottom:7px}
+  button,input,select{min-height:32px}
+}
+@media (max-width:390px){
+  .header-chip{max-width:108px}
+  .service-strip{grid-template-columns:1fr}
+  .service{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px}
+  .overview-grid{gap:5px}
+  .hero-card,.hero-card.wide{padding:7px}
+  .metric-value{font-size:17px}
+  .tab{padding-inline:7px}
+}
+</style>
+"""
+
 
 def rendered_page() -> str:
     marker = "</body>"
-    extras = QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT
+    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT
     return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
@@ -232,9 +312,6 @@ def serve(port: int) -> None:
                 if detail is None:
                     self.send_json({"error": "worker run not found"}, HTTPStatus.NOT_FOUND)
                 else:
-                    # Historical before/after quota stays on detail.worker. Current quota is attached
-                    # under an explicitly global key so a later window reset cannot be mistaken for
-                    # the worker lifetime's historical state.
                     lifecycle = dict(detail.get("currentLifecycle") or {})
                     lifecycle["currentGlobalQuota"] = supervisor_telemetry.current_quota()
                     detail["currentLifecycle"] = lifecycle
