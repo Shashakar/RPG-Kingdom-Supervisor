@@ -115,22 +115,33 @@ git -C "$workspace" merge-base --is-ancestor origin/codex/test-refresh HEAD || {
 }
 [[ -f "$workspace/main-update.txt" ]] || { echo "main update was not materialized in refreshed workspace" >&2; exit 1; }
 [[ -z "$(git -C "$workspace" status --porcelain --untracked-files=all)" ]] || {
-  echo "successful refresh left a dirty worktree" >&2
+  echo "successful clean refresh left a dirty worktree" >&2
   exit 1
 }
 
-# Uncommitted source work from a halted worker is never discarded automatically.
+# Dirty preserved source work is temporarily stashed, current main is integrated, and the exact
+# dirty work is restored for the continued worker.
 dirty_workspace="$(prepare_workspace GH-124 codex/test-refresh)"
 printf 'local work\n' > "$dirty_workspace/local-only.txt"
 dirty_head="$(git -C "$dirty_workspace" rev-parse HEAD)"
-set +e
-run_refresh "$dirty_workspace" >"$TMP/dirty.out" 2>"$TMP/dirty.err"
-status=$?
-set -e
-[[ "$status" -eq 73 ]] || { echo "expected dirty continuation to fail closed with 73, got $status" >&2; exit 1; }
-grep -Fq "uncommitted source changes" "$TMP/dirty.err" || { echo "dirty continuation failure was not explained" >&2; exit 1; }
-[[ "$(git -C "$dirty_workspace" rev-parse HEAD)" == "$dirty_head" ]] || { echo "dirty continuation HEAD changed" >&2; exit 1; }
-[[ -f "$dirty_workspace/local-only.txt" ]] || { echo "dirty continuation source work was discarded" >&2; exit 1; }
+run_refresh "$dirty_workspace" >/dev/null
+git -C "$dirty_workspace" merge-base --is-ancestor origin/main HEAD || {
+  echo "dirty continuation did not absorb current origin/main" >&2
+  exit 1
+}
+[[ "$(git -C "$dirty_workspace" rev-parse HEAD)" != "$dirty_head" ]] || {
+  echo "dirty continuation did not advance onto current main" >&2
+  exit 1
+}
+[[ "$(cat "$dirty_workspace/local-only.txt")" == "local work" ]] || {
+  echo "dirty continuation source work was not restored exactly" >&2
+  exit 1
+}
+[[ "$(git -C "$dirty_workspace" status --porcelain --untracked-files=all)" == "?? local-only.txt" ]] || {
+  echo "dirty continuation did not preserve expected dirty file set" >&2
+  git -C "$dirty_workspace" status --porcelain --untracked-files=all >&2
+  exit 1
+}
 
 # Clean unpushed commits are durable continuation state and remain intact while current main is integrated.
 local_workspace="$(prepare_workspace GH-125 codex/test-refresh)"
@@ -186,6 +197,51 @@ grep -Fq "conflicts with the continuation branch" "$TMP/conflict.err" || {
 [[ ! -e "$conflict_workspace/.git/MERGE_HEAD" ]] || { echo "conflicting continuation left merge state behind" >&2; exit 1; }
 [[ -z "$(git -C "$conflict_workspace" status --porcelain --untracked-files=all)" ]] || {
   echo "conflicting continuation did not restore a clean worktree" >&2
+  exit 1
+}
+
+# If current main conflicts specifically with dirty preserved work, the sync must also fail closed
+# and reconstruct the original dirty workspace exactly.
+git -C "$SEED" switch -q main
+printf 'dirty common\n' > "$SEED/dirty-conflict.txt"
+git -C "$SEED" add dirty-conflict.txt
+git -C "$SEED" commit -qm "dirty conflict base"
+git -C "$SEED" push -q origin main
+git -C "$SEED" switch -qc codex/dirty-conflict-refresh
+git -C "$SEED" push -q -u origin codex/dirty-conflict-refresh
+git -C "$SEED" switch -q main
+printf 'upstream version\n' > "$SEED/dirty-conflict.txt"
+git -C "$SEED" add dirty-conflict.txt
+git -C "$SEED" commit -qm "dirty conflict upstream"
+git -C "$SEED" push -q origin main
+
+dirty_conflict_workspace="$(prepare_workspace GH-127 codex/dirty-conflict-refresh)"
+printf 'preserved local version\n' > "$dirty_conflict_workspace/dirty-conflict.txt"
+dirty_conflict_head="$(git -C "$dirty_conflict_workspace" rev-parse HEAD)"
+set +e
+run_refresh "$dirty_conflict_workspace" >"$TMP/dirty-conflict.out" 2>"$TMP/dirty-conflict.err"
+status=$?
+set -e
+[[ "$status" -eq 73 ]] || { echo "expected dirty conflict to fail closed with 73, got $status" >&2; exit 1; }
+grep -Fq "preserved uncommitted continuation work" "$TMP/dirty-conflict.err" || {
+  echo "dirty conflict failure was not explained" >&2
+  exit 1
+}
+[[ "$(git -C "$dirty_conflict_workspace" rev-parse HEAD)" == "$dirty_conflict_head" ]] || {
+  echo "dirty conflict changed original HEAD" >&2
+  exit 1
+}
+[[ "$(cat "$dirty_conflict_workspace/dirty-conflict.txt")" == "preserved local version" ]] || {
+  echo "dirty conflict failed to restore preserved source content" >&2
+  exit 1
+}
+[[ "$(git -C "$dirty_conflict_workspace" status --porcelain --untracked-files=all)" == " M dirty-conflict.txt" ]] || {
+  echo "dirty conflict failed to restore original dirty state" >&2
+  git -C "$dirty_conflict_workspace" status --porcelain --untracked-files=all >&2
+  exit 1
+}
+[[ ! -e "$dirty_conflict_workspace/.git/MERGE_HEAD" ]] || {
+  echo "dirty conflict left merge state behind" >&2
   exit 1
 }
 
