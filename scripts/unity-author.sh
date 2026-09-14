@@ -10,9 +10,9 @@ usage() {
 Usage:
   unity-author.sh apply --request PATH [--project PATH]
 
-The request must be protocolVersion=1, tier="mechanical", contain one Assets/*.unity scene,
-and contain one or more typed mechanical operations. The host and project-side executor perform
-the final safety validation.
+The request must be protocolVersion=1, use tier="mechanical" or tier="mechanical-structural",
+contain one Assets/*.unity scene, and contain one or more typed authoring operations. The host
+and project-side executor perform the final safety validation.
 EOF
 }
 
@@ -37,11 +37,11 @@ command -v jq >/dev/null 2>&1 || { echo "RPG Kingdom Unity authoring: jq is requ
 
 if ! jq -e '
   .protocolVersion == 1 and
-  .tier == "mechanical" and
+  (.tier == "mechanical" or .tier == "mechanical-structural") and
   (.scene | type == "string" and startswith("Assets/") and endswith(".unity") and (contains("..") | not)) and
   (.operations | type == "array" and length > 0)
 ' "$authoring_request" >/dev/null; then
-  echo "RPG Kingdom Unity authoring: invalid Tier-1 mechanical request envelope" >&2
+  echo "RPG Kingdom Unity authoring: invalid supported authoring request envelope" >&2
   exit 64
 fi
 

@@ -75,8 +75,12 @@ if ([int]$envelope.protocolVersion -ne 1 -or [string]$envelope.operation -ne "au
     Fail-Authoring "unsupported request protocol/operation" 64
 }
 $authoring = $envelope.authoring
-if ($null -eq $authoring -or [int]$authoring.protocolVersion -ne 1 -or [string]$authoring.tier -ne "mechanical") {
-    Fail-Authoring "only protocolVersion=1 Tier-1 mechanical authoring is supported" 64
+if ($null -eq $authoring -or [int]$authoring.protocolVersion -ne 1) {
+    Fail-Authoring "unsupported authoring protocol" 64
+}
+$tier = [string]$authoring.tier
+if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural") {
+    Fail-Authoring "unsupported scene-authoring tier '$tier'" 64
 }
 $scene = [string]$authoring.scene
 if ([string]::IsNullOrWhiteSpace($scene) -or -not $scene.StartsWith("Assets/") -or -not $scene.EndsWith(".unity") -or $scene.Contains("..")) {
@@ -89,7 +93,7 @@ if ($null -eq $authoring.operations -or @($authoring.operations).Count -eq 0) {
 $StageProject = Join-Path (Join-Path $StageRoot $UnityVersion) "RPG-Kingdom"
 $SourceScene = Join-Path $SourceProjectPath ($scene -replace '/', '\')
 if (-not (Test-Path -LiteralPath $SourceScene -PathType Leaf)) {
-    Fail-Authoring "Tier-1 authoring may only modify an existing scene; '$scene' does not exist in the source workspace" 82
+    Fail-Authoring "scene authoring may only modify an existing scene; '$scene' does not exist in the source workspace" 82
 }
 
 Assert-UnityHostIdle

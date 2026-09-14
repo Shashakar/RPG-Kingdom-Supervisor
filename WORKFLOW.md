@@ -114,7 +114,7 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/git-handoff.sh" handoff \
   --pr-title "<pull request title>" \
   --pr-body "<summary, validation, setup, exclusions, and Closes #N>" \
   --validation-run <successful-unity-run-id> \
-  [--validation-run <another-successful-run-id> ...]
+  [--validation-run <another-successful-unity-run-id> ...]
 ```
 
 For longer PR text, `--pr-body-file PATH` may be used instead of `--pr-body`.
@@ -169,7 +169,8 @@ Unity is an explicit host-owned resource. The host evaluates these labels before
 - `validation:unity-optional` means work may proceed without Unity. If the issue does not also own `resource:unity-editor`, report the missing editor validation rather than trying to obtain Unity access yourself.
 - `validation:unity-required` and `validation:unity-optional` are mutually exclusive. Conflicting labels fail closed before Codex.
 - `authoring:scene-mechanical` explicitly requests Tier-1 mechanical scene-authoring authority for this worker lifetime. It does not grant structural or creative authoring.
-- `authoring:scene-structural` is reserved for separately reviewed Tier-2 work. The current Supervisor authoring seam does **not** implement structural authoring; do not infer support from the label's existence.
+- `authoring:scene-structural` explicitly requests separately reviewed Tier-2 mechanical-structural scene-authoring authority for this worker lifetime. It does not grant arbitrary hierarchy, transform, visual, or creative authoring.
+- `authoring:scene-mechanical` and `authoring:scene-structural` are mutually exclusive. Each authorizes only its exact request tier.
 
 When this issue owns `resource:unity-editor`, use the host-owned validation interface:
 
@@ -180,7 +181,7 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" playmode [--filt
 ```
 
 {% if issue.labels contains "authoring:scene-mechanical" %}
-This issue is explicitly authorized for **Tier-1 mechanical scene configuration**. RPG Kingdom's checked-in `AGENTS.md` remains authoritative for what qualifies. For an exact deterministic scene mutation that fits that tier, write a temporary typed JSON request and invoke:
+This issue is explicitly authorized for **Tier-1 mechanical scene configuration**. RPG Kingdom's checked-in `AGENTS.md` remains authoritative for what qualifies. For an exact deterministic scene mutation that fits that tier, write a temporary typed JSON request using `tier: "mechanical"` and invoke:
 
 ```bash
 bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
@@ -190,15 +191,26 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
 The request may use only the supported declarative operations documented in `docs/SCENE_AUTHORING.md`. It must identify one existing `Assets/*.unity` scene plus exact existing object/component/property targets and values. Do not use this authority for transforms, hierarchy changes, adding/removing components, object creation/deletion, or creative composition. Do not hand-edit Unity YAML.
 
 A successful `unity-author.sh` call means the staged Editor mutation was safely copied back into the issue workspace; it is **not validation evidence**. Immediately inspect the resulting source diff and run the narrowest relevant fresh EditMode/PlayMode validation with `unity-runner.sh` before handoff.
+{% elsif issue.labels contains "authoring:scene-structural" %}
+This issue is explicitly authorized for **Tier-2 mechanical-structural scene authoring**. RPG Kingdom's checked-in `AGENTS.md` and project-side authoring executor remain authoritative for the exact structural operations and component types allowed. Write a temporary typed JSON request using `tier: "mechanical-structural"` and invoke:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
+  --request /tmp/rpgk-authoring.json
+```
+
+Use only operations documented in `docs/SCENE_AUTHORING.md` and implemented by the reviewed RPG Kingdom executor. Structural authority is bounded: it is not permission for arbitrary reflection, arbitrary component types, transforms, free-form hierarchy editing, prefab surgery, object creation/deletion, or creative composition. Do not hand-edit Unity YAML. If the required structural operation is not explicitly supported, stop and report that missing operation instead of bypassing the seam.
+
+A successful `unity-author.sh` call means the staged Editor mutation was safely copied back into the issue workspace; it is **not validation evidence**. Inspect the resulting source diff and run the narrowest relevant fresh EditMode/PlayMode validation with `unity-runner.sh` before handoff.
 {% else %}
-This issue does **not** carry Tier-1 scene-authoring authority. Do not invoke `unity-author.sh` or modify a production scene merely because the Unity editor resource is available.
+This issue does **not** carry scene-authoring authority. Do not invoke `unity-author.sh` or modify a production scene merely because the Unity editor resource is available.
 {% endif %}
 
 The validation runner mirrors only `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project, preserves the staging `Library` cache, runs the project-declared Unity editor version, and copies `results.xml`, `Editor.log`, and `summary.json` back under the ignored `Logs/SymphonyUnity/` directory in this workspace. The authoring seam uses the same project mirror and shared Unity resource, mutates only the staged project, and copies back only the explicitly authorized scene after structured success.
 
 Rules:
 
-- Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for Tier-1 mechanical authoring.
+- Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for the exact granted scene-authoring tier.
 - Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/` or `Logs/SymphonyUnityAuthoring/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.

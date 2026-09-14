@@ -94,8 +94,33 @@ set -e
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "health-failed preflight must not leave a lock" >&2; exit 1; }
 
 export RPGK_UNITY_GUARD_DRY_RUN=0
-export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]'
 export FAKE_UNITY_HEALTH_STATUS=0
+
+# Tier-1 and Tier-2 labels produce distinct exact-match authorization receipts.
+clear_lock
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-mechanical"}]'
+run_guard >/dev/null
+jq -e '.tier == "mechanical" and .issue == "GH-123"' "$TMP/state/authoring/GH-123.json" >/dev/null
+(cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
+[[ ! -f "$TMP/state/authoring/GH-123.json" ]] || { echo "Tier-1 authorization marker was not released" >&2; exit 1; }
+
+clear_lock
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-structural"}]'
+run_guard >/dev/null
+jq -e '.tier == "mechanical-structural" and .issue == "GH-123"' "$TMP/state/authoring/GH-123.json" >/dev/null
+(cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
+[[ ! -f "$TMP/state/authoring/GH-123.json" ]] || { echo "Tier-2 authorization marker was not released" >&2; exit 1; }
+
+# Conflicting authority stays fail-closed.
+clear_lock
+set +e
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-mechanical"},{"name":"authoring:scene-structural"}]' run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || { echo "expected conflicting authoring labels to exit 75, got $status" >&2; exit 1; }
+[[ ! -f "$TMP/state/authoring/GH-123.json" ]] || { echo "conflicting authoring labels must not leave authority" >&2; exit 1; }
+
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]'
 clear_lock
 run_guard >/dev/null
 [[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-123" ]] || { echo "Unity lock owner was not recorded" >&2; exit 1; }

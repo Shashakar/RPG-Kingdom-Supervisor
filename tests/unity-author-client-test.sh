@@ -25,7 +25,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$request" == *'/.author-broker/requests/'* ]] || { echo "request did not reach author broker directory: $request" >&2; exit 97; }
-echo '{"protocolVersion":1,"success":true,"scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","changedAssets":["Assets/RPGKingdom/Scenes/VerticalSlice.unity"],"appliedOperations":["set-string:X:Y:Z"],"error":null}'
+tier="$(jq -r '.authoring.tier' "$request")"
+echo "{\"protocolVersion\":1,\"success\":true,\"scene\":\"Assets/RPGKingdom/Scenes/VerticalSlice.unity\",\"changedAssets\":[\"Assets/RPGKingdom/Scenes/VerticalSlice.unity\"],\"appliedOperations\":[\"tier:$tier\"],\"error\":null}"
 SH
 chmod +x "$HOST"
 
@@ -53,6 +54,24 @@ output="$(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" RPGK_UNITY_AUTH
 grep -q '"success":true' <<<"$output"
 find "$GH/Logs/SymphonyUnity/.author-broker/history/requests" -type f -name '*.json' | grep -q .
 [[ ! -d "$GH/Logs/SymphonyUnity/.broker/requests" ]] || [[ -z "$(find "$GH/Logs/SymphonyUnity/.broker/requests" -type f -print -quit 2>/dev/null)" ]]
+
+# Client rejects unknown tiers before placing a broker request.
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"structural","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","operations":[{"kind":"add-component","objectPath":"Node","componentType":"CharacterState"}]}
+JSON
+set +e
+(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST") >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 64 ]] || { echo "expected unknown tier rejection, got $status" >&2; exit 1; }
+
+# Explicit Tier-2 authorization passes a Tier-2 request through the same broker seam.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"mechanical-structural"}\n' "$GH" > "$STATE/authoring/GH-111.json"
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"mechanical-structural","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","operations":[{"kind":"add-component","objectPath":"Node","componentType":"CharacterState"}]}
+JSON
+output="$(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS=2 RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS=10 bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST")"
+grep -q 'tier:mechanical-structural' <<<"$output"
 
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
