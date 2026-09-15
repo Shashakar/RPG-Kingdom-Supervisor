@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 from typing import Any
+from urllib import error, parse, request
 
 BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
@@ -123,8 +124,6 @@ def restore_original_with_stash(workspace: Path, original_head: str, stash_ref: 
     if stash_ref is None:
         return
 
-    # Remove only non-ignored untracked files created by a failed stash application. Supervisor
-    # runtime evidence is ignored and therefore survives this recovery cleanup.
     run_git(workspace, "clean", "-fd", check=False)
     restored = apply_preserved_stash(workspace, stash_ref)
     if restored.returncode != 0:
@@ -244,6 +243,64 @@ def value_after(args: list[str], flag: str) -> str:
     return args[index + 1] if index + 1 < len(args) else ""
 
 
+def tracker_api(method: str, path: str, body: dict[str, Any] | None = None, *, allow_not_found: bool = False) -> Any:
+    token = os.environ.get("SYMPHONY_GITHUB_TOKEN", "")
+    if not token:
+        raise RuntimeError("SYMPHONY_GITHUB_TOKEN is required for review handoff")
+    api_root = os.environ.get("RPGK_GITHUB_API_ROOT", "https://api.github.com").rstrip("/")
+    owner = os.environ.get("RPGK_REPO_OWNER", "Shashakar")
+    repo = os.environ.get("RPGK_REPO_NAME", "RPG-Kingdom")
+    data = None if body is None else json.dumps(body, separators=(",", ":")).encode("utf-8")
+    req = request.Request(
+        f"{api_root}/repos/{owner}/{repo}{path}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            "User-Agent": "rpg-kingdom-supervisor-review-handoff",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else None
+    except error.HTTPError as exc:
+        if allow_not_found and exc.code == 404:
+            return None
+        raise RuntimeError(f"GitHub {method} {path} failed: HTTP {exc.code}") from exc
+
+
+def queue_review_from_handoff(result: dict[str, Any]) -> None:
+    issue_number = int(result["issue"])
+    pr_number = int(result["prNumber"])
+    head_sha = str(result.get("pushedSha") or result.get("commitSha") or "").strip()
+    if not head_sha:
+        raise RuntimeError("successful handoff did not return a pushed PR head")
+
+    writer = Path(__file__).with_name("queue-agent-review.py")
+    subprocess.run(
+        [sys.executable, str(writer), str(issue_number), str(pr_number), head_sha],
+        check=True,
+        env=os.environ.copy(),
+    )
+
+    for label in (
+        "symphony:rework",
+        "symphony:halted",
+        "symphony:rearm",
+        "symphony:ready",
+        "repair-route:luna",
+        "repair-route:terra",
+        "repair-route:sol",
+        "repair-route:astra",
+    ):
+        tracker_api("DELETE", f"/issues/{issue_number}/labels/{parse.quote(label, safe='')}", allow_not_found=True)
+    tracker_api("POST", f"/issues/{issue_number}/labels", {"labels": ["symphony:agent-review"]})
+
+
 def main() -> int:
     args = sys.argv[1:]
     request_value = value_after(args, "--request")
@@ -298,8 +355,41 @@ def main() -> int:
         return 70
 
     core = Path(__file__).with_name("git-handoff-host.py")
-    os.execv(sys.executable, [sys.executable, str(core), *args])
-    return 70
+    if operation != "handoff":
+        os.execv(sys.executable, [sys.executable, str(core), *args])
+        return 70
+
+    completed = subprocess.run(
+        [sys.executable, str(core), *args],
+        text=True,
+        capture_output=True,
+        env=os.environ.copy(),
+    )
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.returncode != 0:
+        return completed.returncode
+
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    try:
+        result = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError as exc:
+        return emit_error("ReviewHandoffFailed", 78, f"successful Git handoff returned unreadable result: {exc}")
+    if not isinstance(result, dict) or result.get("status") != "completed":
+        return emit_error("ReviewHandoffFailed", 78, "successful Git handoff did not return completed structured output")
+
+    try:
+        queue_review_from_handoff(result)
+    except Exception as exc:
+        return emit_error(
+            "ReviewHandoffFailed",
+            78,
+            f"Git handoff succeeded but agent-review lifecycle reconciliation failed: {exc}",
+            details={"handoff": result},
+        )
+    return 0
 
 
 if __name__ == "__main__":
