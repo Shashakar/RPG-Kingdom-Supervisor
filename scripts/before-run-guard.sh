@@ -126,6 +126,11 @@ if (( rearm_requested == 1 )); then
   api DELETE "/issues/$issue_number/labels/symphony%3Ahalted" >/dev/null 2>&1 || true
   echo "RPG Kingdom budget guard: consumed one-shot rearm approval for $issue_identifier"
 
+  if [[ ! -e "$MARKER" ]]; then
+    printf 'completed worker lifetime for %s at %s\n' "$issue_identifier" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
+    echo "RPG Kingdom budget guard: synthesized missing continuation boundary for $issue_identifier"
+  fi
+
   bash "$(dirname "${BASH_SOURCE[0]}")/refresh-rearmed-workspace.sh"
 fi
 
