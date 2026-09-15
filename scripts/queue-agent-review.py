@@ -21,6 +21,17 @@ def main() -> int:
     pr_number = int(sys.argv[2])
     head_sha = sys.argv[3].strip()
     prior = review.latest_state(issue_number)
+
+    # A successful host handoff may queue review immediately, and after_run may observe
+    # the same completed handoff a moment later. Treat that duplicate transition as a
+    # no-op so review history and repair counters are never reset or duplicated.
+    if (
+        prior.get("state") == "agent_review"
+        and int(prior.get("prNumber", -1)) == pr_number
+        and str(prior.get("prHeadSha") or "") == head_sha
+    ):
+        return 0
+
     state = dict(prior)
     state.update(
         {
