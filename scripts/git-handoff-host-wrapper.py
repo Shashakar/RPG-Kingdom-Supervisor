@@ -17,13 +17,20 @@ ATTEMPT_MARKER = ".symphony-attempt-complete"
 SYNC_EVIDENCE_ENV = "RPGK_CONTINUATION_SYNC_EVIDENCE"
 
 
-def emit_error(status: str, code: int, message: str, *, details: dict[str, Any] | None = None) -> int:
+def emit_error(
+    status: str,
+    code: int,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+    operation: str = "prepare",
+) -> int:
     print(
         json.dumps(
             {
                 "status": status,
                 "exitCode": code,
-                "operation": "prepare",
+                "operation": operation,
                 "message": message,
                 "details": details or {},
             },
@@ -89,6 +96,54 @@ def hydrate_lfs(workspace: Path, branch: str) -> None:
     if ref_exists(workspace, f"refs/remotes/origin/{branch}"):
         run_git(workspace, "lfs", "fetch", "origin", branch, timeout=300)
     run_git(workspace, "lfs", "checkout", timeout=300)
+
+
+def sync_rearmed_main(workspace: Path) -> tuple[bool, str | None, dict[str, Any]]:
+    """Fast-forward a clean rearmed main workspace before dispatch-time preflight."""
+    current_result = run_git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    current = current_result.stdout.strip() if current_result.returncode == 0 else ""
+    if current != "main":
+        return False, f"workspace is on '{current or 'detached HEAD'}', not main", {"reason": "not-main"}
+
+    dirty = dirty_paths(workspace)
+    if dirty:
+        return False, "rearmed main workspace contains source changes; refusing automatic refresh", {
+            "reason": "dirty-main",
+            "dirtyPaths": dirty,
+        }
+
+    old_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
+    run_git(workspace, "fetch", "--prune", "origin")
+    if not ref_exists(workspace, "refs/remotes/origin/main"):
+        return False, "origin/main is unavailable after fetch", {"reason": "origin-main-unavailable", "oldHead": old_head}
+
+    new_base = run_git(workspace, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+    if not is_ancestor(workspace, old_head, "refs/remotes/origin/main"):
+        return False, "local main has diverged from origin/main; preserving workspace for review", {
+            "reason": "main-diverged",
+            "oldHead": old_head,
+            "originMain": new_base,
+        }
+
+    if old_head != new_base:
+        run_git(workspace, "merge", "--ff-only", "refs/remotes/origin/main")
+    hydrate_lfs(workspace, "main")
+    new_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
+    if dirty_paths(workspace):
+        return False, "main refresh left unexpected source changes", {
+            "reason": "dirty-after-sync",
+            "oldHead": old_head,
+            "newHead": new_head,
+        }
+
+    return True, None, {
+        "performed": old_head != new_head,
+        "result": "completed",
+        "oldHead": old_head,
+        "newHead": new_head,
+        "newBase": new_base,
+        "fastForwarded": old_head != new_head,
+    }
 
 
 def restore_clean_head(workspace: Path, head: str) -> None:
@@ -318,6 +373,28 @@ def main() -> int:
     operation = str(payload.get("operation", "")) if isinstance(payload, dict) else ""
     branch = str(payload.get("branch", "")) if isinstance(payload, dict) else ""
     completion_mode = str(payload.get("completionMode", "")) if isinstance(payload, dict) else ""
+
+    if operation == "sync-main":
+        if not (workspace / ATTEMPT_MARKER).exists():
+            return emit_error("InvalidRequest", 64, "sync-main is only allowed for a reviewed rearm workspace", operation=operation)
+        try:
+            ok, message, evidence = sync_rearmed_main(workspace)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            return emit_error("GitFailed", 71, f"rearmed main refresh failed: {exc}", operation=operation)
+        if not ok:
+            status = "DirtyWorkspace" if evidence.get("reason") in {"dirty-main", "dirty-after-sync"} else "MainDiverged"
+            if evidence.get("reason") in {"not-main", "origin-main-unavailable"}:
+                status = "UnexpectedBranch"
+            return emit_error(status, 73, message or "rearmed main refresh blocked", details={"continuationSync": evidence}, operation=operation)
+        print(json.dumps({
+            "status": "completed",
+            "exitCode": 0,
+            "operation": operation,
+            "branch": "main",
+            "head": evidence.get("newHead"),
+            "continuationSync": evidence,
+        }, separators=(",", ":"), sort_keys=True))
+        return 0
 
     if operation == "prepare" and (workspace / ATTEMPT_MARKER).exists():
         try:
