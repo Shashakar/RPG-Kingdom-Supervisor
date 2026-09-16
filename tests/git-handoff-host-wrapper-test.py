@@ -62,6 +62,49 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rpgk-host-sync-test-") as temp:
         root = Path(temp)
 
+        # GH-142 regression: a reviewed rearm that halted before branch creation remains on stale
+        # main. The host-only sync must make newly landed preflight/source files visible before
+        # dispatch without creating a branch or merge commit.
+        remote, seed = init_repo(root, "main-refresh")
+        workspace = clone_workspace(root, remote, "GH-90")
+        old_head = git(workspace, "rev-parse", "HEAD")
+        current_main = commit_file(seed, "capability-contract.json", "{}\n", "land capability contract")
+        git(seed, "push", "origin", "main")
+        ok, message, evidence = module.sync_rearmed_main(workspace)
+        assert ok, message
+        assert evidence["performed"] is True
+        assert evidence["oldHead"] == old_head
+        assert evidence["newHead"] == current_main
+        assert evidence["fastForwarded"] is True
+        assert git(workspace, "branch", "--show-current") == "main"
+        assert (workspace / "capability-contract.json").read_text(encoding="utf-8") == "{}\n"
+        assert_clean(workspace)
+
+        # Dirty main is preserved and rejected rather than force-resetting work merely to satisfy
+        # dispatch preflight.
+        remote, seed = init_repo(root, "main-dirty")
+        workspace = clone_workspace(root, remote, "GH-89")
+        (workspace / "local.txt").write_text("keep me\n", encoding="utf-8")
+        ok, message, evidence = module.sync_rearmed_main(workspace)
+        assert not ok
+        assert message is not None and "source changes" in message
+        assert evidence["reason"] == "dirty-main"
+        assert (workspace / "local.txt").read_text(encoding="utf-8") == "keep me\n"
+
+        # Diverged main also fails closed. This proves the operation is a fast-forward sync, not an
+        # implicit reset/rebase/merge policy.
+        remote, seed = init_repo(root, "main-diverged")
+        workspace = clone_workspace(root, remote, "GH-88")
+        local_head = commit_file(workspace, "local.txt", "local\n", "local main")
+        commit_file(seed, "remote.txt", "remote\n", "remote main")
+        git(seed, "push", "origin", "main")
+        ok, message, evidence = module.sync_rearmed_main(workspace)
+        assert not ok
+        assert message is not None and "diverged" in message
+        assert evidence["reason"] == "main-diverged"
+        assert git(workspace, "rev-parse", "HEAD") == local_head
+        assert_clean(workspace)
+
         # A clean local-only branch is durable continuation state even if it was never pushed.
         remote, seed = init_repo(root, "local-only")
         workspace = clone_workspace(root, remote, "GH-91")
