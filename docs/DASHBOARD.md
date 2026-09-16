@@ -8,11 +8,12 @@ The dashboard is organized around the questions an operator needs answered first
 
 1. Is Supervisor healthy?
 2. Is work actively running?
-3. Is anything degraded, blocked, or halted?
-4. Does anything require human action?
-5. What changed recently?
+3. Did recent work actually finish successfully?
+4. Is anything degraded, blocked, or halted?
+5. Does anything require human action?
+6. What changed recently?
 
-The sticky header keeps overall health, active-worker state, Codex quota, refresh time, and refresh control visible. The Overview view emphasizes those same signals, keeps healthy services compact, and raises an attention banner only when service state, halted work, or lifecycle data requires it.
+The sticky header keeps overall health, active-worker state, Codex quota, refresh time, and refresh control visible. The Overview view emphasizes those same signals, keeps healthy services compact, shows recent trusted finished tasks separately from live work, and raises an attention banner only when service state, halted work, or lifecycle data requires it.
 
 ## Active worker semantics
 
@@ -26,9 +27,27 @@ As a result:
 - normal terminal worker -> shown in recent worker history/activity with its durable outcome;
 - crashed/orphaned worker -> not shown as active and not mislabeled `Done`; its diagnostic record is preserved/reconciled by Supervisor maintenance.
 
+## Finished task semantics
+
+**Finished tasks means trusted successful terminal work, not merely a worker process that ended.** The Overview keeps this separate from Active work so a fast successful run does not simply disappear and look as though it was never picked up.
+
+A normal task is shown as **Done** only when GitHub reports the RPG Kingdom issue closed with `state_reason=completed` and there is evidence that the issue participated in the Symphony lifecycle, either through a `symphony:*` lifecycle label or retained worker telemetry. Recent worker telemetry may enrich the row with its latest outcome/model/effort, but it does not create completion authority by itself.
+
+Report-only work is slightly different: an open issue carrying the authoritative `symphony:report-complete` lifecycle label is shown as **Report complete** because the report artifact is the terminal deliverable even though the tracking issue may remain open for a later human/product action.
+
+The dashboard deliberately does **not** call these states finished:
+
+- a dead or stale PID by itself;
+- `symphony:halted`;
+- `symphony:human-attention`;
+- `symphony:human-review` while a PR still awaits the human merge decision;
+- GitHub issues closed as `not_planned`, duplicate, or another non-completed reason.
+
+This preserves the distinction between “the worker stopped,” “the implementation reached review,” and “the task actually completed.”
+
 ## Views
 
-- **Overview** — system health, active workers, human-action count, quota, compact service state, and collapsed telemetry maintenance.
+- **Overview** — system health, active workers, recent trusted finished tasks, human-action count, quota, compact service state, and collapsed telemetry maintenance.
 - **Work / Activity** — lifecycle queues, unified recent activity, and recent Codex worker lifetimes. Empty queues render as lightweight zero-state rows. Queue, activity, and worker issue references open the Issue detail view directly.
 - **Usage** — a compact retained-sample and coverage summary followed by collapsed grouped analysis, expensive-worker, and continuation-cost tables.
 - **Unity** — global Unity run history with optional issue, operation, and status filters. Selecting a run opens a read-only detail drawer.
