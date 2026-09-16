@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import diagnostics  # type: ignore  # noqa: E402
+import finished_tasks  # type: ignore  # noqa: E402
 import review_state  # type: ignore  # noqa: E402
 import supervisor_activity  # type: ignore  # noqa: E402
 import supervisor_detail  # type: ignore  # noqa: E402
@@ -27,6 +28,8 @@ import unity_run_history  # type: ignore  # noqa: E402
 
 PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"
 PAGE = PAGE_PATH.read_text(encoding="utf-8")
+FINISHED_TASKS_PATH = SCRIPT_DIR / "finished_tasks_dashboard.html"
+FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
 
 QUOTA_FRESHNESS_SCRIPT = r"""
 <script>
@@ -241,7 +244,7 @@ COMPACT_LAYOUT_STYLE = r"""
 
 def rendered_page() -> str:
     marker = "</body>"
-    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT
+    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT
     return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
@@ -294,6 +297,10 @@ def serve(port: int) -> None:
 
             if parsed.path == "/api/lifecycle":
                 self.send_json(supervisor_activity.collect())
+                return
+
+            if parsed.path == "/api/finished-tasks":
+                self.send_json(finished_tasks.collect())
                 return
 
             if parsed.path == "/api/usage-analysis":
