@@ -14,6 +14,18 @@ The dashboard is organized around the questions an operator needs answered first
 
 The sticky header keeps overall health, active-worker state, Codex quota, refresh time, and refresh control visible. The Overview view emphasizes those same signals, keeps healthy services compact, and raises an attention banner only when service state, halted work, or lifecycle data requires it.
 
+## Active worker semantics
+
+**Active work means live worker lifetimes only.** `activeWorkers` is filtered by the recorded worker PID before it reaches the dashboard. A dead PID must not remain visible as a `stale` card under Active work.
+
+PID death alone is not evidence that work completed successfully. Normal worker completion moves the durable lifetime record into worker history with its actual lifecycle outcome. If a worker dies outside that normal completion boundary, startup maintenance preserves the record as `stale-process` reconciliation evidence before removing the orphaned active file. The dashboard remains read-only and does not perform this reconciliation itself.
+
+As a result:
+
+- live worker -> shown under Active work;
+- normal terminal worker -> shown in recent worker history/activity with its durable outcome;
+- crashed/orphaned worker -> not shown as active and not mislabeled `Done`; its diagnostic record is preserved/reconciled by Supervisor maintenance.
+
 ## Views
 
 - **Overview** — system health, active workers, human-action count, quota, compact service state, and collapsed telemetry maintenance.
