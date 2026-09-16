@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "prepare", "handoff"}
+ALLOWED_OPERATIONS = {"health", "sync-main", "prepare", "handoff"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -156,7 +156,7 @@ def prepare_request(request_path: Path, workspace_root: Path) -> RequestSpec | d
             operation,
             "InvalidWorkspace",
             81,
-            f"RPG Kingdom Git broker: workspace '{workspace}' is outside '{workspace_root}'",
+            f"workspace '{workspace}' is outside '{workspace_root}'",
         )
 
     return RequestSpec(request_path=request_path, request_id=request_id, operation=operation, workspace=workspace)
