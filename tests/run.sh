@@ -36,6 +36,8 @@ bash "$ROOT/tests/review-orchestrator-watchdog-test.sh"
 bash "$ROOT/tests/review-workflow-policy-test.sh"
 bash "$ROOT/tests/review-worker-test.sh"
 bash "$ROOT/tests/unity-resource-policy-test.sh"
+python3 "$ROOT/tests/structural-authoring-preflight-test.py"
+bash "$ROOT/tests/structural-authoring-guard-test.sh"
 bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
 bash "$ROOT/tests/unity-runner-host-syntax-test.sh"
@@ -72,6 +74,7 @@ python3 -m py_compile \
   "$ROOT/scripts/review-orchestrator.py" \
   "$ROOT/scripts/review-orchestrator-service.py" \
   "$ROOT/scripts/review_state.py" \
+  "$ROOT/scripts/structural-authoring-preflight.py" \
   "$ROOT/scripts/supervisor_activity.py" \
   "$ROOT/scripts/supervisor_dashboard.py" \
   "$ROOT/scripts/supervisor_detail.py" \
@@ -91,6 +94,7 @@ bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
 bash -n "$ROOT/scripts/unity-author.sh"
 bash -n "$ROOT/scripts/unity-author-host.sh"
+bash -n "$ROOT/scripts/unity-resource-guard.sh"
 python3 -m json.tool "$ROOT/schemas/review-verdict.schema.json" >/dev/null
 
 echo "supervisor-tests: PASS"
