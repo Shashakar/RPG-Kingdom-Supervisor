@@ -508,11 +508,17 @@ def worker_end(
 
 
 def active_workers() -> list[dict[str, Any]]:
+    """Return only worker lifetimes whose recorded PID is still alive.
+
+    Dead active-record files are intentionally left untouched here because telemetry collection and
+    the dashboard are read-only. Startup maintenance owns durable stale/orphan reconciliation into
+    history; until then, a dead PID is diagnostic state, not active work and not proof of success.
+    """
     items = []
     for path in sorted(_worker_active_dir().glob("*.json")):
         value = read_json(path)
-        if value:
-            value["alive"] = process_alive(value.get("pid"))
+        if value and process_alive(value.get("pid")):
+            value["alive"] = True
             items.append(sanitize(value))
     return items
 
