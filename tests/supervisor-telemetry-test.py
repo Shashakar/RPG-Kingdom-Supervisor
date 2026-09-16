@@ -77,6 +77,10 @@ def main() -> int:
         started = telemetry.worker_start("implementation", "gpt-5.6-luna", "medium", "luna", workspace)
         assert started["identifier"] == "GH-321"
         assert started["quotaBefore"]["rateLimits"]["primary"]["remainingPercent"] == 80
+        active_workers = telemetry.active_workers()
+        assert len(active_workers) == 1
+        assert active_workers[0]["runId"] == started["runId"]
+        assert active_workers[0]["alive"] is True
 
         rollout = codex / "sessions" / "2026" / "09" / "12" / "rollout-fixture.jsonl"
         rollout.parent.mkdir(parents=True)
@@ -111,6 +115,29 @@ def main() -> int:
         assert not (state / "workers" / "active" / "implementation.json").exists()
         assert (state / "workers" / "history" / f"{completed['runId']}.json").is_file()
 
+        # A dead PID can mean crash/orphaned cleanup rather than success. It must remain available
+        # for maintenance reconciliation, but it is not active work and must never reach Active work.
+        dead_active = state / "workers" / "active" / "repair.json"
+        telemetry.atomic_json(
+            dead_active,
+            {
+                "protocolVersion": 1,
+                "runId": "GH-132-repair-dead",
+                "issue": 132,
+                "identifier": "GH-132",
+                "role": "repair",
+                "model": "gpt-5.6-luna",
+                "effort": "low",
+                "route": "luna",
+                "workspace": str(root / "GH-132"),
+                "pid": 99999999,
+                "startedAt": telemetry.iso_now(),
+                "quotaBefore": {"status": "unavailable"},
+            },
+        )
+        assert dead_active.exists()
+        assert telemetry.active_workers() == []
+
         sanitized = telemetry.sanitize(
             {
                 "authorization": "Bearer abcdefghijklmnop",
@@ -127,6 +154,8 @@ def main() -> int:
         assert "super-secret-fixture-token" not in serialized
         assert operations["services"]["unity"]["health"] == "busy"
         assert operations["recentWorkers"][0]["runId"] == completed["runId"]
+        assert operations["activeWorkers"] == []
+        assert dead_active.exists()  # Read-only telemetry does not erase crash evidence.
 
     print("supervisor-telemetry-test: PASS")
     return 0
