@@ -18,27 +18,35 @@ import sys
 
 module_path = Path(sys.argv[1])
 workspace = Path(sys.argv[2])
-branch = sys.argv[3]
+operation = sys.argv[3]
 spec = importlib.util.spec_from_file_location("rpgk_git_handoff_host_wrapper", module_path)
 if spec is None or spec.loader is None:
     raise RuntimeError("failed to load git-handoff-host-wrapper.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-ok, message = module.sync_rearmed_branch(workspace, branch)
+if operation == "sync-main":
+    ok, message, _evidence = module.sync_rearmed_main(workspace)
+    label = "main"
+elif operation == "prepare":
+    branch = sys.argv[4]
+    ok, message = module.sync_rearmed_branch(workspace, branch)
+    label = branch
+else:
+    raise SystemExit(f"unsupported direct test operation: {operation}")
 if not ok:
     print(message or "continuation workspace refresh blocked", file=sys.stderr)
     raise SystemExit(73)
-print(f"refreshed {branch}")
+print(f"refreshed {label}")
 PY
 chmod +x "$DIRECT_SYNC"
 
 cat > "$FAKE_SUPERVISOR/scripts/git-handoff.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "${1:-}" == "prepare" ]] || { echo "test adapter supports prepare only" >&2; exit 64; }
-shift
-branch=""
+operation="${1:-}"
+shift || true
 project="$PWD"
+branch=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --branch) branch="$2"; shift 2 ;;
@@ -46,11 +54,23 @@ while [[ $# -gt 0 ]]; do
     *) echo "unexpected test adapter argument: $1" >&2; exit 64 ;;
   esac
 done
-[[ -n "$branch" ]] || { echo "missing branch" >&2; exit 64; }
-python3 "$RPGK_TEST_DIRECT_SYNC" \
-  "$RPGK_TEST_REAL_SUPERVISOR_ROOT/scripts/git-handoff-host-wrapper.py" \
-  "$project" \
-  "$branch"
+case "$operation" in
+  sync-main)
+    python3 "$RPGK_TEST_DIRECT_SYNC" \
+      "$RPGK_TEST_REAL_SUPERVISOR_ROOT/scripts/git-handoff-host-wrapper.py" \
+      "$project" sync-main
+    ;;
+  prepare)
+    [[ -n "$branch" ]] || { echo "missing branch" >&2; exit 64; }
+    python3 "$RPGK_TEST_DIRECT_SYNC" \
+      "$RPGK_TEST_REAL_SUPERVISOR_ROOT/scripts/git-handoff-host-wrapper.py" \
+      "$project" prepare "$branch"
+    ;;
+  *)
+    echo "test adapter supports sync-main and prepare only" >&2
+    exit 64
+    ;;
+esac
 SH
 chmod +x "$FAKE_SUPERVISOR/scripts/git-handoff.sh"
 
@@ -101,6 +121,38 @@ run_refresh() {
       bash "$ROOT/scripts/refresh-rearmed-workspace.sh"
   )
 }
+
+# Regression for GH-142: an issue that halted before branch creation can remain on stale main.
+# Reviewed rearm must fast-forward it before dispatch-time Unity/structural preflight reads project files.
+main_workspace="$(prepare_workspace GH-122 main)"
+git -C "$SEED" switch -q main
+printf 'preflight contract\n' > "$SEED/new-preflight-contract.txt"
+git -C "$SEED" add new-preflight-contract.txt
+git -C "$SEED" commit -qm "land preflight contract"
+git -C "$SEED" push -q origin main
+[[ ! -f "$main_workspace/new-preflight-contract.txt" ]] || { echo "main fixture was not stale" >&2; exit 1; }
+run_refresh "$main_workspace" >/dev/null
+[[ -f "$main_workspace/new-preflight-contract.txt" ]] || { echo "rearmed main did not materialize current origin/main" >&2; exit 1; }
+[[ "$(git -C "$main_workspace" branch --show-current)" == "main" ]] || { echo "sync-main changed branch" >&2; exit 1; }
+[[ "$(git -C "$main_workspace" rev-parse HEAD)" == "$(git -C "$main_workspace" rev-parse origin/main)" ]] || {
+  echo "rearmed main did not fast-forward exactly to origin/main" >&2
+  exit 1
+}
+[[ -z "$(git -C "$main_workspace" status --porcelain --untracked-files=all)" ]] || {
+  echo "sync-main left a dirty worktree" >&2
+  exit 1
+}
+
+# Dirty main is never auto-reset merely to satisfy preflight.
+dirty_main_workspace="$(prepare_workspace GH-121 main)"
+printf 'preserve me\n' > "$dirty_main_workspace/local-dirty.txt"
+set +e
+run_refresh "$dirty_main_workspace" >"$TMP/dirty-main.out" 2>"$TMP/dirty-main.err"
+status=$?
+set -e
+[[ "$status" -eq 73 ]] || { echo "expected dirty main refresh to fail with 73, got $status" >&2; exit 1; }
+grep -Fq "contains source changes" "$TMP/dirty-main.err" || { echo "dirty main failure was not explained" >&2; exit 1; }
+[[ "$(cat "$dirty_main_workspace/local-dirty.txt")" == "preserve me" ]] || { echo "dirty main work was altered" >&2; exit 1; }
 
 # A clean continuation branch that is durable on origin should absorb current main on the host.
 workspace="$(prepare_workspace GH-123 codex/test-refresh)"
