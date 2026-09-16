@@ -15,7 +15,7 @@ case "$url" in
     printf '%s\n' "${FAKE_LABELS_JSON:-[]}"
     ;;
   */issues/142)
-    printf '%s\n' "${FAKE_ISSUE_JSON:-{\"state\":\"open\",\"body\":\"\"}}"
+    printf '%s\n' "${FAKE_ISSUE_JSON:?}"
     ;;
   */issues/142/labels|*/issues/142/comments|*/issues/142/labels/*)
     printf '{}\n'
@@ -31,7 +31,7 @@ cat > "$TMP/fake-unity-runner.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'called\n' >> "$FAKE_RUNNER_CALLS"
-[[ "${1:-}" == "health" ]] || exit 99
+[[ "${1:-}" == "health" ]] || { echo "unexpected fake runner command" >&2; exit 99; }
 printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
@@ -95,7 +95,7 @@ jq -e '.status == "supported" and .authoringAuthorized == true' "$TMP/state/stru
 reset_state
 export FAKE_ISSUE_JSON='{"state":"open","body":"<!-- symphony-scene-authoring-requirements\n{\"mode\":\"deferred\",\"tier\":\"mechanical-structural\",\"sourcePhaseOnly\":true,\"operations\":[\"add-component\"],\"dependency\":\"merge concrete types then extend allowlist\"}\n-->"}'
 run_guard >/dev/null
-[[ -e "$FAKE_RUNNER_CALLS" ]] || { echo "deferred source phase should still reach Unity health/validation path" >&2; exit 1; }
+[[ -e "$FAKE_RUNNER_CALLS" ]] || { echo "deferred source phase should still reach Unity health preflight" >&2; exit 1; }
 [[ ! -f "$TMP/state/authoring/GH-142.json" ]] || { echo "deferred source phase must not receive a structural authoring receipt" >&2; exit 1; }
 jq -e '.status == "deferred" and .authoringAuthorized == false' "$TMP/state/structural-authoring-preflight/GH-142.json" >/dev/null
 
