@@ -21,10 +21,16 @@ workspace_name="$(basename "$PWD")"
 current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
 [[ -n "$current_branch" ]] || fail "rearmed workspace is detached; refusing to refresh ambiguous Git state"
 
-# A worker can halt before it ever creates its issue branch. In that case leave main alone: the
-# worker's later host-owned prepare operation fetches and creates its codex/* branch from origin/main.
+# Some issues halt before an implementation branch is ever created. Dispatch-time guards still run
+# before a later worker can call `git-handoff prepare`, so stale main must be refreshed here through
+# the host-owned broker. The broker permits only a clean, fast-forward-only main sync and fails
+# closed on dirty/diverged state.
 if [[ "$current_branch" == "main" ]]; then
-  echo "RPG Kingdom continuation refresh: workspace is still on main; branch preparation will start from current origin/main"
+  result="$(bash "$SUPERVISOR_ROOT/scripts/git-handoff.sh" sync-main --project "$PWD")" || \
+    fail "host-owned Git sync-main could not refresh the rearmed workspace"
+  head_sha="$(git rev-parse HEAD)"
+  echo "RPG Kingdom continuation refresh: host-owned sync-main refreshed main at $head_sha"
+  [[ -z "$result" ]] || echo "$result" >&2
   exit 0
 fi
 
