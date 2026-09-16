@@ -1,0 +1,112 @@
+<style id="finished-tasks-style">
+#finished-tasks .finished-title{display:flex;align-items:baseline;gap:8px;min-width:0}
+#finished-tasks .finished-title .timeline-toggle{font-weight:720}
+#finished-tasks .finished-task-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#finished-tasks .status-passed{color:var(--good)}
+@media(max-width:560px){
+  #finished-tasks .finished-task-name{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+}
+</style>
+<script>
+(function(){
+  let cachedFinished = null;
+
+  function ensureFinishedSection(){
+    if (document.getElementById('finished-tasks')) return;
+    const active = document.getElementById('active-workers');
+    if (!active) return;
+    const head = document.createElement('div');
+    head.className = 'section-head';
+    head.style.marginTop = '20px';
+    head.innerHTML = '<div><h2>Finished tasks</h2><p>Trusted successful terminal states only; halted or awaiting-human work is never called finished.</p></div>';
+    const panel = document.createElement('div');
+    panel.id = 'finished-tasks';
+    panel.className = 'panel compact-list';
+    active.insertAdjacentElement('afterend', head);
+    head.insertAdjacentElement('afterend', panel);
+  }
+
+  function reportCompleteItems(){
+    return (state.lifecycle?.queues?.report_complete || []).map(item => ({
+      issue: item.issue,
+      identifier: item.identifier,
+      title: item.title,
+      status: 'report_complete',
+      statusLabel: 'Report complete',
+      completedAt: item.stateSince,
+      latestWorkerOutcome: item.latestWorkerOutcome,
+      model: item.route?.model,
+      effort: item.route?.effort,
+      route: item.route?.route
+    }));
+  }
+
+  function workerMeta(item){
+    const parts = [];
+    if (item.latestWorkerOutcome) parts.push(String(item.latestWorkerOutcome).replaceAll('_', ' '));
+    if (item.model || item.effort) parts.push(`${item.model || '—'}${item.effort ? ` / ${item.effort}` : ''}`);
+    else if (item.route) parts.push(String(item.route));
+    return parts.join(' · ') || 'trusted lifecycle completion';
+  }
+
+  function renderFinished(data){
+    ensureFinishedSection();
+    const panel = document.getElementById('finished-tasks');
+    if (!panel) return;
+    if (!data || data.available === false) {
+      const reason = (data?.errors || []).join('; ') || 'Finished-task lifecycle data is unavailable.';
+      panel.innerHTML = `<div class="zero">${esc(reason)}</div>`;
+      return;
+    }
+
+    const byIssue = new Map();
+    [...(data.items || []), ...reportCompleteItems()].forEach(item => {
+      if (!item?.issue) return;
+      const prior = byIssue.get(item.issue);
+      const priorTime = prior?.completedAt ? new Date(prior.completedAt).getTime() : 0;
+      const nextTime = item.completedAt ? new Date(item.completedAt).getTime() : 0;
+      if (!prior || nextTime >= priorTime) byIssue.set(item.issue, item);
+    });
+    const items = [...byIssue.values()]
+      .sort((a,b) => (new Date(b.completedAt || 0).getTime() || 0) - (new Date(a.completedAt || 0).getTime() || 0))
+      .slice(0, 12);
+
+    panel.innerHTML = items.length ? items.map(item => `<div class="worker-summary">
+      <div>
+        <div class="finished-title"><button class="timeline-toggle" onclick="openIssue('${esc(item.identifier)}')">${esc(item.identifier)}</button><span class="finished-task-name">${esc(item.title || 'Untitled task')}</span></div>
+        <div class="small">${esc(workerMeta(item))}</div>
+      </div>
+      <div><div class="small">State</div><span class="pill status-passed">${esc(item.statusLabel || 'Done')}</span></div>
+      <div><div class="small">Finished</div><span class="mono">${esc(fmtTime(item.completedAt))}</span></div>
+      <div><button type="button" onclick="openIssue('${esc(item.identifier)}')">Issue detail</button></div>
+    </div>`).join('') : '<div class="zero">No trusted finished tasks in the recent window.</div>';
+  }
+
+  async function loadFinishedTasks(){
+    try {
+      const response = await fetch('/api/finished-tasks', {cache:'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      cachedFinished = await response.json();
+    } catch (error) {
+      cachedFinished = {available:false, errors:[String(error)]};
+    }
+    renderFinished(cachedFinished);
+  }
+
+  const baseRenderQueues = renderQueues;
+  renderQueues = function(){
+    baseRenderQueues();
+    if (cachedFinished) renderFinished(cachedFinished);
+  };
+
+  const baseRefreshAll = refreshAll;
+  refreshAll = async function(){
+    const result = await baseRefreshAll();
+    await loadFinishedTasks();
+    return result;
+  };
+
+  ensureFinishedSection();
+  loadFinishedTasks();
+})();
+</script>
