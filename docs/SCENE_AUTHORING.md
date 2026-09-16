@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Supervisor provides a narrow host-owned seam for deterministic production-scene changes that RPG Kingdom explicitly classifies as an approved scene-authoring tier. The model chooses a typed request; Unity performs it through reviewed RPG Kingdom Editor code; Supervisor owns authorization, Windows/Unity execution, and copy-back into the GH workspace.
+Supervisor provides a narrow host-owned seam for deterministic production-scene changes that RPG Kingdom explicitly classifies as an approved scene-authoring tier. The model chooses a typed request; Unity performs it through reviewed RPG Kingdom Editor code; Supervisor owns authorization, capability preflight, Windows/Unity execution, and copy-back into the GH workspace.
 
 This does not grant general production-scene authority or creative scene composition.
 
@@ -19,7 +19,73 @@ An authoring issue must also own `resource:unity-editor`. When validation is req
 
 The two authoring labels are mutually exclusive. Tier-1 authority does not grant Tier-2 authority, and Tier-2 authority does not implicitly grant Tier-1 requests. The Unity preflight writes the exact authorized request tier into a host-owned receipt for that worker lifetime. The client, broker, host adapter, and Windows staging runner reject unknown tiers; the broker and host additionally require the request tier to exactly match the receipt.
 
-Structural authority is never inferred from issue prose, model intent, or possession of the Unity resource.
+Structural authority is never inferred from issue prose, model intent, or possession of the Unity resource. Authorization and project executor capability are separate gates: the label grants permission to request Tier 2, while the RPG Kingdom capability contract determines whether the declared operations/types are actually supported.
+
+## Structural capability preflight
+
+RPG Kingdom owns the reviewed capability surface in:
+
+`Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json`
+
+Supervisor consumes that checked-in contract from the issue workspace. It does **not** maintain its own copy of RPG Kingdom's structural allowlist.
+
+A new Tier-2 issue should declare deterministic structural requirements in exactly one hidden JSON block:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "mechanical-structural",
+  "operations": ["add-component", "set-object-reference"],
+  "componentAdditions": [
+    "RPGKingdom.Runtime.SomeSystem.SomeReviewedAdapter"
+  ],
+  "componentRemovals": [],
+  "dependency": "optional operator-facing dependency or next action"
+}
+-->
+```
+
+For `mode: "known"`, Supervisor compares the requested tier, operation kinds, component additions, and component removals with the project-owned capability contract **before Codex starts**. A known mismatch removes the normal dispatch path through the existing Unity halt semantics, records durable preflight evidence, and reports the exact unsupported requirement and recommended dependency action. It must not launch an expensive implementation worker merely to rediscover the mismatch.
+
+Preflight evidence is retained under:
+
+`$RPGK_SUPERVISOR_STATE_ROOT/structural-authoring-preflight/GH-N.json`
+
+The evidence includes the authorization tier, project contract path/revision/schema version, declared requirements, supported/unsupported result, and recommended next action. Halt comments surface the same diagnosis in GitHub, which makes it visible through normal issue diagnostics/dashboard views.
+
+### Two-phase / deferred structural work
+
+A feature may introduce a new component type that cannot be allowlisted until the source type exists on `main`. That is not permission to self-authorize the type from a feature branch.
+
+Declare the source phase explicitly:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "deferred",
+  "tier": "mechanical-structural",
+  "sourcePhaseOnly": true,
+  "operations": ["add-component"],
+  "dependency": "merge concrete source types, then land a bounded allowlist extension"
+}
+-->
+```
+
+For deferred work, Supervisor may continue the source/validation phase when the already-known tier/operation kinds are supported, but it intentionally withholds the structural authoring receipt. Therefore the worker cannot use `unity-author.sh` for production structural wiring during that lifetime even though the issue remains classified as structural work. After the new types merge, a separate bounded RPG Kingdom allowlist extension updates the executor/capability contract. The feature can then be explicitly rearmed with `mode: "known"` requirements for final scene wiring.
+
+The required lifecycle is:
+
+```text
+Phase A: feature implements new source/component types, sourcePhaseOnly=true
+    -> PR/review/human merge
+Phase B: separate project allowlist issue reviews those concrete types/prerequisites
+    -> PR/review/human merge
+Phase C: feature requirements become mode=known
+    -> explicit rearm -> production scene wiring -> fresh validation -> PR completion
+```
+
+Legacy Tier-2 issues created before this metadata contract remain diagnosable as `unknown` and retain their prior authorization behavior. New or materially revised Tier-2 issues should always carry the explicit requirements block so unsupported work can be stopped before model dispatch.
 
 ## Worker interface
 
@@ -99,12 +165,13 @@ Object names may be used only when unique in the loaded scene. Use the full hier
 ## Transaction boundary
 
 1. Supervisor validates the request envelope and exact dispatch authorization.
-2. Source `Assets`, `Packages`, and `ProjectSettings` are mirrored to the persistent Windows staging project.
-3. The Windows runner independently accepts only the known Tier-1/Tier-2 request tiers.
-4. Unity opens and mutates the requested scene through the reviewed RPG Kingdom Editor executor.
-5. Unity writes a structured result naming the changed asset set.
-6. Supervisor requires that changed set to exactly equal the one requested scene.
-7. **Only after all checks pass** does the Windows host adapter atomically replace that scene in the GH source workspace.
+2. For explicit Tier-2 requirements, Supervisor compares the declared capability requirements with the project-owned checked-in capability contract before launching Codex.
+3. Source `Assets`, `Packages`, and `ProjectSettings` are mirrored to the persistent Windows staging project.
+4. The Windows runner independently accepts only the known Tier-1/Tier-2 request tiers.
+5. Unity opens and mutates the requested scene through the reviewed RPG Kingdom Editor executor.
+6. Unity writes a structured result naming the changed asset set.
+7. Supervisor requires that changed set to exactly equal the one requested scene.
+8. **Only after all checks pass** does the Windows host adapter atomically replace that scene in the GH source workspace.
 
 A failed or timed-out authoring operation leaves the source scene untouched. Staging is disposable. Tier 2 does not permit additional staged assets to be copied back.
 
@@ -116,6 +183,10 @@ Authoring evidence is retained under `Logs/SymphonyUnityAuthoring/<request-id>/`
 
 ## Non-goals
 
+- making Supervisor authoritative for RPG Kingdom's structural allowlist;
+- inferring structural requirements or permission from arbitrary natural-language issue prose;
+- auto-adding component types to the RPG Kingdom executor;
+- feature branches self-authorizing new component types;
 - arbitrary Unity command execution;
 - arbitrary C# or reflection RPC;
 - direct `.unity`/`.prefab` YAML editing;
