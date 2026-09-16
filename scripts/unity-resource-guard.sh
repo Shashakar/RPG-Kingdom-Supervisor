@@ -14,6 +14,8 @@ LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 BROKER_STATUS="$STATE_ROOT/unity-broker/status.json"
 UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
+STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
+CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
 
 workspace_name="$(basename "$PWD")"
 if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
@@ -24,6 +26,8 @@ issue_number="${BASH_REMATCH[1]}"
 issue_identifier="GH-$issue_number"
 AUTHORING_DIR="$STATE_ROOT/authoring"
 AUTHORING_MARKER="$AUTHORING_DIR/$issue_identifier.json"
+PREFLIGHT_DIR="$STATE_ROOT/structural-authoring-preflight"
+PREFLIGHT_EVIDENCE="$PREFLIGHT_DIR/$issue_identifier.json"
 
 if [[ -z "$TOKEN" ]]; then
   echo "RPG Kingdom Unity guard: SYMPHONY_GITHUB_TOKEN is missing; cannot inspect issue labels safely" >&2
@@ -169,9 +173,60 @@ if [[ "$mechanical_authoring" == "true" && "$structural_authoring" == "true" ]];
   halt_issue "conflicting scene-authoring labels: mechanical and structural authority cannot be granted together"
   exit 75
 fi
+
+structural_deferred="false"
+mkdir -p "$PREFLIGHT_DIR"
+rm -f -- "$PREFLIGHT_EVIDENCE"
+if [[ "$structural_authoring" == "true" ]]; then
+  issue_json="$(api GET "/issues/$issue_number")"
+  issue_body_file="$(mktemp)"
+  jq -r '.body // ""' <<<"$issue_json" > "$issue_body_file"
+  revision="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
+
+  if grep -qi 'symphony-scene-authoring-requirements' "$issue_body_file"; then
+    set +e
+    python3 "$STRUCTURAL_PREFLIGHT" \
+      --issue-body-file "$issue_body_file" \
+      --contract "$CAPABILITY_CONTRACT" \
+      --revision "$revision" \
+      --output "$PREFLIGHT_EVIDENCE" >/dev/null
+    preflight_status=$?
+    set -e
+    rm -f -- "$issue_body_file"
+
+    preflight_state="$(jq -r '.status // "unknown"' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf 'unknown')"
+    if (( preflight_status != 0 )); then
+      preflight_reason="$(jq -r '.reason // "structural capability preflight failed"' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf 'structural capability preflight failed')"
+      unsupported="$(jq -r '[.unsupported[]? | "\(.kind)=\(.value)"] | join(", ")' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)"
+      recommended="$(jq -r '.recommendedNextAction // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)"
+      detail="$preflight_reason"
+      [[ -n "$unsupported" ]] && detail="$detail; unsupported: $unsupported"
+      [[ -n "$recommended" ]] && detail="$detail; next: $recommended"
+      halt_issue "structural scene-authoring capability preflight $preflight_state: $detail"
+      exit 78
+    fi
+
+    if [[ "$preflight_state" == "deferred" ]]; then
+      structural_deferred="true"
+      echo "RPG Kingdom Unity guard: structural authoring is deferred for $issue_identifier; source phase may proceed without a scene-authoring receipt"
+    else
+      echo "RPG Kingdom Unity guard: structural authoring capability preflight passed for $issue_identifier"
+    fi
+  else
+    rm -f -- "$issue_body_file"
+    jq -cn \
+      --arg issue "$issue_identifier" \
+      --arg revision "$revision" \
+      --arg contract "$CAPABILITY_CONTRACT" \
+      '{protocolVersion:1,issue:$issue,status:"unknown",supported:null,authorizationTier:"mechanical-structural",contractPath:$contract,contractRevision:$revision,reason:"legacy structural issue has no explicit symphony-scene-authoring-requirements block"}' \
+      > "$PREFLIGHT_EVIDENCE"
+    echo "RPG Kingdom Unity guard: structural requirements are undeclared for $issue_identifier; preserving legacy authorization behavior"
+  fi
+fi
+
 mkdir -p "$AUTHORING_DIR"
 rm -f -- "$AUTHORING_MARKER"
-if [[ "$mechanical_authoring" == "true" || "$structural_authoring" == "true" ]]; then
+if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
   authoring_tier="mechanical"
   [[ "$structural_authoring" == "true" ]] && authoring_tier="mechanical-structural"
   jq -cn \
