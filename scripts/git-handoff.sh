@@ -9,6 +9,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   git-handoff.sh health [--project PATH]
+  git-handoff.sh sync-main [--project PATH]
   git-handoff.sh prepare --branch codex/NAME [--project PATH]
   git-handoff.sh handoff --branch codex/NAME --commit-message MESSAGE --pr-title TITLE [--pr-body BODY | --pr-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
   git-handoff.sh report-complete [--report-body BODY | --report-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
@@ -99,7 +100,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$cli_operation" in
-  health) ;;
+  health|sync-main) ;;
   prepare)
     [[ -n "$branch" ]] || { echo "git-handoff.sh prepare requires --branch" >&2; exit 64; }
     ;;
@@ -222,7 +223,7 @@ elif [[ -n "$stdout" ]]; then
 fi
 
 case "$status" in
-  HostBusy|TimedOut|StaleRequest|BrokerStopped|InvalidWorkspace|InvalidBranch|InvalidOrigin|UnexpectedBranch|ValidationEvidenceMissing|ValidationEvidenceInvalid|ValidationEvidenceFailed|ValidationEvidenceStale|GitFailed|GitHubApiFailed|GitHubNetworkFailed|GitHubAuthMissing|MainNotIntegrated|NonFastForward|ForbiddenPath|DirtyAfterCommit|NoChanges|PushVerificationFailed|ReportOnlyNotAllowed|ReportEvidenceMissing|ReportEvidenceInvalid|ReportWorkspaceDirty|ReportAlreadyComplete|ReportLifecycleIncomplete)
+  HostBusy|TimedOut|StaleRequest|BrokerStopped|InvalidWorkspace|InvalidBranch|InvalidOrigin|UnexpectedBranch|DirtyWorkspace|MainDiverged|ValidationEvidenceMissing|ValidationEvidenceInvalid|ValidationEvidenceFailed|ValidationEvidenceStale|GitFailed|GitHubApiFailed|GitHubNetworkFailed|GitHubAuthMissing|MainNotIntegrated|NonFastForward|ForbiddenPath|DirtyAfterCommit|NoChanges|PushVerificationFailed|ReportOnlyNotAllowed|ReportEvidenceMissing|ReportEvidenceInvalid|ReportWorkspaceDirty|ReportAlreadyComplete|ReportLifecycleIncomplete)
     echo "RPG Kingdom Git handoff: $status" >&2
     ;;
 esac
