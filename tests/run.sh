@@ -21,6 +21,7 @@ bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
 python3 "$ROOT/tests/supervisor-activity-test.py"
+python3 "$ROOT/tests/finished-tasks-test.py"
 python3 "$ROOT/tests/supervisor-maintenance-test.py"
 python3 "$ROOT/tests/supervisor-detail-test.py"
 python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
@@ -58,6 +59,7 @@ bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
   "$ROOT/scripts/codex-capability-policy.py" \
+  "$ROOT/scripts/finished_tasks.py" \
   "$ROOT/scripts/first-party-skill-policy.py" \
   "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/continuation-policy.py" \
