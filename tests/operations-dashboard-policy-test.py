@@ -4,17 +4,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "scripts" / "supervisor_dashboard.py"
 TEMPLATE = ROOT / "scripts" / "supervisor_dashboard.html"
+FINISHED = ROOT / "scripts" / "finished_tasks_dashboard.html"
 
 python_text = DASHBOARD.read_text(encoding="utf-8")
 assert TEMPLATE.is_file(), "dashboard template is missing"
+assert FINISHED.is_file(), "finished-task dashboard fragment is missing"
 html = TEMPLATE.read_text(encoding="utf-8")
-combined = python_text + "\n" + html
+finished_html = FINISHED.read_text(encoding="utf-8")
+combined = python_text + "\n" + html + "\n" + finished_html
 
-# API-backed observability from #33/#46 remains reachable.
+# API-backed observability from #33/#46/#99 remains reachable.
 for route, collector in (
     ('parsed.path == "/api/operations"', "supervisor_telemetry.collect_operations()"),
     ('parsed.path == "/api/maintenance"', "supervisor_maintenance.status()"),
     ('parsed.path == "/api/lifecycle"', "supervisor_activity.collect()"),
+    ('parsed.path == "/api/finished-tasks"', "finished_tasks.collect()"),
     ('parsed.path == "/api/usage-analysis"', "supervisor_usage_analysis.analyze("),
 ):
     assert route in python_text
@@ -25,8 +29,10 @@ assert 'r"/api/issue/(\\d+)"' in python_text
 assert 'parsed.path == "/api/unity/runs"' in python_text
 assert 'r"/api/unity/run/([^/]+)"' in python_text
 
-# Split template is an explicit deployment dependency and must be referenced directly.
+# Split templates are explicit deployment dependencies and must be referenced directly.
 assert 'PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"' in python_text
+assert 'FINISHED_TASKS_PATH = SCRIPT_DIR / "finished_tasks_dashboard.html"' in python_text
+assert 'FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")' in python_text
 assert 'PAGE_PATH.read_text(encoding="utf-8")' in python_text
 
 # Quota UX distinguishes fresh, stale, unavailable, and not-yet-sampled state without inferring
@@ -69,6 +75,22 @@ for text in (
     assert text in html, text
 for service in ("symphony", "review", "unity", "git"):
     assert service in html
+
+# #99 exposes trusted successful terminal work on Overview without confusing PID death, halt,
+# human review, or human attention with completion. Open report-only completion is merged from the
+# authoritative lifecycle queue.
+for text in (
+    "Finished tasks",
+    "Trusted successful terminal states only; halted or awaiting-human work is never called finished.",
+    'id = \'finished-tasks\'',
+    "/api/finished-tasks",
+    "Report complete",
+    "status-passed",
+    "No trusted finished tasks in the recent window.",
+):
+    assert text in finished_html, text
+assert "FINISHED_TASKS_SCRIPT" in python_text
+assert "TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT" in python_text
 
 # Work/activity keeps all lifecycle queues and issue drill-down is a direct path.
 for queue in (
@@ -122,7 +144,7 @@ for text in (
     ".service-strip{grid-template-columns:repeat(2,minmax(0,1fr))",
 ):
     assert text in python_text, text
-assert "COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT" in python_text
+assert "COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT" in python_text
 
 # Core operator content remains present; compact mode only changes presentation.
 for identifier in (
