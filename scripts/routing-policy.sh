@@ -27,6 +27,11 @@ rpgk_count_labels() {
 rpgk_select_route() {
   local labels="${1:-}"
 
+  if rpgk_has_label model:terra "$labels" || rpgk_has_label repair-route:terra "$labels"; then
+    printf 'Terra routing has been retired; use Luna, Sol, or Astra\n' >&2
+    return 7
+  fi
+
   local model_labels=(model:luna model:sol model:astra)
   local risk_labels=(risk:mechanical risk:normal risk:investigative risk:architecture risk:end-to-end)
   local effort_labels=(effort:low effort:medium effort:high)
