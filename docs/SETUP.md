@@ -132,7 +132,6 @@ Model/effort overrides:
 
 ```text
 model:luna
-model:terra
 model:sol
 model:astra
 effort:low
@@ -176,14 +175,14 @@ On a non-WSL host the PowerShell syntax check may report `SKIP`; the evaluated W
 
 | Issue policy | Model | Effort |
 |---|---|---|
-| `risk:mechanical` | GPT-5.6 Luna | low |
-| `risk:normal` | GPT-5.6 Luna | medium |
-| `risk:investigative` | GPT-5.6 Terra | medium |
-| `risk:architecture` | GPT-5.6 Sol | high |
+| `risk:mechanical` | GPT-6 Luna | low |
+| `risk:normal` | GPT-6 Luna | medium |
+| `risk:investigative` | GPT-6 Sol | medium |
+| `risk:architecture` | GPT-6 Sol | high |
 | `risk:end-to-end` | GPT-6 Astra | medium |
-| no risk/model label | GPT-5.6 Luna | medium |
+| no risk/model label | GPT-6 Luna | medium |
 
-Use Terra when ambiguity/multiple runtime layers justify its measured higher allowance cost. Sol remains architecture-oriented. Astra remains reserved for genuinely difficult end-to-end/tool-heavy work.
+Use GPT-6 Sol at medium effort when ambiguity or multiple runtime layers justify escalation beyond Luna. Use GPT-6 Sol at high effort for architecture-sensitive work. Astra remains reserved for genuinely difficult end-to-end/tool-heavy work.
 
 ## 8. Unity scheduling policy
 
@@ -395,7 +394,7 @@ Do not commit secrets in any override.
 
 ## 15. Benchmarks and next phase
 
-#91 is the Phase 1 usage baseline. #93 and #95 establish the Luna/Terra Phase 2 measurements in `PHASE2_BUDGETED_ROUTING.md`.
+#91 is the Phase 1 usage baseline. #93 and #95 establish the historical Luna/Terra Phase 2 measurements in `PHASE2_BUDGETED_ROUTING.md`.
 
 Phase 4 should be validated with real Unity-required work rather than a synthetic Codex benchmark. Unity test execution itself does not consume Codex model allowance while the tool process is running, but the worker still spends model turns interpreting failures and making changes.
 
