@@ -28,7 +28,7 @@ bash "$ROOT/scripts/review-worker.sh" \
   "$TMP/GH-321" \
   "$TMP/prompt.txt" \
   "$TMP/verdict.json" \
-  gpt-5.6-terra \
+  gpt-6-sol \
   medium
 
 python3 - "$TMP/verdict.json" "$TMP/state" <<'PY'
