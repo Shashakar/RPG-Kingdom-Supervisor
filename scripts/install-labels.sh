@@ -15,6 +15,14 @@ create_label() {
   echo "label ready: $name"
 }
 
+delete_label_if_exists() {
+  local name="$1"
+  if gh label view "$name" --repo "$REPO" >/dev/null 2>&1; then
+    gh label delete "$name" --repo "$REPO" --yes >/dev/null
+    echo "retired label removed: $name"
+  fi
+}
+
 create_label "symphony:ready" "0E8A16" "Dispatch lease for unattended Symphony implementation"
 create_label "symphony:halted" "D93F0B" "Automatic redispatch stopped; human/ChatGPT review required"
 create_label "symphony:rearm" "BFDADC" "One-shot approval for a reviewed continuation; consumed by host preflight"
@@ -29,11 +37,11 @@ create_label "repair-route:luna" "EDEDED" "Reviewer advisory route for current b
 create_label "repair-route:sol" "FFD966" "Reviewer advisory route for current bounded repair: Sol"
 create_label "repair-route:astra" "8B5CF6" "Reviewer advisory route for current bounded repair: Astra"
 
-create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to Luna / low"
-create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to Luna / medium"
+create_label "risk:mechanical" "C5DEF5" "Mechanical/docs/repetitive work; defaults to GPT-6 Luna / low"
+create_label "risk:normal" "BFD4F2" "Normal bounded implementation; defaults to GPT-6 Luna / medium"
 create_label "risk:investigative" "1D76DB" "Ambiguous debugging or multi-layer investigation; defaults to GPT-6 Sol / medium"
-create_label "risk:architecture" "D4C5F9" "Architecture-sensitive/cross-system work; defaults to Sol / high"
-create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults to Astra / medium"
+create_label "risk:architecture" "D4C5F9" "Architecture-sensitive/cross-system work; defaults to GPT-6 Sol / high"
+create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults to GPT-6 Astra / medium"
 
 create_label "model:luna" "EDEDED" "Explicitly route this Symphony task to GPT-6 Luna"
 create_label "model:sol" "FFD966" "Explicitly route this Symphony task to GPT-6 Sol"
@@ -49,3 +57,9 @@ create_label "validation:unity-optional" "FBCA04" "Work may proceed without Unit
 
 create_label "authoring:scene-mechanical" "0052CC" "Explicitly permits Tier-1 deterministic production-scene configuration through the approved Unity authoring seam"
 create_label "authoring:scene-structural" "5319E7" "Explicitly permits separately scoped Tier-2 structural scene authoring; not granted by mechanical authoring"
+
+
+# Terra was retired from active routing. Remove legacy labels only after the replacement
+# routing policy is deployed so stale operator/reviewer hints cannot silently persist.
+delete_label_if_exists "model:terra"
+delete_label_if_exists "repair-route:terra"
