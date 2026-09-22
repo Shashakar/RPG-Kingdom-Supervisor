@@ -25,7 +25,7 @@ for name in (
     os.environ.pop(name, None)
 
 assert policy.route_class(["risk:mechanical"]) == "luna"
-assert policy.route_class(["risk:investigative"]) == "terra"
+assert policy.route_class(["risk:investigative"]) == "sol"
 assert policy.route_class(["risk:architecture"]) == "sol"
 assert policy.route_class(["risk:end-to-end"]) == "astra"
 assert policy.route_class(["risk:investigative", "model:luna"]) == "luna"
@@ -45,15 +45,15 @@ def quota(primary: float, weekly: float, observed: str | None = None) -> dict:
 
 
 healthy_quota = quota(80, 90)
-allowed, reason, detail = policy.quota_decision(healthy_quota, "terra")
+allowed, reason, detail = policy.quota_decision(healthy_quota, "sol")
 assert allowed, reason
 assert detail["minimumPrimaryPercent"] == 35.0
 
 low_quota = quota(20, 90)
-allowed, reason, _ = policy.quota_decision(low_quota, "terra")
+allowed, reason, _ = policy.quota_decision(low_quota, "sol")
 assert not allowed and "below continuation threshold" in reason
 
-allowed, reason, _ = policy.quota_decision({"status": "unavailable", "reason": "probe failed"}, "terra")
+allowed, reason, _ = policy.quota_decision({"status": "unavailable", "reason": "probe failed"}, "sol")
 assert not allowed and "probe failed" in reason
 
 # Spend is derived from authoritative remaining-percentage movement; token counts are not mapped
@@ -230,7 +230,7 @@ try:
     policy.telemetry.append_event = lambda *args, **kwargs: None
     policy.ensure_local_excludes = lambda workspace: None
 
-    # GH-111 regression: Terra turn 2 is no longer stopped merely because it is Terra. A bounded
+    # GH-111 regression: Sol turn 2 is no longer stopped merely because it is Sol. A bounded
     # analysis-only continuation is allowed when quota/spend are healthy, then a second invisible
     # turn stops if it still produces no source/Unity progress.
     with tempfile.TemporaryDirectory() as temp:
@@ -259,7 +259,7 @@ try:
         assert second["decision"] == "continue"
         assert second["progress"]["analysisGraceUsed"] is True
         assert "hard turn ceiling not reached (2/4)" in second["reason"]
-        assert "route terra automatic turn limit" not in second["reason"]
+        assert "route sol automatic turn limit" not in second["reason"]
 
         current_quota[0] = quota(87, 89)
         result = policy.evaluate(workspace, "GH-111", 3, 4, ["risk:investigative"])
@@ -267,7 +267,7 @@ try:
         stopped = json.loads((workspace / policy.STOP_NAME).read_text(encoding="utf-8"))
         assert "second consecutive host-invisible turn" in stopped["reason"]
 
-    # Productive Terra may continue through turn 3 and only hits the hard ceiling after turn 4.
+    # Productive Sol may continue through turn 3 and only hits the hard ceiling after turn 4.
     with tempfile.TemporaryDirectory() as temp:
         workspace = Path(temp)
         snapshots = iter(
