@@ -6,8 +6,8 @@ The implemented capability surface now includes:
 
 - Supervisor-owned progressive-disclosure skills for `risk:mechanical`, `risk:investigative`, `risk:architecture`, and `risk:end-to-end` workers;
 - no extra procedural skill for ordinary `risk:normal` work, keeping the default instruction surface small;
-- optional local Graphify MCP access for Terra, Sol, and Astra routes when a fresh graph is already available;
-- optional remote Context7 MCP access for Terra, Sol, and Astra routes for current external-library documentation;
+- optional local Graphify MCP access for Sol and Astra routes when a fresh graph is already available;
+- optional remote Context7 MCP access for Sol and Astra routes for current external-library documentation;
 - durable per-turn telemetry that distinguishes a capability being selected from it actually being used;
 - comparative usage diagnostics for selected+used, selected+unused, selected+unknown, and not-selected worker groups.
 
@@ -75,7 +75,6 @@ Default mode is `auto`:
 | Route | Graphify requested by default |
 | --- | --- |
 | Luna | no |
-| Terra | yes |
 | Sol | yes |
 | Astra | yes |
 
