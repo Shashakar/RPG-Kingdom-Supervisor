@@ -238,22 +238,22 @@ This is architecture-sensitive work. Read `AGENTS.md`, `docs/ARCHITECTURE.md`, t
 {% elsif issue.labels contains "risk:end-to-end" %}
 This is a difficult end-to-end task. Build enough context to reason across the affected systems and tooling, but still avoid unrelated repository sweeps. Validate behavior through the strongest safely available path.
 {% else %}
-This is normal bounded implementation work. Read `AGENTS.md`, repository-required architecture/system docs, and the affected implementation/tests. Prefer a focused implementation path over broad investigation; use `risk:investigative` when ambiguity genuinely requires the Terra tier.
+This is normal bounded implementation work. Read `AGENTS.md`, repository-required architecture/system docs, and the affected implementation/tests. Prefer a focused implementation path over broad investigation; use `risk:investigative` when ambiguity genuinely requires the Sol investigative tier.
 {% endif %}
 
 ## Routing policy
 
 The App Server launcher chooses the model before this thread starts:
 
-- `risk:mechanical` -> GPT-5.6 Luna / low reasoning;
-- `risk:normal` or no risk label -> GPT-5.6 Luna / medium reasoning;
-- `risk:investigative` -> GPT-5.6 Terra / medium reasoning;
-- `risk:architecture` -> GPT-5.6 Sol / high reasoning;
+- `risk:mechanical` -> GPT-6 Luna / low reasoning;
+- `risk:normal` or no risk label -> GPT-6 Luna / medium reasoning;
+- `risk:investigative` -> GPT-6 Sol / medium reasoning;
+- `risk:architecture` -> GPT-6 Sol / high reasoning;
 - `risk:end-to-end` -> GPT-6 Astra / medium reasoning.
 
-`model:luna`, `model:terra`, `model:sol`, or `model:astra` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
+`model:luna`, `model:sol`, or `model:astra` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
 
-Luna is the default workhorse for bounded implementation. Terra is reserved for ambiguous debugging, multi-layer investigation, substantial implementation where the cheaper route is likely to waste iterations, or explicit escalation. Astra is reserved for work where stronger end-to-end execution is likely to reduce iteration cost. Do not promote routine work merely because a higher-cost model is available.
+GPT-6 Luna is the default workhorse for bounded implementation. GPT-6 Sol handles investigative work at medium effort and architecture-sensitive work at high effort. GPT-6 Astra is reserved for work where stronger end-to-end execution is likely to reduce iteration cost. Do not promote routine work merely because a higher-cost model is available.
 
 ## GitHub issue handling
 
