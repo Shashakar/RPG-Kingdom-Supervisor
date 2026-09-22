@@ -155,7 +155,7 @@ Default routes:
 - `risk:investigative` -> GPT-6 Sol / medium;
 - `risk:architecture` -> GPT-6 Sol / high;
 - `risk:end-to-end` -> GPT-6 Astra / medium;
-- no risk/model label -> GPT-5.6 Luna / medium.
+- no risk/model label -> GPT-6 Luna / medium.
 
 Explicit `model:*` and `effort:*` labels override defaults. Conflicts fail closed.
 
