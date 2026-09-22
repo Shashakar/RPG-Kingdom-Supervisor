@@ -51,13 +51,7 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-pattern = re.compile(r'^create_label\s+"[^"]+"\s+"[^"]+"\s+"([^"]*)"
-  echo "review-workflow-policy-test: automated review orchestrator must not contain a merge path" >&2
-  exit 1
-fi
-
-echo "review-workflow-policy-test: PASS"
-)
+pattern = re.compile(r'^create_label\s+"[^"]+"\s+"[^"]+"\s+"([^"]*)"$')
 for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
     match = pattern.match(line)
     if not match:
