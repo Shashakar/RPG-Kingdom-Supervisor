@@ -150,18 +150,18 @@ The supervisor uses deterministic labels instead of spending an LLM call merely 
 
 Default routes:
 
-- `risk:mechanical` -> GPT-5.6 Luna / low;
-- `risk:normal` -> GPT-5.6 Luna / medium;
-- `risk:investigative` -> GPT-5.6 Terra / medium;
-- `risk:architecture` -> GPT-5.6 Sol / high;
+- `risk:mechanical` -> GPT-6 Luna / low;
+- `risk:normal` -> GPT-6 Luna / medium;
+- `risk:investigative` -> GPT-6 Sol / medium;
+- `risk:architecture` -> GPT-6 Sol / high;
 - `risk:end-to-end` -> GPT-6 Astra / medium;
 - no risk/model label -> GPT-5.6 Luna / medium.
 
 Explicit `model:*` and `effort:*` labels override defaults. Conflicts fail closed.
 
-Luna is the default workhorse. Terra is an upgrade for ambiguous/multi-layer investigation. Sol is the architecture-sensitive reasoning tier. Astra is reserved for the hardest end-to-end/tool-heavy execution where its higher allowance cost is plausibly offset by fewer iterations.
+GPT-6 Luna is the default workhorse. GPT-6 Sol handles ambiguous/multi-layer investigation at medium effort and architecture-sensitive reasoning at high effort. GPT-6 Astra is reserved for the hardest end-to-end/tool-heavy execution.
 
-The split is evidence-driven: #93 completed as a one-turn Luna mechanical job with no visible allowance movement, while #95 completed as a one-turn Terra investigation but consumed 8 percentage points of the five-hour allowance and 2 weekly points despite about 93% cache reuse.
+The original split was evidence-driven: #93 completed as a one-turn Luna mechanical job with no visible allowance movement, while #95 completed as a one-turn GPT-5.6 Terra investigation but consumed 8 percentage points of the five-hour allowance and 2 weekly points despite about 93% cache reuse. Terra is retained only as historical benchmark context; current investigative routing uses GPT-6 Sol.
 
 ## Unity resource and runner policy
 
@@ -230,7 +230,7 @@ Proved GitHub issue -> isolated workspace -> Codex App Server -> PR.
 
 ### Phase 2 — budgeted model/risk routing — COMPLETE
 
-Added Luna/Terra/Sol/Astra routing, context budgeting, turn limits, and fail-closed redispatch.
+Added Luna/Sol/Astra routing, context budgeting, turn limits, and fail-closed redispatch.
 
 ### Phase 3 — Unity-aware scheduling — COMPLETE
 
