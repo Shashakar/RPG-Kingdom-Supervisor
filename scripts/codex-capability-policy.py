@@ -336,8 +336,9 @@ def write_args(path: Path, args: list[str]) -> None:
 def status_payload() -> dict[str, Any]:
     routes = {}
     for route in ("luna", "sol", "astra"):
-        labels = ["risk:investigative"] if route == "sol" else []
-        skill = skill_state(labels)
+        # Route status is model/capability-centric. Sol now serves both investigative and
+        # architecture tasks, while first-party skills remain risk-label-specific.
+        skill = skill_state([])
         try:
             graphify, _ = graphify_state(route, None)
         except RuntimeError as exc:
