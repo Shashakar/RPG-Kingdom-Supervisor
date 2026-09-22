@@ -147,8 +147,8 @@ def reviewer_route(issue_labels: set[str]) -> tuple[str, str, str]:
     if override:
         return override, os.environ.get("RPGK_REVIEW_EFFORT", "medium"), "override"
     if "risk:architecture" in issue_labels or "risk:end-to-end" in issue_labels:
-        return "gpt-5.6-sol", "high", "sol"
-    return "gpt-5.6-terra", "medium", "terra"
+        return "gpt-6-sol", "high", "sol"
+    return "gpt-6-sol", "medium", "sol"
 
 
 def build_prompt(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any], route: str) -> str:
@@ -262,9 +262,9 @@ def remove_lifecycle_except(number: int, keep: set[str]) -> None:
 
 
 def set_repair_route(number: int, recommendation: str) -> None:
-    for name in ("repair-route:luna", "repair-route:terra", "repair-route:sol", "repair-route:astra"):
+    for name in ("repair-route:luna", "repair-route:sol", "repair-route:astra"):
         remove_label(number, name)
-    if recommendation in {"luna", "terra", "sol", "astra"}:
+    if recommendation in {"luna", "sol", "astra"}:
         add_labels(number, f"repair-route:{recommendation}")
 
 
