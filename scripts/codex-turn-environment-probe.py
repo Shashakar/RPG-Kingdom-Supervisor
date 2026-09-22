@@ -231,7 +231,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("RPGK_TURN_PROBE_MODEL", "gpt-5.6-luna"),
+        default=os.environ.get("RPGK_TURN_PROBE_MODEL", "gpt-6-luna"),
     )
     parser.add_argument(
         "--timeout-seconds",

@@ -76,7 +76,7 @@ def verdict(kind: str, *, route: str = "unchanged", requires_human: bool = False
         "routing_recommendation": route,
         "requires_human": requires_human,
         "reason": reason,
-        "reviewerRoute": "terra",
+        "reviewerRoute": "sol",
         "reviewedHead": "a" * 40,
     }
 
@@ -146,8 +146,8 @@ def main() -> int:
         assert adds.index("symphony:rearm") < adds.index("symphony:ready")
 
     # Human/operator model override precedence is executable-covered by routing-policy-test.sh.
-    labels_text = "\n".join(["risk:normal", "symphony:rework", "repair-route:sol", "model:terra"])
-    assert "model:terra" in labels_text
+    labels_text = "\n".join(["risk:normal", "symphony:rework", "repair-route:sol", "model:sol"])
+    assert "model:sol" in labels_text
 
     # Ambiguity/scope expansion halts instead of dispatching speculative repair.
     with tempfile.TemporaryDirectory() as raw:
@@ -188,7 +188,7 @@ def main() -> int:
             "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
             "lastVerdict": "approved", "history": [{
                 "cycle": 1, "head": "9" * 40, "verdict": "approved", "summary": "prior approval",
-                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "terra", "reason": "none"
+                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"
             }],
             "updatedAt": "2026-09-11T10:00:00+00:00",
         }
@@ -209,8 +209,8 @@ def main() -> int:
             "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
             "reviewCycle": 2, "repairAttempts": 2, "maxRepairAttempts": 2,
             "lastVerdict": "changes_required", "routingRecommendation": "luna", "history": [
-                {"cycle": 1, "head": "8" * 40, "verdict": "changes_required", "summary": "first", "findings": [], "routingRecommendation": "sol", "reviewerRoute": "terra", "reason": "none"},
-                {"cycle": 2, "head": "9" * 40, "verdict": "changes_required", "summary": "second", "findings": [], "routingRecommendation": "luna", "reviewerRoute": "terra", "reason": "none"},
+                {"cycle": 1, "head": "8" * 40, "verdict": "changes_required", "summary": "first", "findings": [], "routingRecommendation": "sol", "reviewerRoute": "sol", "reason": "none"},
+                {"cycle": 2, "head": "9" * 40, "verdict": "changes_required", "summary": "second", "findings": [], "routingRecommendation": "luna", "reviewerRoute": "sol", "reason": "none"},
             ],
             "updatedAt": "2026-09-11T10:00:00+00:00",
         }

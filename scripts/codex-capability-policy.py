@@ -25,7 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import supervisor_telemetry as telemetry  # type: ignore  # noqa: E402
 
-DEEP_ROUTES = {"terra", "sol", "astra"}
+DEEP_ROUTES = {"sol", "astra"}
 GRAPHIFY_SERVER = "rpgk_graphify"
 CONTEXT7_SERVER = "rpgk_context7"
 INVESTIGATIVE_SKILL = "rpgk-investigate-bug"
@@ -289,7 +289,7 @@ def context7_state(route: str) -> tuple[dict[str, Any], list[str]]:
 
 
 def route_payload(route: str, issue: str, workspace: Path, labels: list[str] | None = None) -> tuple[dict[str, Any], list[str]]:
-    if route not in {"luna", "terra", "sol", "astra"}:
+    if route not in {"luna", "sol", "astra"}:
         raise RuntimeError(f"unsupported route: {route}")
     normalized_labels = [item.lower() for item in (labels or [])]
     skill = skill_state(normalized_labels)
@@ -335,9 +335,10 @@ def write_args(path: Path, args: list[str]) -> None:
 
 def status_payload() -> dict[str, Any]:
     routes = {}
-    for route in ("luna", "terra", "sol", "astra"):
-        labels = ["risk:investigative"] if route == "terra" else []
-        skill = skill_state(labels)
+    for route in ("luna", "sol", "astra"):
+        # Route status is model/capability-centric. Sol now serves both investigative and
+        # architecture tasks, while first-party skills remain risk-label-specific.
+        skill = skill_state([])
         try:
             graphify, _ = graphify_state(route, None)
         except RuntimeError as exc:
@@ -361,7 +362,7 @@ def main() -> int:
     status = sub.add_parser("status")
     status.add_argument("--pretty", action="store_true")
     route = sub.add_parser("route")
-    route.add_argument("--route", required=True, choices=("luna", "terra", "sol", "astra"))
+    route.add_argument("--route", required=True, choices=("luna", "sol", "astra"))
     route.add_argument("--issue", required=True)
     route.add_argument("--workspace", required=True)
     route.add_argument("--labels-json", default="[]")

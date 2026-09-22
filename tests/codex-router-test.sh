@@ -23,15 +23,15 @@ cd "$TMP/GH-321"
 
 export RPGK_TEST_LABELS="risk:mechanical"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-5.6-luna\tlow\tluna' ]]
+[[ "$actual" == $'gpt-6-luna\tlow\tluna' ]]
 
 export RPGK_TEST_LABELS="risk:normal"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-5.6-luna\tmedium\tluna' ]]
+[[ "$actual" == $'gpt-6-luna\tmedium\tluna' ]]
 
 export RPGK_TEST_LABELS="risk:investigative"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-5.6-terra\tmedium\tterra' ]]
+[[ "$actual" == $'gpt-6-sol\tmedium\tsol' ]]
 
 export RPGK_TEST_LABELS=$'risk:architecture\nmodel:astra\neffort:high'
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
@@ -67,7 +67,7 @@ if grep -Fq '".git"="write"' "$RPGK_TEST_CODEX_ARGS"; then
   echo "Router still grants model-side Git metadata writes" >&2
   exit 1
 fi
-grep -Fxq 'model="gpt-5.6-luna"' "$RPGK_TEST_CODEX_ARGS"
+grep -Fxq 'model="gpt-6-luna"' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'model_reasoning_effort=low' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
 
@@ -79,7 +79,7 @@ active = root / "workers" / "active" / "implementation.json"
 value = json.loads(active.read_text(encoding="utf-8"))
 assert value["identifier"] == "GH-321"
 assert value["role"] == "implementation"
-assert value["model"] == "gpt-5.6-luna"
+assert value["model"] == "gpt-6-luna"
 assert value["effort"] == "low"
 cap = value["capabilities"]
 assert cap["route"] == "luna"

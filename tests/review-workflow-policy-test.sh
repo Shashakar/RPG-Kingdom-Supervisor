@@ -38,7 +38,7 @@ grep -Fq 'symphony:human-attention' "$ROOT/scripts/review-orchestrator.py"
 grep -Fq 'symphony:rearm' "$ROOT/scripts/review-orchestrator.py"
 grep -Fq 'RPGK_MAX_AUTOMATIC_REPAIRS' "$ROOT/scripts/review-orchestrator.py"
 
-for label in symphony:agent-review symphony:rework symphony:human-review symphony:human-attention repair-route:luna repair-route:terra repair-route:sol repair-route:astra; do
+for label in symphony:agent-review symphony:rework symphony:human-review symphony:human-attention repair-route:luna repair-route:sol repair-route:astra; do
   grep -Fq "create_label \"$label\"" "$ROOT/scripts/install-labels.sh" || {
     echo "review-workflow-policy-test: missing installed label $label" >&2
     exit 1

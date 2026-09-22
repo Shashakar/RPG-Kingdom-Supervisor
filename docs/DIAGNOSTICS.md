@@ -125,13 +125,13 @@ bash scripts/codex-turn-environment-probe.sh --run
 Default model/routing for the probe:
 
 ```text
-gpt-5.6-luna / low reasoning
+gpt-6-luna / low reasoning
 ```
 
 Override only when diagnosing model-specific behavior:
 
 ```bash
-bash scripts/codex-turn-environment-probe.sh --run --model gpt-5.6-terra
+bash scripts/codex-turn-environment-probe.sh --run --model gpt-6-sol
 ```
 
 The probe creates a disposable Git repository, starts an ephemeral App Server thread under `rpgk_supervisor_workspace`, then starts one tiny turn whose only instruction is to execute `bash ./probe-actions.sh`.
@@ -162,7 +162,7 @@ This is intentionally much narrower than running Unity. If this fails with the s
 The probe prints JSON evidence followed by one summary line. A healthy result is:
 
 ```text
-RPG Kingdom Codex model-turn environment probe: PASS (model=gpt-5.6-luna, git_write=ok, wsl_interop=ok)
+RPG Kingdom Codex model-turn environment probe: PASS (model=gpt-6-luna, git_write=ok, wsl_interop=ok)
 ```
 
 A result such as:

@@ -116,7 +116,7 @@ if missing:
     raise SystemExit(f"review output missing fields: {sorted(missing)}")
 if value["verdict"] not in {"approved", "changes_required", "blocked_or_ambiguous"}:
     raise SystemExit("invalid review verdict")
-if value["routing_recommendation"] not in {"luna", "terra", "sol", "astra", "unchanged"}:
+if value["routing_recommendation"] not in {"luna", "sol", "astra", "unchanged"}:
     raise SystemExit("invalid routing recommendation")
 if not isinstance(value["findings"], list):
     raise SystemExit("review findings must be an array")

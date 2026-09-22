@@ -25,7 +25,7 @@
     },
     "routing_recommendation": {
       "type": "string",
-      "enum": ["luna", "terra", "sol", "astra", "unchanged"]
+      "enum": ["luna", "sol", "astra", "unchanged"]
     },
     "requires_human": {"type": "boolean"},
     "reason": {

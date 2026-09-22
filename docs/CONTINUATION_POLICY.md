@@ -14,28 +14,26 @@ The hard `agent.max_turns: 4` value in `WORKFLOW.md` is intentionally retained. 
 
 ## Default route policy
 
-The defaults are deliberately conservative for expensive routes:
+Route-specific automatic turn caps were removed after production evidence showed that a fixed model-class cap could waste context by forcing a new worker lifetime even when the current worker was making progress. The hard `agent.max_turns: 4` ceiling remains.
 
-| Route | Default automatic total-turn limit | Primary quota floor | Weekly quota floor |
-| --- | ---: | ---: | ---: |
-| Luna | 4 | 20% | 10% |
-| Terra | 2 | 35% | 10% |
-| Sol | 2 | 35% | 10% |
-| Astra | 1 | 35% | 10% |
+Current reserve defaults are:
 
-A limit of `2` means turn 1 may automatically continue to turn 2 when the other policy checks pass, but turn 2 will not automatically spend turn 3. Reviewed rearm remains available for preserved work.
+| Route | Primary quota floor | Weekly quota floor |
+| --- | ---: | ---: |
+| Luna | 20% | 10% |
+| Sol | 35% | 10% |
+| Astra | 35% | 10% |
+
+Investigative work now routes to GPT-6 Sol / medium, while architecture-sensitive work routes to GPT-6 Sol / high. Terra is retired from active routing.
 
 The route comes from explicit `model:*` labels first, then the existing risk mapping. This does not change model selection itself.
 
 Environment overrides are available for measured tuning:
 
-- `RPGK_AUTO_TURN_LIMIT_LUNA`
-- `RPGK_AUTO_TURN_LIMIT_TERRA`
-- `RPGK_AUTO_TURN_LIMIT_SOL`
-- `RPGK_AUTO_TURN_LIMIT_ASTRA`
 - `RPGK_CONTINUATION_MIN_PRIMARY_PERCENT`
 - `RPGK_CONTINUATION_MIN_WEEKLY_PERCENT`
 - `RPGK_CONTINUATION_QUOTA_MAX_AGE_SECONDS` (default 180)
+- the dynamic per-turn/lifetime spend and fresh-token thresholds documented below.
 
 Do not raise these simply to increase unattended completion. Changes should be justified by retained usage/completion evidence.
 
