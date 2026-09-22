@@ -27,10 +27,10 @@ rpgk_count_labels() {
 rpgk_select_route() {
   local labels="${1:-}"
 
-  local model_labels=(model:luna model:terra model:sol model:astra)
+  local model_labels=(model:luna model:sol model:astra)
   local risk_labels=(risk:mechanical risk:normal risk:investigative risk:architecture risk:end-to-end)
   local effort_labels=(effort:low effort:medium effort:high)
-  local repair_labels=(repair-route:luna repair-route:terra repair-route:sol repair-route:astra)
+  local repair_labels=(repair-route:luna repair-route:sol repair-route:astra)
 
   local model_count
   model_count="$(rpgk_count_labels "$labels" "${model_labels[@]}")"
@@ -72,32 +72,24 @@ rpgk_select_route() {
     route="astra"
     default_effort="medium"
   elif rpgk_has_label model:sol "$labels"; then
-    model="gpt-5.6-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label model:luna "$labels"; then
-    model="gpt-5.6-luna"
+    model="gpt-6-luna"
     route="luna"
     default_effort="low"
-  elif rpgk_has_label model:terra "$labels"; then
-    model="gpt-5.6-terra"
-    route="terra"
-    default_effort="medium"
   # A structured review recommendation is fresh routing evidence for rework only.
   elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:astra "$labels"; then
     model="gpt-6-astra"
     route="astra"
     default_effort="medium"
   elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:sol "$labels"; then
-    model="gpt-5.6-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
-  elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:terra "$labels"; then
-    model="gpt-5.6-terra"
-    route="terra"
-    default_effort="medium"
   elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:luna "$labels"; then
-    model="gpt-5.6-luna"
+    model="gpt-6-luna"
     route="luna"
     default_effort="low"
   elif rpgk_has_label risk:end-to-end "$labels"; then
@@ -105,19 +97,19 @@ rpgk_select_route() {
     route="astra"
     default_effort="medium"
   elif rpgk_has_label risk:architecture "$labels"; then
-    model="gpt-5.6-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label risk:investigative "$labels"; then
-    model="gpt-5.6-terra"
-    route="terra"
+    model="gpt-6-sol"
+    route="sol"
     default_effort="medium"
   elif rpgk_has_label risk:mechanical "$labels"; then
-    model="gpt-5.6-luna"
+    model="gpt-6-luna"
     route="luna"
     default_effort="low"
   else
-    model="gpt-5.6-luna"
+    model="gpt-6-luna"
     route="luna"
     default_effort="medium"
   fi
