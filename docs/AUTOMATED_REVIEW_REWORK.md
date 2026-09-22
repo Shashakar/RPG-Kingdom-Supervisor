@@ -100,7 +100,6 @@ symphony:ready
 The reviewer may recommend:
 
 - `repair-route:luna`
-- `repair-route:terra`
 - `repair-route:sol`
 - `repair-route:astra`
 
@@ -141,13 +140,13 @@ The review prompt explicitly prohibits weakening or rewriting acceptance criteri
 
 Default reviewer policy:
 
-- mechanical / normal / investigative issue: Terra / medium;
+- mechanical / normal / investigative issue: GPT-6 Sol / medium;
 - architecture / end-to-end issue: Sol / high.
 
 Override for experiments with:
 
 ```bash
-export RPGK_REVIEW_MODEL=gpt-5.6-sol
+export RPGK_REVIEW_MODEL=gpt-6-sol
 export RPGK_REVIEW_EFFORT=high
 ```
 
