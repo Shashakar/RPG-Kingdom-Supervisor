@@ -33,7 +33,7 @@ The baseline runtime is the official `openai/symphony` reference implementation 
 The planned sequence is:
 
 1. GitHub issue -> isolated workspace -> Codex App Server -> PR smoke path.
-2. Budgeted model/risk routing across Luna, Terra, Sol, and Astra with explicit overrides and fail-closed redispatch.
+2. Budgeted model/risk routing across Luna, Sol, and Astra with explicit overrides and fail-closed redispatch.
 3. Unity-aware resource scheduling.
 4. Unity worker integration.
 5. Carefully increased concurrency.
