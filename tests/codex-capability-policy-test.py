@@ -56,7 +56,7 @@ try:
         os.environ["RPGK_GRAPHIFY_GRAPH"] = str(graph)
         os.environ["RPGK_GRAPHIFY_MCP_COMMAND"] = str(graphify_mcp)
 
-        payload, args = policy.route_payload("terra", "GH-108", temp_path, ["risk:investigative"])
+        payload, args = policy.route_payload("sol", "GH-108", temp_path, ["risk:investigative"])
         assert payload["selectedSkills"] == ["rpgk-investigate-bug"]
         graph_state = payload["mcp"][0]
         assert graph_state["enabled"] is True, graph_state
@@ -72,16 +72,16 @@ try:
         # A mismatched third-party version is not silently accepted in auto mode.
         graphify.write_text("#!/usr/bin/env bash\nprintf 'graphify 0.9.57\\n'\n", encoding="utf-8")
         graphify.chmod(0o755)
-        payload, mismatch_args = policy.route_payload("terra", "GH-107", temp_path, ["risk:investigative"])
+        payload, mismatch_args = policy.route_payload("sol", "GH-107", temp_path, ["risk:investigative"])
         assert payload["mcp"][0]["enabled"] is False
         assert "does not match evaluated version" in payload["mcp"][0]["reason"]
         assert mismatch_args == []
         graphify.write_text("#!/usr/bin/env bash\nprintf 'graphify 0.9.58\\n'\n", encoding="utf-8")
         graphify.chmod(0o755)
 
-        # An explicit Terra model on a normal issue gets Graphify by route but not the
+        # An explicit Sol model on a normal issue gets Graphify by route but not the
         # investigate-bug procedural skill, which is task-specific rather than model-specific.
-        payload, _ = policy.route_payload("terra", "GH-109", temp_path, ["risk:normal", "model:terra"])
+        payload, _ = policy.route_payload("sol", "GH-109", temp_path, ["risk:normal", "model:sol"])
         assert payload["selectedSkills"] == []
         assert payload["mcp"][0]["enabled"] is True
 
@@ -100,7 +100,7 @@ try:
         subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "new-main"], cwd=repo, check=True)
         os.utime(graph, (time.time() + 10, time.time() + 10))
-        payload, args = policy.route_payload("terra", "GH-210", worker, ["risk:investigative"])
+        payload, args = policy.route_payload("sol", "GH-210", worker, ["risk:investigative"])
         freshness = payload["mcp"][0]["freshness"]
         assert freshness["fresh"] is False
         assert freshness["workerOriginMain"] is not None
@@ -109,14 +109,14 @@ try:
         assert args == []
 
         os.utime(graph, (1, 1))
-        payload, args = policy.route_payload("terra", "GH-201", temp_path, ["risk:investigative"])
+        payload, args = policy.route_payload("sol", "GH-201", temp_path, ["risk:investigative"])
         assert payload["mcp"][0]["enabled"] is False
         assert payload["mcp"][0]["freshness"]["status"] == "stale"
         assert args == []
 
         os.environ["RPGK_GRAPHIFY_ENABLED"] = "on"
         try:
-            policy.route_payload("terra", "GH-202", temp_path, ["risk:investigative"])
+            policy.route_payload("sol", "GH-202", temp_path, ["risk:investigative"])
         except RuntimeError as exc:
             assert "explicitly required" in str(exc)
         else:
@@ -136,7 +136,7 @@ try:
         # endpoint, so Supervisor neither installs it nor passes an API credential.
         os.environ["RPGK_GRAPHIFY_ENABLED"] = "off"
         os.environ["RPGK_CONTEXT7_ENABLED"] = "auto"
-        payload, args = policy.route_payload("terra", "GH-300", temp_path, ["risk:investigative"])
+        payload, args = policy.route_payload("sol", "GH-300", temp_path, ["risk:investigative"])
         context7 = next(item for item in payload["mcp"] if item["name"] == "context7")
         assert context7["enabled"] is True
         assert context7["readOnly"] is True
