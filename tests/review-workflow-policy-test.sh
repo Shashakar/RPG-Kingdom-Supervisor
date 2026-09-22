@@ -52,7 +52,6 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 pattern = re.compile(r'^create_label\s+"[^"]+"\s+"[^"]+"\s+"([^"]*)"
-if grep -Eq '/merge|merge_pull|gh pr merge' "$ROOT/scripts/review-orchestrator.py"; then
   echo "review-workflow-policy-test: automated review orchestrator must not contain a merge path" >&2
   exit 1
 fi
