@@ -262,7 +262,7 @@ def remove_lifecycle_except(number: int, keep: set[str]) -> None:
 
 
 def set_repair_route(number: int, recommendation: str) -> None:
-    for name in ("repair-route:luna", "repair-route:sol", "repair-route:astra"):
+    for name in ("repair-route:luna", "repair-route:terra", "repair-route:sol", "repair-route:astra"):
         remove_label(number, name)
     if recommendation in {"luna", "sol", "astra"}:
         add_labels(number, f"repair-route:{recommendation}")
