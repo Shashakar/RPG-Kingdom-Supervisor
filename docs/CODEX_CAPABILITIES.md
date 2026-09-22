@@ -164,7 +164,6 @@ Default `auto` routing matches the deep routes where current external API knowle
 | Route | Context7 offered by default |
 | --- | --- |
 | Luna | no |
-| Terra | yes |
 | Sol | yes |
 | Astra | yes |
 
