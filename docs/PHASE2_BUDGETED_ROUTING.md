@@ -62,7 +62,7 @@ The hard ceiling is deliberately different from the continuation policy:
 - **hard ceiling:** an absolute safety limit;
 - **dynamic continuation budget:** the normal decision about whether another turn should be spent.
 
-Model route no longer creates a smaller automatic turn ceiling such as Terra=2 or Astra=1. Luna, Terra, Sol, and Astra can all use turns up to the workflow hard maximum when the dynamic policy continues to approve them.
+Model route no longer creates a smaller automatic turn ceiling such as Terra=2 or Astra=1. Luna, Sol, and Astra can all use turns up to the workflow hard maximum when the dynamic policy continues to approve them.
 
 ## Dynamic continuation budget
 
@@ -75,7 +75,7 @@ The Supervisor refreshes the authoritative App Server rate-limit sample before d
 By default:
 
 - Luna work requires at least 20% remaining in the primary/five-hour window;
-- Terra, Sol, and Astra require at least 35% remaining in the primary/five-hour window;
+- Sol and Astra require at least 35% remaining in the primary/five-hour window;
 - all routes require at least 10% remaining weekly.
 
 Unavailable, stale, or incomplete quota data fails safe.
@@ -174,22 +174,21 @@ Use exactly zero or one of:
 
 | Label | Default route | Default effort | Intended work |
 |---|---|---|---|
-| `risk:mechanical` | GPT-5.6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
-| `risk:normal` | GPT-5.6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
-| `risk:investigative` | GPT-5.6 Terra | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
-| `risk:architecture` | GPT-5.6 Sol | high | architecture-sensitive or cross-system boundary work |
+| `risk:mechanical` | GPT-6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
+| `risk:normal` | GPT-6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
+| `risk:investigative` | GPT-6 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
+| `risk:architecture` | GPT-6 Sol | high | architecture-sensitive or cross-system boundary work |
 | `risk:end-to-end` | GPT-6 Astra | medium | hardest end-to-end work where stronger execution/tool use is justified |
 
 If no risk or model label exists, the router defaults to Luna / medium.
 
-The practical rule remains: **Luna is the workhorse; Terra is the investigative/debugging upgrade; Sol is the architecture tier; Astra is the hardest engine/tool-heavy end-to-end tier.**
+The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6 Sol covers investigative/debugging work at medium effort and architecture work at high effort; GPT-6 Astra is the hardest engine/tool-heavy end-to-end tier.**
 
 ### Explicit model override
 
 Use exactly zero or one of:
 
 - `model:luna`
-- `model:terra`
 - `model:sol`
 - `model:astra`
 
@@ -222,7 +221,7 @@ Codex session totals:
 
 This validated Luna as the cheap mechanical lane.
 
-### #95 — Terra investigative benchmark
+### Historical #95 — GPT-5.6 Terra investigative benchmark
 
 `Shashakar/RPG-Kingdom#95` ran as Terra / medium and completed in one turn while correctly diagnosing a stale test assumption.
 
