@@ -45,6 +45,24 @@ for label in symphony:agent-review symphony:rework symphony:human-review symphon
   }
 done
 
+python3 - "$ROOT/scripts/install-labels.sh" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+pattern = re.compile(r'^create_label\s+"[^"]+"\s+"[^"]+"\s+"([^"]*)"$')
+for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    match = pattern.match(line)
+    if not match:
+        continue
+    description = match.group(1)
+    if len(description) > 100:
+        raise SystemExit(
+            f"{path}:{line_number}: label description is {len(description)} characters; GitHub maximum is 100"
+        )
+PY
+
 if grep -Eq '/merge|merge_pull|gh pr merge' "$ROOT/scripts/review-orchestrator.py"; then
   echo "review-workflow-policy-test: automated review orchestrator must not contain a merge path" >&2
   exit 1
