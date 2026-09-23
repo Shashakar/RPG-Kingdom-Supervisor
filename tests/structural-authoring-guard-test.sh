@@ -52,7 +52,8 @@ cat > "$TMP/contract.json" <<'EOF'
     }
   ],
   "structuralComponentAdditions": ["RPGKingdom.Runtime.Character.CharacterState"],
-  "componentRemovals": []
+  "componentRemovals": [],
+  "newSceneComposition": {"creationOperationKind":"copy-scene"}
 }
 EOF
 
@@ -120,7 +121,7 @@ jq -e '.status == "contract_unavailable"' "$TMP/state/structural-authoring-prefl
 reset_state
 export RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT="$TMP/contract.json"
 export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-new-composition"}]'
-export FAKE_ISSUE_JSON='{"state":"open","body":"<!-- symphony-scene-authoring-requirements\n{\"mode\":\"known\",\"tier\":\"new-scene-composition\",\"operations\":[\"set-transform\",\"reparent-object\",\"delete-object\"]}\n-->"}'
+export FAKE_ISSUE_JSON='{"state":"open","body":"<!-- symphony-scene-authoring-requirements\n{\"mode\":\"known\",\"tier\":\"new-scene-composition\",\"operations\":[\"copy-scene\",\"set-transform\",\"reparent-object\",\"delete-object\"]}\n-->"}'
 run_guard >/dev/null
 [[ -e "$FAKE_RUNNER_CALLS" ]] || { echo "supported new-scene capability should reach Unity health preflight" >&2; exit 1; }
 jq -e '.tier == "new-scene-composition"' "$TMP/state/authoring/GH-142.json" >/dev/null
