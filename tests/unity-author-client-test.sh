@@ -92,6 +92,17 @@ status=$?
 set -e
 [[ "$status" -eq 64 ]] || { echo "expected same-scene client rejection, got $status" >&2; exit 1; }
 
+
+# Traversal/outside-Assets targets fail at the client envelope.
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"new-scene-composition","sourceScene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","scene":"../PlaytestScene.unity","operations":[{"kind":"delete-object","objectPath":"World/Test"}]}
+JSON
+set +e
+(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST") >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 64 ]] || { echo "expected traversal client rejection, got $status" >&2; exit 1; }
+
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
 BROKER_PID=""
