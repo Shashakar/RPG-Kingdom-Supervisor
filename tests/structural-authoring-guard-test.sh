@@ -40,11 +40,15 @@ cat > "$TMP/contract.json" <<'EOF'
 {
   "schemaVersion": 1,
   "supportedProtocolVersions": [1],
-  "supportedTiers": ["mechanical", "mechanical-structural"],
+  "supportedTiers": ["mechanical", "mechanical-structural", "new-scene-composition"],
   "operationKindsByTier": [
     {
       "tier": "mechanical-structural",
       "operationKinds": ["add-component", "set-object-reference"]
+    },
+    {
+      "tier": "new-scene-composition",
+      "operationKinds": ["set-transform", "reparent-object", "delete-object", "instantiate-existing-prefab"]
     }
   ],
   "structuralComponentAdditions": ["RPGKingdom.Runtime.Character.CharacterState"],
@@ -110,5 +114,38 @@ set -e
 [[ "$status" -eq 78 ]] || { echo "expected missing capability contract to exit 78, got $status" >&2; exit 1; }
 [[ ! -e "$FAKE_RUNNER_CALLS" ]] || { echo "missing capability contract must stop before Unity health/model launch" >&2; exit 1; }
 jq -e '.status == "contract_unavailable"' "$TMP/state/structural-authoring-preflight/GH-142.json" >/dev/null
+
+
+# New-scene composition requires explicit supported requirements and records exact third-tier authority.
+reset_state
+export RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT="$TMP/contract.json"
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-new-composition"}]'
+export FAKE_ISSUE_JSON='{"state":"open","body":"<!-- symphony-scene-authoring-requirements\n{\"mode\":\"known\",\"tier\":\"new-scene-composition\",\"operations\":[\"set-transform\",\"reparent-object\",\"delete-object\"]}\n-->"}'
+run_guard >/dev/null
+[[ -e "$FAKE_RUNNER_CALLS" ]] || { echo "supported new-scene capability should reach Unity health preflight" >&2; exit 1; }
+jq -e '.tier == "new-scene-composition"' "$TMP/state/authoring/GH-142.json" >/dev/null
+jq -e '.status == "supported" and .authorizationTier == "new-scene-composition"' "$TMP/state/structural-authoring-preflight/GH-142.json" >/dev/null
+
+# Any combination of scene-authoring labels fails closed.
+reset_state
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-structural"},{"name":"authoring:scene-new-composition"}]'
+export FAKE_ISSUE_JSON='{"state":"open","body":""}'
+set +e
+run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || { echo "expected conflicting authoring labels to exit 75, got $status" >&2; exit 1; }
+[[ ! -e "$FAKE_RUNNER_CALLS" ]] || { echo "conflicting authoring labels must halt before Unity health" >&2; exit 1; }
+
+# New-scene composition without explicit requirements is not treated as a legacy authorization.
+reset_state
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-new-composition"}]'
+export FAKE_ISSUE_JSON='{"state":"open","body":"No authoring requirements."}'
+set +e
+run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 78 ]] || { echo "expected undeclared new-scene requirements to exit 78, got $status" >&2; exit 1; }
+[[ ! -f "$TMP/state/authoring/GH-142.json" ]] || { echo "undeclared new-scene issue must not receive an authoring receipt" >&2; exit 1; }
 
 echo "structural-authoring-guard-test: PASS"
