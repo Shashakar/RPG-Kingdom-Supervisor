@@ -14,12 +14,13 @@ Scene-authoring authority is dispatch-scoped, issue-scoped, workspace-scoped, an
 | --- | --- | --- |
 | `authoring:scene-mechanical` | `mechanical` | Tier 1: non-structural serialized mechanical configuration |
 | `authoring:scene-structural` | `mechanical-structural` | Tier 2: separately reviewed, bounded structural operations implemented and allowlisted by RPG Kingdom, plus typed configuration |
+| `authoring:scene-new-composition` | `new-scene-composition` | New-scene lane: create one issue-owned scene from an approved source, then iteratively compose only that unmerged target |
 
 An authoring issue must also own `resource:unity-editor`. When validation is required it must carry the normal `validation:unity-required` label.
 
-The two authoring labels are mutually exclusive. Tier-1 authority does not grant Tier-2 authority, and Tier-2 authority does not implicitly grant Tier-1 requests. The Unity preflight writes the exact authorized request tier into a host-owned receipt for that worker lifetime. The client, broker, host adapter, and Windows staging runner reject unknown tiers; the broker and host additionally require the request tier to exactly match the receipt.
+The three authoring labels are mutually exclusive. No authoring tier implicitly grants another tier. The Unity preflight writes the exact authorized request tier into a host-owned receipt for that worker lifetime. The client, broker, host adapter, and Windows staging runner reject unknown tiers; the broker and host additionally require the request tier to exactly match the receipt.
 
-Structural authority is never inferred from issue prose, model intent, or possession of the Unity resource. Authorization and project executor capability are separate gates: the label grants permission to request Tier 2, while the RPG Kingdom capability contract determines whether the declared operations/types are actually supported.
+Scene-authoring authority is never inferred from issue prose, model intent, or possession of the Unity resource. Authorization and project executor capability are separate gates: the issue label grants one exact request tier, while the RPG Kingdom capability contract determines whether the declared operations/types are actually supported.
 
 ## Structural capability preflight
 
@@ -86,6 +87,61 @@ Phase C: feature requirements become mode=known
 ```
 
 Legacy Tier-2 issues created before this metadata contract remain diagnosable as `unknown` and retain their prior authorization behavior. New or materially revised Tier-2 issues should always carry the explicit requirements block so unsupported work can be stopped before model dispatch.
+
+
+### New-scene composition
+
+The new-scene lane is deliberately different from Tier 2. It does **not** broaden mutation authority for an established scene.
+
+A new-scene issue must carry `authoring:scene-new-composition` and an explicit supported requirements block, for example:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "new-scene-composition",
+  "operations": [
+    "copy-scene",
+    "set-transform",
+    "reparent-object",
+    "delete-object",
+    "instantiate-existing-prefab"
+  ]
+}
+-->
+```
+
+`copy-scene` is validated from the project-owned `newSceneComposition.creationOperationKind` capability; Supervisor does not maintain a duplicate operation allowlist.
+
+The first request includes both `sourceScene` and the absent target scene:
+
+```json
+{
+  "protocolVersion": 1,
+  "tier": "new-scene-composition",
+  "sourceScene": "Assets/RPGKingdom/Scenes/VerticalSlice.unity",
+  "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+  "operations": [
+    {
+      "kind": "set-transform",
+      "objectPath": "World",
+      "localPosition": {"x": 0, "y": 0, "z": 0},
+      "localEulerAngles": {"x": 0, "y": 0, "z": 0},
+      "localScale": {"x": 1, "y": 1, "z": 1}
+    }
+  ]
+}
+```
+
+After successful initial copy-back, Supervisor writes host-owned provenance under:
+
+`$RPGK_SUPERVISOR_STATE_ROOT/new-scene-provenance/GH-N.json`
+
+That record binds the issue, workspace, branch, source scene, and target scene. Later requests omit `sourceScene` and may edit only that exact target. The target must remain absent from `origin/main`; once it becomes an established scene on main, this tier stops being valid for it.
+
+Initial copy-back is limited to the target `.unity` and its generated `.meta`. Later copy-back may replace only the recorded target `.unity`. The source scene is hashed before/after staged Unity execution and must remain unchanged. Result evidence naming any additional changed asset is rejected.
+
+This lane is intended for bounded creation/composition of a new authored scene such as `PlaytestScene`. It is not a general-purpose creative RPC, prefab editor, terrain-data generator, or back door for modifying existing production scenes.
 
 ## Worker interface
 
@@ -167,11 +223,12 @@ Object names may be used only when unique in the loaded scene. Use the full hier
 1. Supervisor validates the request envelope and exact dispatch authorization.
 2. For explicit Tier-2 requirements, Supervisor compares the declared capability requirements with the project-owned checked-in capability contract before launching Codex.
 3. Source `Assets`, `Packages`, and `ProjectSettings` are mirrored to the persistent Windows staging project.
-4. The Windows runner independently accepts only the known Tier-1/Tier-2 request tiers.
-5. Unity opens and mutates the requested scene through the reviewed RPG Kingdom Editor executor.
-6. Unity writes a structured result naming the changed asset set.
-7. Supervisor requires that changed set to exactly equal the one requested scene.
-8. **Only after all checks pass** does the Windows host adapter atomically replace that scene in the GH source workspace.
+4. The Windows runner independently accepts only the known exact request tiers.
+5. Existing-scene tiers open and mutate the requested scene through the reviewed RPG Kingdom Editor executor.
+6. New-scene composition either copies the authorized source into an absent target or reopens the host-recorded issue-owned target.
+7. Unity writes a structured result naming the changed asset set.
+8. Existing-scene tiers require exactly one changed scene. Initial new-scene creation requires exactly the target scene + meta; iterative composition requires exactly the recorded target scene.
+9. Supervisor verifies source-scene hashes for the new-scene tier and **only after all checks pass** performs bounded copy-back.
 
 A failed or timed-out authoring operation leaves the source scene untouched. Staging is disposable. Tier 2 does not permit additional staged assets to be copied back.
 
@@ -191,6 +248,6 @@ Authoring evidence is retained under `Logs/SymphonyUnityAuthoring/<request-id>/`
 - arbitrary C# or reflection RPC;
 - direct `.unity`/`.prefab` YAML editing;
 - Tier-3 creative or visual authoring;
-- generic create/delete/reparent/transform operations unless a future reviewed project-side Tier-2 contract explicitly adds a bounded operation;
+- generic create/delete/reparent/transform authority for established scenes; the separate new-scene tier may expose reviewed spatial operations only for its issue-owned unmerged target;
 - copying arbitrary staged assets back to source;
 - bypassing RPG Kingdom scene-authoring policy or the exclusive Unity resource lease.
