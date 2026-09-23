@@ -90,6 +90,7 @@ def evaluate(
             "recommendedNextAction": "Add an explicit known or deferred structural requirements block before redispatch.",
         }
     base["requirements"] = requirements
+    base["authorizationTier"] = requirements["tier"]
     if not isinstance(contract, dict):
         return {
             **base,
