@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 PROTOCOL_VERSION = 1
-SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural"})
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "new-scene-composition"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -147,9 +147,17 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         if requested_tier not in SUPPORTED_TIERS:
             raise ValueError(f"unsupported scene-authoring tier '{requested_tier}'")
         scene = authoring.get("scene")
+        source_scene = authoring.get("sourceScene")
         operations = authoring.get("operations")
-        if not isinstance(scene, str) or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene:
+        if not isinstance(scene, str) or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene or "\\\\" in scene:
             raise ValueError("scene must be a project-relative Assets/*.unity path")
+        if source_scene is not None and source_scene != "":
+            if not isinstance(source_scene, str) or not source_scene.startswith("Assets/") or not source_scene.endswith(".unity") or ".." in source_scene or "\\\\" in source_scene:
+                raise ValueError("sourceScene must be a project-relative Assets/*.unity path")
+            if source_scene == scene:
+                raise ValueError("sourceScene and scene must differ")
+        if requested_tier != "new-scene-composition" and source_scene not in (None, ""):
+            raise ValueError("sourceScene is only valid for new-scene-composition")
         if not isinstance(operations, list) or not operations:
             raise ValueError("one or more authoring operations are required")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -253,6 +261,7 @@ def main() -> int:
                 "workspace": str(workspace),
                 "tier": authoring["tier"],
                 "scene": authoring["scene"],
+                "sourceScene": authoring.get("sourceScene"),
                 "startedAt": utc_now(),
             }
             atomic_json(status_path, status_payload(os.getpid(), workspace_root, "running", active=active, last_result=last_result))
