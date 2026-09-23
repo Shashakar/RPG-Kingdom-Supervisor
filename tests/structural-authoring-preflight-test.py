@@ -84,6 +84,23 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual("new-scene-composition", result["authorizationTier"])
 
+
+    def test_new_scene_copy_requires_project_creation_capability(self):
+        contract = dict(CONTRACT)
+        contract.pop("newSceneComposition", None)
+        result = self.evaluate(
+            marker(
+                {
+                    "mode": "known",
+                    "tier": "new-scene-composition",
+                    "operations": ["copy-scene", "set-transform"],
+                }
+            ),
+            contract=contract,
+        )
+        self.assertEqual("unsupported", result["status"])
+        self.assertIn({"kind": "operation", "value": "copy-scene"}, result["unsupported"])
+
     def test_known_unsupported_component_is_rejected(self):
         result = self.evaluate(
             marker(
