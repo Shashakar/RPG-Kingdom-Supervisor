@@ -57,6 +57,7 @@ create_label "validation:unity-optional" "FBCA04" "Work may proceed without Unit
 
 create_label "authoring:scene-mechanical" "0052CC" "Permits Tier-1 deterministic scene configuration through the approved Unity authoring seam"
 create_label "authoring:scene-structural" "5319E7" "Permits scoped Tier-2 structural scene authoring; not granted by mechanical authoring"
+create_label "authoring:scene-new-composition" "8B5CF6" "Permits bounded composition of a new scene through the approved Unity authoring seam"
 
 
 # Terra was retired from active routing. Remove legacy labels only after the replacement
