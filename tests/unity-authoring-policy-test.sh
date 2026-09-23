@@ -13,15 +13,21 @@ done
 
 grep -q 'authoring:scene-mechanical' "$ROOT/scripts/install-labels.sh"
 grep -q 'authoring:scene-structural' "$ROOT/scripts/install-labels.sh"
+grep -q 'authoring:scene-new-composition' "$ROOT/scripts/install-labels.sh"
 grep -q 'authoring_tier="mechanical"' "$ROOT/scripts/unity-resource-guard.sh"
 grep -q 'authoring_tier="mechanical-structural"' "$ROOT/scripts/unity-resource-guard.sh"
+grep -q 'authoring_tier="new-scene-composition"' "$ROOT/scripts/unity-resource-guard.sh"
 grep -q 'requested_tier' "$ROOT/scripts/unity-author-host.sh"
 grep -q 'mechanical-structural' "$ROOT/scripts/unity-author.sh"
 grep -q 'SUPPORTED_TIERS' "$ROOT/scripts/unity-author-broker.py"
 grep -q 'mechanical-structural' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'new-scene-composition' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'sourceHashBefore' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'copiedBackAssets' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 grep -q 'executor changed-assets evidence does not exactly match' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 grep -q 'SourceTemp' "$ROOT/scripts/windows/run-unity-authoring.ps1"
-grep -q 'Move-Item -LiteralPath \$SourceTemp -Destination \$SourceScene -Force' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'Move-Item -LiteralPath \$SourceTemp -Destination \$WorkspaceTargetScene -Force' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'new-scene-provenance' "$ROOT/scripts/unity-author-host.sh"
 grep -q 'SymphonyMechanicalSceneAuthoring.ApplyFromCommandLine' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 
 grep -q '/\.symphony-worker-status.json' <(cat "$ROOT/scripts/before-run-guard.sh"; true) || \
