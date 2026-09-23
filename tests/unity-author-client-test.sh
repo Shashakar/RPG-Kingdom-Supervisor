@@ -73,6 +73,36 @@ JSON
 output="$(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS=2 RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS=10 bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST")"
 grep -q 'tier:mechanical-structural' <<<"$output"
 
+
+# Explicit new-scene authorization passes source/target composition through the broker seam.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"new-scene-composition"}\n' "$GH" > "$STATE/authoring/GH-111.json"
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"new-scene-composition","sourceScene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","scene":"Assets/RPGKingdom/Scenes/PlaytestScene.unity","operations":[{"kind":"set-transform","objectPath":"World","localPosition":{"x":0,"y":0,"z":0},"localEulerAngles":{"x":0,"y":0,"z":0},"localScale":{"x":1,"y":1,"z":1}}]}
+JSON
+output="$(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS=2 RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS=10 bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST")"
+grep -q 'tier:new-scene-composition' <<<"$output"
+
+# Invalid same source/target is rejected client-side before broker placement.
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"new-scene-composition","sourceScene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","operations":[{"kind":"delete-object","objectPath":"World/Test"}]}
+JSON
+set +e
+(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST") >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 64 ]] || { echo "expected same-scene client rejection, got $status" >&2; exit 1; }
+
+
+# Traversal/outside-Assets targets fail at the client envelope.
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"new-scene-composition","sourceScene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","scene":"../PlaytestScene.unity","operations":[{"kind":"delete-object","objectPath":"World/Test"}]}
+JSON
+set +e
+(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST") >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 64 ]] || { echo "expected traversal client rejection, got $status" >&2; exit 1; }
+
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
 BROKER_PID=""

@@ -90,6 +90,7 @@ def evaluate(
             "recommendedNextAction": "Add an explicit known or deferred structural requirements block before redispatch.",
         }
     base["requirements"] = requirements
+    base["authorizationTier"] = requirements["tier"]
     if not isinstance(contract, dict):
         return {
             **base,
@@ -113,7 +114,12 @@ def evaluate(
     tier = requirements["tier"]
     if tier not in tiers:
         unsupported.append({"kind": "tier", "value": tier})
-    supported_ops = operations_by_tier.get(tier, set())
+    supported_ops = set(operations_by_tier.get(tier, set()))
+    if tier == "new-scene-composition":
+        new_scene_policy = contract.get("newSceneComposition") or {}
+        creation_kind = new_scene_policy.get("creationOperationKind") if isinstance(new_scene_policy, dict) else None
+        if isinstance(creation_kind, str) and creation_kind:
+            supported_ops.add(creation_kind)
     for operation in requirements["operations"]:
         if operation not in supported_ops:
             unsupported.append({"kind": "operation", "value": operation})

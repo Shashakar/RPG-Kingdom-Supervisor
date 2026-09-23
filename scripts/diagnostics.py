@@ -131,7 +131,45 @@ def workspace_state(identifier: str) -> dict[str, Any]:
             result["latest_unity"] = {"summary_path": str(latest), "error": str(exc)}
     else:
         result["latest_unity"] = None
+
+    authoring_results = sorted(
+        workspace.glob("Logs/SymphonyUnityAuthoring/*/result.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if authoring_results:
+        latest_authoring = authoring_results[0]
+        try:
+            result["latest_authoring"] = json.loads(
+                latest_authoring.read_text(encoding="utf-8-sig")
+            )
+            result["latest_authoring"]["result_path"] = str(latest_authoring)
+        except (OSError, json.JSONDecodeError) as exc:
+            result["latest_authoring"] = {
+                "result_path": str(latest_authoring),
+                "error": str(exc),
+            }
+    else:
+        result["latest_authoring"] = None
     return result
+
+
+def new_scene_provenance_state(identifier: str) -> dict[str, Any]:
+    state_root = Path(
+        os.path.expanduser(
+            os.environ.get(
+                "RPGK_SUPERVISOR_STATE_ROOT", "~/.local/state/rpg-kingdom-supervisor"
+            )
+        )
+    )
+    path = state_root / "new-scene-provenance" / f"{identifier}.json"
+    if not path.is_file():
+        return {"available": False, "path": str(path)}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"available": False, "path": str(path), "error": str(exc)}
+    return {"available": True, "path": str(path), **payload}
 
 
 def unity_lock_state() -> dict[str, Any]:
@@ -288,6 +326,7 @@ def collect(number: int) -> dict[str, Any]:
         "github": issue_from_github(number, repo),
         "workspace": workspace_state(identifier),
         "unity_lock": unity_lock_state(),
+        "new_scene_provenance": new_scene_provenance_state(identifier),
         "symphony": symphony,
         "codex": rollout_state(symphony.get("thread_id")),
     }
@@ -307,6 +346,8 @@ def render_text(data: dict[str, Any]) -> str:
     sx = data["symphony"]
     cx = data["codex"]
     unity = ws.get("latest_unity")
+    authoring = ws.get("latest_authoring")
+    provenance = data.get("new_scene_provenance") or {}
     lines = [f"{data['identifier']} diagnostics", ""]
     if gh.get("available"):
         lines += [
@@ -364,6 +405,16 @@ def render_text(data: dict[str, Any]) -> str:
         lines.append(f"  Run:         {unity.get('runId', '-')}")
     else:
         lines.append("  Last result: none")
+    if isinstance(authoring, dict):
+        lines.append(f"  Author tier: {authoring.get('tier', authoring.get('compositionMode', '-'))}")
+        lines.append(f"  Author scene:{authoring.get('scene', '-')}")
+        copied = authoring.get("copiedBackAssets")
+        if copied:
+            lines.append(f"  Copy-back:   {', '.join(copied)}")
+    if provenance.get("available"):
+        lines.append(f"  New scene:   {provenance.get('targetScene', '-')}")
+        lines.append(f"  Source scene:{provenance.get('sourceScene', '-')}")
+        lines.append(f"  Provenance:  {provenance.get('branch', '-')}")
 
     if gh.get("latest_comment"):
         lines += ["", "Latest issue comment", f"  {gh['latest_comment'][:1000]}"]

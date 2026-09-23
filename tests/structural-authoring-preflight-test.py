@@ -23,11 +23,15 @@ def marker(payload: dict) -> str:
 CONTRACT = {
     "schemaVersion": 1,
     "supportedProtocolVersions": [1],
-    "supportedTiers": ["mechanical", "mechanical-structural"],
+    "supportedTiers": ["mechanical", "mechanical-structural", "new-scene-composition"],
     "operationKindsByTier": [
         {
             "tier": "mechanical-structural",
             "operationKinds": ["add-component", "remove-component", "set-object-reference"],
+        },
+        {
+            "tier": "new-scene-composition",
+            "operationKinds": ["set-transform", "reparent-object", "delete-object", "instantiate-existing-prefab"],
         }
     ],
     "structuralComponentAdditions": [
@@ -37,6 +41,7 @@ CONTRACT = {
     "componentRemovals": [
         "RPGKingdom.Runtime.PlayerCombat.PlayerCombatController",
     ],
+    "newSceneComposition": {"creationOperationKind": "copy-scene"},
 }
 
 
@@ -63,6 +68,38 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertEqual("supported", result["status"])
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual([], result["unsupported"])
+
+
+    def test_supported_new_scene_requirements_authorize_exact_tier(self):
+        result = self.evaluate(
+            marker(
+                {
+                    "mode": "known",
+                    "tier": "new-scene-composition",
+                    "operations": ["copy-scene", "set-transform", "reparent-object", "delete-object"],
+                }
+            )
+        )
+        self.assertEqual("supported", result["status"])
+        self.assertTrue(result["authoringAuthorized"])
+        self.assertEqual("new-scene-composition", result["authorizationTier"])
+
+
+    def test_new_scene_copy_requires_project_creation_capability(self):
+        contract = dict(CONTRACT)
+        contract.pop("newSceneComposition", None)
+        result = self.evaluate(
+            marker(
+                {
+                    "mode": "known",
+                    "tier": "new-scene-composition",
+                    "operations": ["copy-scene", "set-transform"],
+                }
+            ),
+            contract=contract,
+        )
+        self.assertEqual("unsupported", result["status"])
+        self.assertIn({"kind": "operation", "value": "copy-scene"}, result["unsupported"])
 
     def test_known_unsupported_component_is_rejected(self):
         result = self.evaluate(

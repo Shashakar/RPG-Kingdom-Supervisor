@@ -169,15 +169,20 @@ labels="$(jq -r '.[].name' <<<"$labels_json")"
 
 mechanical_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-mechanical")' <<<"$labels_json")"
 structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-structural")' <<<"$labels_json")"
-if [[ "$mechanical_authoring" == "true" && "$structural_authoring" == "true" ]]; then
-  halt_issue "conflicting scene-authoring labels: mechanical and structural authority cannot be granted together"
+new_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-new-composition")' <<<"$labels_json")"
+authoring_count=0
+[[ "$mechanical_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
+[[ "$structural_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
+[[ "$new_scene_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
+if (( authoring_count > 1 )); then
+  halt_issue "conflicting scene-authoring labels: mechanical, structural, and new-scene authority are mutually exclusive"
   exit 75
 fi
 
 structural_deferred="false"
 mkdir -p "$PREFLIGHT_DIR"
 rm -f -- "$PREFLIGHT_EVIDENCE"
-if [[ "$structural_authoring" == "true" ]]; then
+if [[ "$structural_authoring" == "true" || "$new_scene_authoring" == "true" ]]; then
   issue_json="$(api GET "/issues/$issue_number")"
   issue_body_file="$(mktemp)"
   jq -r '.body // ""' <<<"$issue_json" > "$issue_body_file"
@@ -208,27 +213,40 @@ if [[ "$structural_authoring" == "true" ]]; then
 
     if [[ "$preflight_state" == "deferred" ]]; then
       structural_deferred="true"
-      echo "RPG Kingdom Unity guard: structural authoring is deferred for $issue_identifier; source phase may proceed without a scene-authoring receipt"
+      echo "RPG Kingdom Unity guard: scene authoring is deferred for $issue_identifier; source phase may proceed without a scene-authoring receipt"
     else
-      echo "RPG Kingdom Unity guard: structural authoring capability preflight passed for $issue_identifier"
+      echo "RPG Kingdom Unity guard: scene-authoring capability preflight passed for $issue_identifier"
     fi
   else
     rm -f -- "$issue_body_file"
+    authorization_tier="mechanical-structural"
+    legacy_reason="legacy structural issue has no explicit symphony-scene-authoring-requirements block"
+    if [[ "$new_scene_authoring" == "true" ]]; then
+      authorization_tier="new-scene-composition"
+      legacy_reason="new-scene composition requires an explicit symphony-scene-authoring-requirements block"
+    fi
     jq -cn \
       --arg issue "$issue_identifier" \
       --arg revision "$revision" \
       --arg contract "$CAPABILITY_CONTRACT" \
-      '{protocolVersion:1,issue:$issue,status:"unknown",supported:null,authorizationTier:"mechanical-structural",contractPath:$contract,contractRevision:$revision,reason:"legacy structural issue has no explicit symphony-scene-authoring-requirements block"}' \
+      --arg tier "$authorization_tier" \
+      --arg reason "$legacy_reason" \
+      '{protocolVersion:1,issue:$issue,status:"unknown",supported:null,authorizationTier:$tier,contractPath:$contract,contractRevision:$revision,reason:$reason}' \
       > "$PREFLIGHT_EVIDENCE"
+    if [[ "$new_scene_authoring" == "true" ]]; then
+      halt_issue "new-scene composition requires explicit supported scene-authoring requirements"
+      exit 78
+    fi
     echo "RPG Kingdom Unity guard: structural requirements are undeclared for $issue_identifier; preserving legacy authorization behavior"
   fi
 fi
 
 mkdir -p "$AUTHORING_DIR"
 rm -f -- "$AUTHORING_MARKER"
-if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
+if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$new_scene_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
   authoring_tier="mechanical"
   [[ "$structural_authoring" == "true" ]] && authoring_tier="mechanical-structural"
+  [[ "$new_scene_authoring" == "true" ]] && authoring_tier="new-scene-composition"
   jq -cn \
     --arg issue "$issue_identifier" \
     --arg workspace "$PWD" \
