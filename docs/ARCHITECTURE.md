@@ -79,7 +79,7 @@ Phase 4 defines execution:
 - result XML, Editor logs, and JSON summaries return to the ignored `Logs/SymphonyUnity/` workspace path;
 - the broker remains responsive while a Unity child operation is active and reports busy/timeout state explicitly.
 
-The staging project is disposable validation state. It never becomes a source of truth and is never synchronized back into RPG Kingdom.
+The staging project is disposable validation state. It never becomes a source of truth. Scene-authoring copy-back is a separate typed boundary: existing-scene tiers may replace only one authorized scene, while the `new-scene-composition` tier may initially create exactly one issue-owned target scene plus meta and later replace only that same unmerged target. Host-owned provenance and `origin/main` checks prevent that tier from mutating established scenes.
 
 ## Current flow
 
