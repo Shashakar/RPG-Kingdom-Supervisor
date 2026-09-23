@@ -338,5 +338,8 @@ else {
     }
 }
 
-$result | ConvertTo-Json -Depth 100 -Compress | Write-Output
+$result | Add-Member -NotePropertyName tier -NotePropertyValue $tier -Force
+$finalJson = $result | ConvertTo-Json -Depth 100 -Compress
+[System.IO.File]::WriteAllText($SourceResult, $finalJson, $utf8NoBom)
+$finalJson | Write-Output
 exit 0
