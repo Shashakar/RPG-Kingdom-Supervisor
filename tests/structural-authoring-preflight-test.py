@@ -41,6 +41,7 @@ CONTRACT = {
     "componentRemovals": [
         "RPGKingdom.Runtime.PlayerCombat.PlayerCombatController",
     ],
+    "newSceneComposition": {"creationOperationKind": "copy-scene"},
 }
 
 
@@ -75,7 +76,7 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
                 {
                     "mode": "known",
                     "tier": "new-scene-composition",
-                    "operations": ["set-transform", "reparent-object", "delete-object"],
+                    "operations": ["copy-scene", "set-transform", "reparent-object", "delete-object"],
                 }
             )
         )
