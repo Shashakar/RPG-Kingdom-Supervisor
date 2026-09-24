@@ -327,12 +327,16 @@ if (-not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
 }
 
 $changedAssets = @($result.changedAssets | ForEach-Object { [string]$_ })
-$generatedAssets = @($result.generatedAssets | ForEach-Object { [string]$_ })
-if ($generatedAssets.Count -ne @($generatedAssets | Select-Object -Unique).Count) {
-    Fail-Authoring "executor generated-assets evidence contains duplicate paths" 92
+$generatedNavigationAssets = @($result.generatedNavigationAssets | ForEach-Object { [string]$_ })
+if ($generatedNavigationAssets.Count -ne @($generatedNavigationAssets | Select-Object -Unique).Count) {
+    Fail-Authoring "executor generated-navigation-assets evidence contains duplicate paths" 92
 }
-foreach ($generatedAsset in $generatedAssets) {
+$generatedCopyBackAssets = @()
+foreach ($generatedAsset in $generatedNavigationAssets) {
     Assert-GeneratedAssetPath -Value $generatedAsset
+    $generatedMeta = "$generatedAsset.meta"
+    Assert-GeneratedAssetPath -Value $generatedMeta
+    $generatedCopyBackAssets += @($generatedAsset, $generatedMeta)
 }
 
 if ($IsNewSceneComposition) {
@@ -344,7 +348,7 @@ if ($IsNewSceneComposition) {
     }
 
     $baseExpected = if ($CompositionMode -eq "initial") { @($scene, "$scene.meta") } else { @($scene) }
-    $expected = @($baseExpected + $generatedAssets | Sort-Object)
+    $expected = @($baseExpected + $generatedCopyBackAssets | Sort-Object)
     $actual = @($changedAssets | Sort-Object)
     if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
         Fail-Authoring "new-scene executor changed-assets evidence must exactly match the target scene assets plus executor-attested generated navigation assets" 92
@@ -364,7 +368,7 @@ if ($IsNewSceneComposition) {
         }
     }
 
-    $copyBackAssets = @($baseExpected + $generatedAssets)
+    $copyBackAssets = @($baseExpected + $generatedCopyBackAssets)
     Publish-AssetsAtomically -AssetPaths $copyBackAssets
     $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
     $result | Add-Member -NotePropertyName compositionMode -NotePropertyValue $CompositionMode -Force
@@ -372,8 +376,8 @@ if ($IsNewSceneComposition) {
     $result | Add-Member -NotePropertyName sourceHashAfter -NotePropertyValue (Get-Sha256 $StageSourceScene) -Force
 }
 else {
-    if ($generatedAssets.Count -ne 0) {
-        Fail-Authoring "generated assets are only supported for new-scene composition" 92
+    if ($generatedNavigationAssets.Count -ne 0) {
+        Fail-Authoring "generated navigation assets are only supported for new-scene composition" 92
     }
     if ($changedAssets.Count -ne 1 -or $changedAssets[0] -ne $scene) {
         Fail-Authoring "executor changed-assets evidence does not exactly match the one authorized scene '$scene'" 92
