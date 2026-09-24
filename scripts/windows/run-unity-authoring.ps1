@@ -59,6 +59,78 @@ function Assert-UnityHostIdle {
     }
 }
 
+$GeneratedAssetRoot = "Assets/RPGKingdom/Navigation/Generated/"
+
+function Assert-GeneratedAssetPath {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value) -or
+        -not $Value.StartsWith($GeneratedAssetRoot, [System.StringComparison]::Ordinal) -or
+        $Value.Contains("..") -or
+        $Value.Contains("\\") -or
+        $Value.EndsWith(".unity", [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail-Authoring "generated asset '$Value' is outside the reviewed navigation generated-asset root" 92
+    }
+}
+
+function Publish-AssetsAtomically {
+    param([Parameter(Mandatory = $true)][string[]]$AssetPaths)
+
+    $entries = @()
+    $index = 0
+    foreach ($assetPath in $AssetPaths) {
+        $stagePath = Join-Path $StageProject ($assetPath -replace '/', '\\')
+        if (-not (Test-Path -LiteralPath $stagePath -PathType Leaf)) {
+            Fail-Authoring "executor reported changed asset '$assetPath' but the staged file is missing" 92
+        }
+
+        $destination = Join-Path $SourceProjectPath ($assetPath -replace '/', '\\')
+        $destinationDirectory = Split-Path -Parent $destination
+        New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
+
+        $temp = "$destination.symphony-authoring.tmp.$PID.$index"
+        $backup = "$destination.symphony-authoring.bak.$PID.$index"
+        $existed = Test-Path -LiteralPath $destination -PathType Leaf
+        Copy-Item -LiteralPath $stagePath -Destination $temp -Force
+        if ($existed) {
+            Copy-Item -LiteralPath $destination -Destination $backup -Force
+        }
+
+        $entries += [PSCustomObject]@{
+            AssetPath = $assetPath
+            Destination = $destination
+            Temp = $temp
+            Backup = $backup
+            Existed = $existed
+            Published = $false
+        }
+        $index++
+    }
+
+    try {
+        foreach ($entry in $entries) {
+            Move-Item -LiteralPath $entry.Temp -Destination $entry.Destination -Force
+            $entry.Published = $true
+        }
+    }
+    catch {
+        foreach ($entry in @($entries | Where-Object { $_.Published })[($entries.Count - 1)..0]) {
+            if ($entry.Existed -and (Test-Path -LiteralPath $entry.Backup -PathType Leaf)) {
+                Move-Item -LiteralPath $entry.Backup -Destination $entry.Destination -Force
+            }
+            else {
+                Remove-Item -LiteralPath $entry.Destination -Force -ErrorAction SilentlyContinue
+            }
+        }
+        throw
+    }
+    finally {
+        foreach ($entry in $entries) {
+            Remove-Item -LiteralPath $entry.Temp -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $entry.Backup -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($UnityPath)) {
     $UnityPath = Join-Path ${env:ProgramFiles} "Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe"
 }
@@ -253,6 +325,14 @@ if (-not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
 }
 
 $changedAssets = @($result.changedAssets | ForEach-Object { [string]$_ })
+$generatedAssets = @($result.generatedAssets | ForEach-Object { [string]$_ })
+if ($generatedAssets.Count -ne @($generatedAssets | Select-Object -Unique).Count) {
+    Fail-Authoring "executor generated-assets evidence contains duplicate paths" 92
+}
+foreach ($generatedAsset in $generatedAssets) {
+    Assert-GeneratedAssetPath -Value $generatedAsset
+}
+
 if ($IsNewSceneComposition) {
     if ((Get-Sha256 $StageSourceScene) -ne $StageSourceHashBefore -or (Get-Sha256 $StageSourceMeta) -ne $StageSourceMetaHashBefore) {
         Fail-Authoring "source scene or metadata changed in the Unity stage" 92
@@ -261,81 +341,42 @@ if ($IsNewSceneComposition) {
         Fail-Authoring "source scene or metadata changed in the source workspace during authoring" 92
     }
 
+    $baseExpected = if ($CompositionMode -eq "initial") { @($scene, "$scene.meta") } else { @($scene) }
+    $expected = @($baseExpected + $generatedAssets | Sort-Object)
+    $actual = @($changedAssets | Sort-Object)
+    if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
+        Fail-Authoring "new-scene executor changed-assets evidence must exactly match the target scene assets plus executor-attested generated navigation assets" 92
+    }
+
     if ($CompositionMode -eq "initial") {
         if ([string]$result.sourceScene -ne $AuthorizedSourceScene -or $result.sourceUnchanged -ne $true) {
             Fail-Authoring "executor did not attest the authorized source scene remained unchanged" 92
         }
-        $expected = @($scene, "$scene.meta") | Sort-Object
-        $actual = @($changedAssets) | Sort-Object
-        if ($actual.Count -ne 2 -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
-            Fail-Authoring "initial executor changed-assets evidence must contain exactly target scene and meta" 92
-        }
         if (-not (Test-Path -LiteralPath $StageSceneMeta -PathType Leaf)) {
             Fail-Authoring "executor reported initial success but the staged target meta is missing" 92
         }
-
-        # Prepare both files before publishing either. If the second move fails, roll back the first
-        # so the workspace never retains a half-created scene/meta pair.
-        $SceneTemp = "$WorkspaceTargetScene.symphony-authoring.tmp.$PID"
-        $MetaTemp = "$WorkspaceTargetMeta.symphony-authoring.tmp.$PID"
-        $scenePublished = $false
-        $metaPublished = $false
-        try {
-            Copy-Item -LiteralPath $StageScene -Destination $SceneTemp -Force
-            Copy-Item -LiteralPath $StageSceneMeta -Destination $MetaTemp -Force
-            Move-Item -LiteralPath $SceneTemp -Destination $WorkspaceTargetScene -Force
-            $scenePublished = $true
-            Move-Item -LiteralPath $MetaTemp -Destination $WorkspaceTargetMeta -Force
-            $metaPublished = $true
-        }
-        catch {
-            if ($scenePublished -and -not $metaPublished) {
-                Remove-Item -LiteralPath $WorkspaceTargetScene -Force -ErrorAction SilentlyContinue
-            }
-            if ($metaPublished -and -not $scenePublished) {
-                Remove-Item -LiteralPath $WorkspaceTargetMeta -Force -ErrorAction SilentlyContinue
-            }
-            throw
-        }
-        finally {
-            Remove-Item -LiteralPath $SceneTemp -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $MetaTemp -Force -ErrorAction SilentlyContinue
-        }
-        $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue @($scene, "$scene.meta") -Force
     }
     else {
-        if ($changedAssets.Count -ne 1 -or $changedAssets[0] -ne $scene) {
-            Fail-Authoring "iterative executor changed-assets evidence must contain exactly the recorded target scene" 92
-        }
         if (-not (Test-Path -LiteralPath $WorkspaceTargetMeta -PathType Leaf)) {
             Fail-Authoring "iterative target metadata disappeared before copy-back" 92
         }
-        $TargetTemp = "$WorkspaceTargetScene.symphony-authoring.tmp.$PID"
-        try {
-            Copy-Item -LiteralPath $StageScene -Destination $TargetTemp -Force
-            Move-Item -LiteralPath $TargetTemp -Destination $WorkspaceTargetScene -Force
-        }
-        finally {
-            Remove-Item -LiteralPath $TargetTemp -Force -ErrorAction SilentlyContinue
-        }
-        $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue @($scene) -Force
     }
+
+    $copyBackAssets = @($baseExpected + $generatedAssets)
+    Publish-AssetsAtomically -AssetPaths $copyBackAssets
+    $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
     $result | Add-Member -NotePropertyName compositionMode -NotePropertyValue $CompositionMode -Force
     $result | Add-Member -NotePropertyName sourceHashBefore -NotePropertyValue $StageSourceHashBefore -Force
     $result | Add-Member -NotePropertyName sourceHashAfter -NotePropertyValue (Get-Sha256 $StageSourceScene) -Force
 }
 else {
+    if ($generatedAssets.Count -ne 0) {
+        Fail-Authoring "generated assets are only supported for new-scene composition" 92
+    }
     if ($changedAssets.Count -ne 1 -or $changedAssets[0] -ne $scene) {
         Fail-Authoring "executor changed-assets evidence does not exactly match the one authorized scene '$scene'" 92
     }
-    $SourceTemp = "$WorkspaceTargetScene.symphony-authoring.tmp.$PID"
-    try {
-        Copy-Item -LiteralPath $StageScene -Destination $SourceTemp -Force
-        Move-Item -LiteralPath $SourceTemp -Destination $WorkspaceTargetScene -Force
-    }
-    finally {
-        Remove-Item -LiteralPath $SourceTemp -Force -ErrorAction SilentlyContinue
-    }
+    Publish-AssetsAtomically -AssetPaths @($scene)
 }
 
 $result | Add-Member -NotePropertyName tier -NotePropertyValue $tier -Force
