@@ -113,7 +113,9 @@ function Publish-AssetsAtomically {
         }
     }
     catch {
-        foreach ($entry in @($entries | Where-Object { $_.Published })[($entries.Count - 1)..0]) {
+        $published = @($entries | Where-Object { $_.Published })
+        [array]::Reverse($published)
+        foreach ($entry in $published) {
             if ($entry.Existed -and (Test-Path -LiteralPath $entry.Backup -PathType Leaf)) {
                 Move-Item -LiteralPath $entry.Backup -Destination $entry.Destination -Force
             }
