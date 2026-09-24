@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +35,11 @@ FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
 AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT","~/.local/state/rpg-kingdom-supervisor")))
 AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
 AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
+_AUTONOMOUS_SPEC = importlib.util.spec_from_file_location("autonomous_scheduler", AUTONOMOUS_SCHEDULER)
+if _AUTONOMOUS_SPEC is None or _AUTONOMOUS_SPEC.loader is None:
+    raise RuntimeError("unable to load autonomous scheduler controls")
+autonomous_scheduler = importlib.util.module_from_spec(_AUTONOMOUS_SPEC)
+_AUTONOMOUS_SPEC.loader.exec_module(autonomous_scheduler)
 
 QUOTA_FRESHNESS_SCRIPT = r"""
 <script>
@@ -380,15 +385,11 @@ def serve(port: int) -> None:
                 action = str(payload.get("action") or "")
                 if action not in {"enable","disable","pause","resume","stop-after-issue","plan-enable","plan-disable","move-up","move-down"}:
                     self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST); return
-                cmd = [sys.executable, str(AUTONOMOUS_SCHEDULER), "control", action]
-                if payload.get("issue") is not None:
-                    cmd += ["--issue", str(int(payload["issue"]))]
-                proc = subprocess.run(cmd, text=True, capture_output=True, timeout=10)
-                if proc.returncode:
-                    self.send_json({"error":proc.stderr.strip() or "control failed"}, HTTPStatus.INTERNAL_SERVER_ERROR); return
-                self.send_json({"ok":True,"action":action})
-            except (json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
-                self.send_json({"error":str(exc)}, HTTPStatus.BAD_REQUEST)
+                issue = int(payload["issue"]) if payload.get("issue") is not None else None
+                autonomous_scheduler.update_control(action, issue)
+                self.send_json({"ok": True, "action": action})
+            except (json.JSONDecodeError, ValueError) as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
