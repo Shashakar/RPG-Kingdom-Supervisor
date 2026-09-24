@@ -389,7 +389,7 @@ def serve(port: int) -> None:
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
-    print("Ctrl+C to stop. The dashboard is read-only and bound to localhost.")
+    print("Ctrl+C to stop. The dashboard is bound to localhost; autonomous controls mutate only durable Supervisor scheduling state.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
