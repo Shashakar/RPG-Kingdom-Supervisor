@@ -101,6 +101,10 @@ See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md), [`docs/OPERA
 
 Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
+## Autonomous work plans
+
+Supervisor includes a host-owned, model-free scheduler for operator-approved autonomous windows and dependency-aware work plans. It durably evaluates quota, dependencies, recoverable halts, and human gates; uses the existing one-shot rearm contract; and exposes status and controls in the operator dashboard. See [docs/AUTONOMOUS_WORK.md](docs/AUTONOMOUS_WORK.md).
+
 ## Repositories
 
 - Game repository: `Shashakar/RPG-Kingdom`
@@ -112,7 +116,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
-- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services, and publishes Symphony service state.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services including the autonomous scheduler, and publishes Symphony service state.\n- [`scripts/autonomous-plan.py`](scripts/autonomous-plan.py) — deterministic operating-window, dependency, quota, and human-gate policy.\n- [`scripts/autonomous-scheduler.py`](scripts/autonomous-scheduler.py) — durable host scheduler and operator-control CLI for approved unattended work plans.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
 - [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.

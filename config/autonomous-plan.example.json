@@ -1,0 +1,36 @@
+{
+  "autonomous_window": {
+    "enabled": false,
+    "timezone": "America/Denver",
+    "start": "22:00",
+    "end": "06:00"
+  },
+  "quota": {
+    "min_primary_to_start_turn": 15,
+    "min_weekly_to_start_turn": 5,
+    "reserve_primary": 10
+  },
+  "work_plan": [
+    {
+      "issue": 79,
+      "action": "continue",
+      "enabled": true
+    },
+    {
+      "issue": 138,
+      "action": "implement",
+      "after": [
+        79
+      ],
+      "enabled": true
+    },
+    {
+      "issue": 139,
+      "action": "implement",
+      "after": [
+        138
+      ],
+      "enabled": true
+    }
+  ]
+}

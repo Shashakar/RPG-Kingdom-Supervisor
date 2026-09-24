@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import re
 import sys
 from http import HTTPStatus
@@ -30,6 +32,14 @@ PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"
 PAGE = PAGE_PATH.read_text(encoding="utf-8")
 FINISHED_TASKS_PATH = SCRIPT_DIR / "finished_tasks_dashboard.html"
 FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
+AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT","~/.local/state/rpg-kingdom-supervisor")))
+AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
+AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
+_AUTONOMOUS_SPEC = importlib.util.spec_from_file_location("autonomous_scheduler", AUTONOMOUS_SCHEDULER)
+if _AUTONOMOUS_SPEC is None or _AUTONOMOUS_SPEC.loader is None:
+    raise RuntimeError("unable to load autonomous scheduler controls")
+autonomous_scheduler = importlib.util.module_from_spec(_AUTONOMOUS_SPEC)
+_AUTONOMOUS_SPEC.loader.exec_module(autonomous_scheduler)
 
 QUOTA_FRESHNESS_SCRIPT = r"""
 <script>
@@ -287,6 +297,13 @@ def serve(port: int) -> None:
                 self.wfile.write(body)
                 return
 
+            if parsed.path == "/api/autonomous":
+                try:
+                    self.send_json(json.loads(AUTONOMOUS_STATUS_PATH.read_text(encoding="utf-8")))
+                except (FileNotFoundError, json.JSONDecodeError):
+                    self.send_json({"decision":{"state":"not_configured","dispatch":False}})
+                return
+
             if parsed.path == "/api/operations":
                 self.send_json(supervisor_telemetry.collect_operations())
                 return
@@ -358,9 +375,25 @@ def serve(port: int) -> None:
 
             self.send_error(HTTPStatus.NOT_FOUND)
 
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path != "/api/autonomous/control":
+                self.send_error(HTTPStatus.NOT_FOUND); return
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            try:
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                action = str(payload.get("action") or "")
+                if action not in {"enable","disable","pause","resume","stop-after-issue","plan-enable","plan-disable","move-up","move-down"}:
+                    self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST); return
+                issue = int(payload["issue"]) if payload.get("issue") is not None else None
+                autonomous_scheduler.update_control(action, issue)
+                self.send_json({"ok": True, "action": action})
+            except (json.JSONDecodeError, ValueError) as exc:
+                self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
-    print("Ctrl+C to stop. The dashboard is read-only and bound to localhost.")
+    print("Ctrl+C to stop. The dashboard is bound to localhost; autonomous controls mutate only durable Supervisor scheduling state.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
