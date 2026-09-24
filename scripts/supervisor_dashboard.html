@@ -75,7 +75,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;p
       <article class="hero-card"><div class="hero-label">5h quota remaining</div><div id="metric-quota" class="metric-value">—</div><div id="metric-quota-note" class="metric-note">Loading Codex quota…</div></article>
     </div>
     <div id="service-strip" class="service-strip"></div>
-    <div id="autonomous-panel" class="panel"><h3>Autonomous work</h3><div id="autonomous-status" class="meta">Loading autonomous scheduler...</div><div class="toolbar" style="margin-top:10px"><button onclick="autonomousControl('enable')">Enable</button><button onclick="autonomousControl('disable')">Disable</button><button onclick="autonomousControl('pause')">Pause</button><button onclick="autonomousControl('resume')">Resume</button></div></div>
+    <div id="autonomous-panel" class="panel"><h3>Autonomous work</h3><div id="autonomous-status" class="meta">Loading autonomous scheduler...</div><div class="toolbar" style="margin-top:10px"><button onclick="autonomousControl('enable')">Enable</button><button onclick="autonomousControl('disable')">Disable</button><button onclick="autonomousControl('pause')">Pause after current turn</button><button onclick="autonomousControl('stop-after-issue')">Stop after current issue</button><button onclick="autonomousControl('resume')">Resume</button></div></div>
     <div class="section-head"><div><h2>Active work</h2><p>Only live worker lifetimes are emphasized here.</p></div><button type="button" onclick="selectView('work')">Open work queues</button></div>
     <div id="active-workers" class="panel compact-list"></div>
     <details class="details-box">
