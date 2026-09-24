@@ -103,7 +103,7 @@ Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: mod
 
 ## Autonomous work plans
 
-Supervisor includes a deterministic policy core for operator-approved autonomous windows and dependency-aware work plans. See [docs/AUTONOMOUS_WORK.md](docs/AUTONOMOUS_WORK.md). The initial policy slice is intentionally model-free and fail-closed; GitHub mutation remains a separate host-service responsibility.
+Supervisor includes a host-owned, model-free scheduler for operator-approved autonomous windows and dependency-aware work plans. It durably evaluates quota, dependencies, recoverable halts, and human gates; uses the existing one-shot rearm contract; and exposes status and controls in the operator dashboard. See [docs/AUTONOMOUS_WORK.md](docs/AUTONOMOUS_WORK.md).
 
 ## Repositories
 
@@ -116,7 +116,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 ## Files
 
 - [`WORKFLOW.md`](WORKFLOW.md) — Symphony configuration and the RPG Kingdom worker prompt.
-- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services, and publishes Symphony service state.
+- [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services including the autonomous scheduler, and publishes Symphony service state.\n- [`scripts/autonomous-plan.py`](scripts/autonomous-plan.py) — deterministic operating-window, dependency, quota, and human-gate policy.\n- [`scripts/autonomous-scheduler.py`](scripts/autonomous-scheduler.py) — durable host scheduler and operator-control CLI for approved unattended work plans.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
 - [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.
