@@ -15,21 +15,27 @@ def evaluate(config,state,now):
  if not in_window(now.astimezone(ZoneInfo(w["timezone"])),w["start"],w["end"]): return {"state":"waiting_for_window","dispatch":False}
  if state.get("active_worker"): return {"state":"running","dispatch":False}
  completed={int(x) for x in state.get("completed",[])}
- blocked={int(x) for x in state.get("blocked",[])}
+ explicit_blocked={int(x) for x in state.get("blocked",[])}
+ human_blocked=[]; dependency_blocked=[]
  for item in config.get("work_plan",[]):
   issue=int(item["issue"])
-  if not item.get("enabled",True) or issue in completed or issue in blocked: continue
-  if not {int(x) for x in item.get("after",[])}.issubset(completed): continue
+  if not item.get("enabled",True) or issue in completed or issue in explicit_blocked: continue
+  deps={int(x) for x in item.get("after",[])}
+  if not deps.issubset(completed):
+   dependency_blocked.append(issue); continue
   life=state.get("issues",{}).get(str(issue),{})
   labels={str(x).lower() for x in life.get("labels",[])}
   halt=life.get("halt_kind")
   if labels&HUMAN or life.get("manual_action_required") or (halt and halt not in RECOVERABLE):
-   return {"state":"human_gate","dispatch":False,"issue":issue}
+   human_blocked.append(issue); continue
   q=state.get("quota",{}); floors=config.get("quota",{})
-  if q.get("primary_remaining",100)<floors.get("min_primary_to_start_turn",0) or q.get("weekly_remaining",100)<floors.get("min_weekly_to_start_turn",0):
-   return {"state":"waiting_for_quota","dispatch":False,"issue":issue}
-  return {"state":"eligible","dispatch":True,"issue":issue,"action":item.get("action","implement")}
- return {"state":"complete_or_blocked","dispatch":False}
+  if q.get("status")!="available":
+   return {"state":"waiting_for_quota","dispatch":False,"issue":issue,"reason":"authoritative quota unavailable","blocked":human_blocked}
+  if q.get("primary_remaining",0)<floors.get("min_primary_to_start_turn",0) or q.get("weekly_remaining",0)<floors.get("min_weekly_to_start_turn",0):
+   return {"state":"waiting_for_quota","dispatch":False,"issue":issue,"blocked":human_blocked}
+  return {"state":"eligible","dispatch":True,"issue":issue,"action":item.get("action","implement"),"blocked":human_blocked}
+ if human_blocked: return {"state":"human_gate","dispatch":False,"blocked":human_blocked}
+ return {"state":"complete_or_blocked","dispatch":False,"dependencyBlocked":dependency_blocked}
 def main():
  p=argparse.ArgumentParser(); p.add_argument("--config",required=True); p.add_argument("--state",required=True); p.add_argument("--now"); a=p.parse_args()
  now=datetime.fromisoformat(a.now) if a.now else datetime.now().astimezone()
