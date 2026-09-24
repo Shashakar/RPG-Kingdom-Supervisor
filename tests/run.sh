@@ -15,6 +15,8 @@ python3 "$ROOT/tests/symphony-usage-limit-transform-test.py"
 python3 "$ROOT/tests/symphony-continuation-transform-test.py"
 python3 "$ROOT/tests/symphony-skill-roots-transform-test.py"
 python3 "$ROOT/tests/continuation-policy-test.py"
+python3 "$ROOT/tests/autonomous-plan-test.py"
+python3 "$ROOT/tests/autonomous-scheduler-test.py"
 python3 "$ROOT/tests/turn-telemetry-test.py"
 python3 "$ROOT/tests/halt-diagnosis-test.py"
 bash "$ROOT/tests/diagnostics-policy-test.sh"
@@ -59,6 +61,8 @@ bash "$ROOT/tests/continuation-context-test.sh"
 bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 -m py_compile \
+  "$ROOT/scripts/autonomous-plan.py" \
+  "$ROOT/scripts/autonomous-scheduler.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
   "$ROOT/scripts/finished_tasks.py" \
   "$ROOT/scripts/first-party-skill-policy.py" \
