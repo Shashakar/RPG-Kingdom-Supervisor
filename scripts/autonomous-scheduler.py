@@ -62,7 +62,7 @@ def snapshot(config:dict,repo:str)->dict:
   except Exception as exc:s={"labels":[],"halt_kind":"state_unavailable","error":str(exc)}
   issues[str(n)]=s
   if s.get("closed"): completed.append(n)
- return {"active_worker":active_worker(),"completed":completed,"issues":issues,"quota":quota_state()}
+ return {"active_worker":active_worker(),"active_issue":active_issue(),"completed":completed,"issues":issues,"quota":quota_state()}
 
 def mutate(repo:str,decision:dict,state:dict)->str:
  n=int(decision["issue"]); labels={x.lower() for x in state["issues"][str(n)].get("labels",[])}
@@ -77,8 +77,8 @@ def mutate(repo:str,decision:dict,state:dict)->str:
 def tick(config:dict,repo:str)->dict:
  now=datetime.now(timezone.utc); previous=read(STATUS,{}); state=snapshot(config,repo)
  decision=plan.evaluate(config,state,now)
- result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo,"window":config.get("autonomous_window",{}),"workPlan":config.get("work_plan",[]),"paused":bool(config.get("paused")),"stopAfterCurrentIssue":bool(config.get("stop_after_current_issue"))}
- if config.get("paused") or (config.get("stop_after_current_issue") and not state.get("active_worker")): decision={"state":"paused","dispatch":False,"reason":"operator pause/stop boundary"}; result["decision"]=decision
+ result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo,"window":config.get("autonomous_window",{}),"workPlan":config.get("work_plan",[]),"paused":bool(config.get("paused")),"stopAfterIssue":config.get("stop_after_issue")}
+ stop_target=config.get("stop_after_issue")\n stop_life=state.get("issues",{}).get(str(stop_target),{}) if stop_target is not None else {}\n stop_labels={str(x).lower() for x in stop_life.get("labels",[])}\n stop_reached=stop_target is not None and (int(stop_target) in state.get("completed",[]) or bool(stop_labels & HUMAN) or stop_life.get("manual_action_required") or (stop_life.get("halt_kind") and stop_life.get("halt_kind") not in plan.RECOVERABLE))\n if config.get("paused") or stop_reached: decision={"state":"paused","dispatch":False,"reason":"operator pause/stop boundary","stopAfterIssue":stop_target}; result["decision"]=decision
  if decision.get("dispatch"):
   try: result["actionResult"]=mutate(repo,decision,state)
   except Exception as exc: result["decision"]={"state":"human_gate","dispatch":False,"issue":decision.get("issue")}; result["error"]=str(exc)
