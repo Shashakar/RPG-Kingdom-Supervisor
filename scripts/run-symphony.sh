@@ -37,6 +37,8 @@ REVIEW_LOG="$STATE_ROOT/review-orchestrator.log"
 REVIEW_STARTED=0
 REVIEW_PID=""
 REVIEW_WATCHDOG_PID=""
+AUTONOMOUS_PID=""
+AUTONOMOUS_LOG="$STATE_ROOT/autonomous-scheduler.log"
 ALT_SCREEN_ACTIVE=0
 
 if [[ -f "$SECRETS_FILE" ]]; then
@@ -139,6 +141,14 @@ stop_review_watchdog() {
   fi
 }
 
+stop_autonomous_scheduler() {
+  if [[ -n "$AUTONOMOUS_PID" ]]; then
+    kill "$AUTONOMOUS_PID" 2>/dev/null || true
+    wait "$AUTONOMOUS_PID" 2>/dev/null || true
+    AUTONOMOUS_PID=""
+  fi
+}
+
 stop_review_orchestrator() {
   if (( REVIEW_STARTED == 1 )) && [[ -n "$REVIEW_PID" ]]; then
     kill "$REVIEW_PID" 2>/dev/null || true
@@ -149,6 +159,7 @@ stop_review_orchestrator() {
 
 cleanup_all() {
   cleanup_screen
+  stop_autonomous_scheduler
   stop_review_watchdog
   stop_review_orchestrator
   stop_unity_author_broker
@@ -306,6 +317,19 @@ start_review_orchestrator() {
   echo "RPG Kingdom review orchestrator: ready (PID $REVIEW_PID)"
 }
 
+start_autonomous_scheduler() {
+  mkdir -p "$STATE_ROOT"
+  python3 -u "$SUPERVISOR_ROOT/scripts/autonomous-scheduler.py" run >>"$AUTONOMOUS_LOG" 2>&1 &
+  AUTONOMOUS_PID=$!
+  sleep 0.1
+  if ! kill -0 "$AUTONOMOUS_PID" 2>/dev/null; then
+    echo "ERROR: autonomous scheduler exited during startup. Recent log:" >&2
+    tail -n 40 "$AUTONOMOUS_LOG" >&2 2>/dev/null || true
+    return 1
+  fi
+  echo "RPG Kingdom autonomous scheduler: ready (PID $AUTONOMOUS_PID)"
+}
+
 start_review_watchdog() {
   RPGK_REVIEW_WATCHDOG_SECONDS="${RPGK_REVIEW_WATCHDOG_SECONDS:-5}" \
     bash "$SUPERVISOR_ROOT/scripts/review-orchestrator-watchdog.sh" "$REVIEW_PID" "$$" "$REVIEW_LOG" &
@@ -325,6 +349,9 @@ if ! start_review_orchestrator; then
   exit 1
 fi
 start_review_watchdog
+if ! start_autonomous_scheduler; then
+  exit 1
+fi
 
 if [[ "$USE_ALT_SCREEN" == "1" && -t 1 && "${TERM:-dumb}" != "dumb" ]] && command -v tput >/dev/null 2>&1; then
   if tput smcup 2>/dev/null; then
