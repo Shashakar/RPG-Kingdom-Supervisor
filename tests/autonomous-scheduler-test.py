@@ -9,6 +9,8 @@ with tempfile.TemporaryDirectory() as td:
  assert m.read(m.CONFIG,{})["work_plan"][0]["issue"]==79
  assert m.update_control("pause")["paused"] is True
  assert m.update_control("resume")["paused"] is False
+ assert m.update_control("stop-after-issue")["stop_after_current_issue"] is True
+ assert m.update_control("resume")["stop_after_current_issue"] is False
  m.snapshot=lambda config,repo:{"active_worker":False,"completed":[],"quota":{"status":"available","primary_remaining":50,"weekly_remaining":50},"issues":{"79":{"labels":[]}}}
  calls=[]
  m.mutate=lambda repo,decision,state:calls.append(decision["issue"]) or "armed"
