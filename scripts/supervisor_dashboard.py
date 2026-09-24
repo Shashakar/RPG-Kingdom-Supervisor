@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -31,7 +32,8 @@ PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"
 PAGE = PAGE_PATH.read_text(encoding="utf-8")
 FINISHED_TASKS_PATH = SCRIPT_DIR / "finished_tasks_dashboard.html"
 FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
-AUTONOMOUS_STATUS_PATH = Path.home() / ".local/state/rpg-kingdom-supervisor/autonomous-status.json"
+AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT","~/.local/state/rpg-kingdom-supervisor")))
+AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
 AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
 
 QUOTA_FRESHNESS_SCRIPT = r"""
