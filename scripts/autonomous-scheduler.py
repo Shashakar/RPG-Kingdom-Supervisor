@@ -75,7 +75,7 @@ def mutate(repo:str,decision:dict,state:dict)->str:
  return "armed"
 
 def tick(config:dict,repo:str)->dict:
- now=datetime.now(timezone.utc); state=snapshot(config,repo)
+ now=datetime.now(timezone.utc); previous=read(STATUS,{}); state=snapshot(config,repo)
  decision=plan.evaluate(config,state,now)
  result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo,"window":config.get("autonomous_window",{}),"workPlan":config.get("work_plan",[]),"paused":bool(config.get("paused")),"stopAfterCurrentIssue":bool(config.get("stop_after_current_issue"))}
  if config.get("paused") or (config.get("stop_after_current_issue") and not state.get("active_worker")): decision={"state":"paused","dispatch":False,"reason":"operator pause/stop boundary"}; result["decision"]=decision
