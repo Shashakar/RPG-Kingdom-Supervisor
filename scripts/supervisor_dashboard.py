@@ -378,9 +378,9 @@ def serve(port: int) -> None:
             try:
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 action = str(payload.get("action") or "")
-                if action not in {"enable","disable","pause","resume","stop-after-issue"}:
+                if action not in {"enable","disable","pause","resume","stop-after-issue","plan-enable","plan-disable","move-up","move-down"}:
                     self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST); return
-                proc = subprocess.run([sys.executable,str(AUTONOMOUS_SCHEDULER),"control",action],text=True,capture_output=True,timeout=10)
+                cmd = [sys.executable,str(AUTONOMOUS_SCHEDULER),"control",action]\n                if payload.get("issue") is not None: cmd += ["--issue", str(int(payload["issue"]))]\n                proc = subprocess.run(cmd,text=True,capture_output=True,timeout=10)
                 if proc.returncode:
                     self.send_json({"error":proc.stderr.strip() or "control failed"}, HTTPStatus.INTERNAL_SERVER_ERROR); return
                 self.send_json({"ok":True,"action":action})
