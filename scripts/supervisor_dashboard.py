@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +31,8 @@ PAGE_PATH = SCRIPT_DIR / "supervisor_dashboard.html"
 PAGE = PAGE_PATH.read_text(encoding="utf-8")
 FINISHED_TASKS_PATH = SCRIPT_DIR / "finished_tasks_dashboard.html"
 FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
+AUTONOMOUS_STATUS_PATH = Path.home() / ".local/state/rpg-kingdom-supervisor/autonomous-status.json"
+AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
 
 QUOTA_FRESHNESS_SCRIPT = r"""
 <script>
@@ -287,6 +290,13 @@ def serve(port: int) -> None:
                 self.wfile.write(body)
                 return
 
+            if parsed.path == "/api/autonomous":
+                try:
+                    self.send_json(json.loads(AUTONOMOUS_STATUS_PATH.read_text(encoding="utf-8")))
+                except (FileNotFoundError, json.JSONDecodeError):
+                    self.send_json({"decision":{"state":"not_configured","dispatch":False}})
+                return
+
             if parsed.path == "/api/operations":
                 self.send_json(supervisor_telemetry.collect_operations())
                 return
@@ -357,6 +367,23 @@ def serve(port: int) -> None:
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)
+
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path != "/api/autonomous/control":
+                self.send_error(HTTPStatus.NOT_FOUND); return
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            try:
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                action = str(payload.get("action") or "")
+                if action not in {"enable","disable","pause","resume"}:
+                    self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST); return
+                proc = subprocess.run([sys.executable,str(AUTONOMOUS_SCHEDULER),"control",action],text=True,capture_output=True,timeout=10)
+                if proc.returncode:
+                    self.send_json({"error":proc.stderr.strip() or "control failed"}, HTTPStatus.INTERNAL_SERVER_ERROR); return
+                self.send_json({"ok":True,"action":action})
+            except (json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
+                self.send_json({"error":str(exc)}, HTTPStatus.BAD_REQUEST)
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
