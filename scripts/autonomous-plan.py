@@ -31,7 +31,7 @@ def evaluate(config,state,now):
   q=state.get("quota",{}); floors=config.get("quota",{})
   if q.get("status")!="available":
    return {"state":"waiting_for_quota","dispatch":False,"issue":issue,"reason":"authoritative quota unavailable","blocked":human_blocked}
-  if q.get("primary_remaining",0)<floors.get("min_primary_to_start_turn",0) or q.get("weekly_remaining",0)<floors.get("min_weekly_to_start_turn",0):
+  primary_floor=max(floors.get("min_primary_to_start_turn",0),floors.get("reserve_primary",0))\n  if q.get("primary_remaining",0)<primary_floor or q.get("weekly_remaining",0)<floors.get("min_weekly_to_start_turn",0):
    return {"state":"waiting_for_quota","dispatch":False,"issue":issue,"blocked":human_blocked}
   return {"state":"eligible","dispatch":True,"issue":issue,"action":item.get("action","implement"),"blocked":human_blocked}
  if human_blocked: return {"state":"human_gate","dispatch":False,"blocked":human_blocked}
