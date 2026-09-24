@@ -298,12 +298,12 @@ with tempfile.TemporaryDirectory(prefix="rpgk-unity-reap-test-") as temp:
     finished_stdout = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
     finished_stderr = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
     finished = subprocess.Popen(
-        ["bash", "-lc", "printf '%s\\n' '{\"status\":\"ready\"}'"],
+        [sys.executable, "-c", "print('{\\\"status\\\":\\\"ready\\\"}', flush=True)"],
         stdout=finished_stdout,
         stderr=finished_stderr,
         text=True,
     )
-    finished.wait(timeout=2)
+    finished.wait(timeout=5)
     finished_active = active_for(finished, finished_stdout, finished_stderr)
     assert module.complete_finished_operation(finished_active) is not None
     module.close_operation(finished_active)
