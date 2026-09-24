@@ -66,7 +66,7 @@ function Assert-GeneratedAssetPath {
     if ([string]::IsNullOrWhiteSpace($Value) -or
         -not $Value.StartsWith($GeneratedAssetRoot, [System.StringComparison]::Ordinal) -or
         $Value.Contains("..") -or
-        $Value.Contains("\\") -or
+        $Value.Contains("\") -or
         $Value.EndsWith(".unity", [System.StringComparison]::OrdinalIgnoreCase)) {
         Fail-Authoring "generated asset '$Value' is outside the reviewed navigation generated-asset root" 92
     }
