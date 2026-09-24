@@ -141,13 +141,13 @@ That record binds the issue, workspace, branch, source scene, and target scene. 
 
 Initial copy-back always includes the target `.unity` and its generated `.meta`. Later copy-back always includes the recorded target `.unity`. The source scene is hashed before/after staged Unity execution and must remain unchanged.
 
-A reviewed generated-asset exception exists only for new-scene composition operations that must persist navigation output. The project executor must explicitly attest every such path in `generatedAssets`, every generated path must also appear in `changedAssets`, and Supervisor accepts them only under:
+A reviewed generated-asset exception exists only for new-scene composition operations that must persist navigation output. The project executor must explicitly attest every such path in `generatedNavigationAssets`, every generated path must also appear in `changedAssets`, and Supervisor accepts them only under:
 
 ```text
 Assets/RPGKingdom/Navigation/Generated/
 ```
 
-The host copies back exactly the required target-scene asset(s) plus that executor-attested navigation manifest as one rollback-capable publish transaction. Missing staged files, duplicate manifest paths, scene files masquerading as generated assets, paths outside the reviewed root, or any unrelated changed asset fail closed. Existing mechanical and mechanical-structural tiers still prohibit generated-asset copy-back.
+The host copies back exactly the required target-scene asset(s) plus each executor-attested navigation asset and its Unity `.meta` as one rollback-capable publish transaction. Missing staged files, duplicate manifest paths, scene files masquerading as generated assets, paths outside the reviewed root, or any unrelated changed asset fail closed. Existing mechanical and mechanical-structural tiers still prohibit generated-asset copy-back.
 
 This exception is intentionally narrow: it exists for reviewed NavMesh/navigation generation required by an issue-owned new scene. It is not generic multi-asset copy-back.
 
@@ -238,7 +238,7 @@ Object names may be used only when unique in the loaded scene. Use the full hier
 6. New-scene composition either copies the authorized source into an absent target or reopens the host-recorded issue-owned target.
 7. Unity writes a structured result naming the changed asset set.
 8. Existing-scene tiers require exactly one changed scene.
-9. New-scene composition requires the target scene assets plus, when present, the executor's exact reviewed `generatedAssets` navigation manifest under `Assets/RPGKingdom/Navigation/Generated/`.
+9. New-scene composition requires the target scene assets plus, when present, the executor's exact reviewed `generatedNavigationAssets` entries and each matching `.meta` under `Assets/RPGKingdom/Navigation/Generated/`.
 10. Supervisor verifies source-scene hashes for the new-scene tier and **only after all checks pass** performs rollback-capable bounded copy-back.
 
 A failed or timed-out authoring operation leaves the source scene untouched. Staging is disposable. Existing-scene tiers do not permit additional staged assets to be copied back, and new-scene composition does not permit generated assets outside the reviewed navigation root.
