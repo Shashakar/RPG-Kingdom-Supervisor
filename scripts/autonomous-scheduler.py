@@ -77,7 +77,7 @@ def mutate(repo:str,decision:dict,state:dict)->str:
 def tick(config:dict,repo:str)->dict:
  now=datetime.now(timezone.utc); state=snapshot(config,repo)
  decision=plan.evaluate(config,state,now)
- result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo}
+ result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo,"window":config.get("autonomous_window",{}),"workPlan":config.get("work_plan",[]),"paused":bool(config.get("paused")),"stopAfterCurrentIssue":bool(config.get("stop_after_current_issue"))}
  if config.get("paused") or (config.get("stop_after_current_issue") and not state.get("active_worker")): decision={"state":"paused","dispatch":False,"reason":"operator pause/stop boundary"}; result["decision"]=decision
  if decision.get("dispatch"):
   try: result["actionResult"]=mutate(repo,decision,state)
@@ -99,12 +99,12 @@ def main()->int:
  run=sub.add_parser("run"); run.add_argument("--interval",type=int,default=60); run.add_argument("--repo",default=DEFAULT_REPO)
  once=sub.add_parser("tick"); once.add_argument("--repo",default=DEFAULT_REPO)
  cfg=sub.add_parser("configure"); cfg.add_argument("--from-file",required=True)
- ctl=sub.add_parser("control"); ctl.add_argument("action",choices=["enable","disable","pause","resume","stop-after-issue"])
+ ctl=sub.add_parser("control"); ctl.add_argument("action",choices=["enable","disable","pause","resume","stop-after-issue","plan-enable","plan-disable","move-up","move-down"]); ctl.add_argument("--issue",type=int)
  sub.add_parser("status")
  a=p.parse_args()
  if a.cmd=="configure":
   value=json.loads(Path(a.from_file).read_text()); atomic_write(CONFIG,value); print(json.dumps(value,indent=2)); return 0
- if a.cmd=="control": print(json.dumps(update_control(a.action),indent=2)); return 0
+ if a.cmd=="control": print(json.dumps(update_control(a.action,a.issue),indent=2)); return 0
  if a.cmd=="status": print(json.dumps(read(STATUS,{"state":"not_started"}),indent=2)); return 0
  if not CONFIG.exists():
   print("Autonomous scheduler disabled: configure a durable plan first.",file=sys.stderr); return 0
