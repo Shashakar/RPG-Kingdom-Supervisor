@@ -7,6 +7,13 @@ trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/bin" "$TMP/state/locks/unity-editor.lock" "$TMP/state/authoring" "$TMP/workspaces/GH-105"
 GH="$TMP/workspaces/GH-105"
+PS_AUTHOR="$ROOT/scripts/windows/run-unity-authoring.ps1"
+
+# Iterative composition has a single target scene, so PowerShell may unwrap
+# $baseExpected to a scalar. Normalize both operands before concatenating
+# generated NavMesh assets; otherwise valid bake manifests fail with exit 92.
+grep -Fq '$expected = @(@($baseExpected) + @($generatedCopyBackAssets) | Sort-Object)' "$PS_AUTHOR"
+grep -Fq '$copyBackAssets = @(@($baseExpected) + @($generatedCopyBackAssets))' "$PS_AUTHOR"
 
 cat > "$TMP/bin/wslpath" <<'SH'
 #!/usr/bin/env bash
