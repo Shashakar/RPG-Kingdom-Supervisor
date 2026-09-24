@@ -348,7 +348,7 @@ if ($IsNewSceneComposition) {
     }
 
     $baseExpected = if ($CompositionMode -eq "initial") { @($scene, "$scene.meta") } else { @($scene) }
-    $expected = @($baseExpected + $generatedCopyBackAssets | Sort-Object)
+    $expected = @(@($baseExpected) + @($generatedCopyBackAssets) | Sort-Object)
     $actual = @($changedAssets | Sort-Object)
     if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
         Fail-Authoring "new-scene executor changed-assets evidence must exactly match the target scene assets plus executor-attested generated navigation assets" 92
@@ -368,7 +368,7 @@ if ($IsNewSceneComposition) {
         }
     }
 
-    $copyBackAssets = @($baseExpected + $generatedCopyBackAssets)
+    $copyBackAssets = @(@($baseExpected) + @($generatedCopyBackAssets))
     Publish-AssetsAtomically -AssetPaths $copyBackAssets
     $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
     $result | Add-Member -NotePropertyName compositionMode -NotePropertyValue $CompositionMode -Force
