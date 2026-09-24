@@ -52,7 +52,7 @@ def issue_state(repo: str, number: int) -> dict:
     value = gh(["issue", "view", str(number), "--repo", repo, "--json", "number,state,labels,comments"])
     labels = [item["name"] for item in value.get("labels", [])]
     comments = value.get("comments", [])
-    body = "\n".join(str(item.get("body", "")) for item in comments[-4:]).lower()
+    body = str(comments[-1].get("body", "")).lower() if comments else ""
     halt = None
     if "usage_limit_exceeded" in body or "usage quota" in body:
         halt = "usage_limit_exceeded"
