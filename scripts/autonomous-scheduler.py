@@ -78,7 +78,7 @@ def tick(config:dict,repo:str)->dict:
  now=datetime.now(timezone.utc); state=snapshot(config,repo)
  decision=plan.evaluate(config,state,now)
  result={"protocolVersion":1,"observedAt":now.isoformat(),"decision":decision,"state":state,"repo":repo}
- if config.get("paused"): decision={"state":"paused","dispatch":False}; result["decision"]=decision
+ if config.get("paused") or (config.get("stop_after_current_issue") and not state.get("active_worker")): decision={"state":"paused","dispatch":False,"reason":"operator pause/stop boundary"}; result["decision"]=decision
  if decision.get("dispatch"):
   try: result["actionResult"]=mutate(repo,decision,state)
   except Exception as exc: result["decision"]={"state":"human_gate","dispatch":False,"issue":decision.get("issue")}; result["error"]=str(exc)
@@ -99,7 +99,7 @@ def main()->int:
  run=sub.add_parser("run"); run.add_argument("--interval",type=int,default=60); run.add_argument("--repo",default=DEFAULT_REPO)
  once=sub.add_parser("tick"); once.add_argument("--repo",default=DEFAULT_REPO)
  cfg=sub.add_parser("configure"); cfg.add_argument("--from-file",required=True)
- ctl=sub.add_parser("control"); ctl.add_argument("action",choices=["enable","disable","pause","resume"])
+ ctl=sub.add_parser("control"); ctl.add_argument("action",choices=["enable","disable","pause","resume","stop-after-issue"])
  sub.add_parser("status")
  a=p.parse_args()
  if a.cmd=="configure":
