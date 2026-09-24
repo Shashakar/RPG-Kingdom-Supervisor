@@ -101,6 +101,10 @@ See [`docs/OPERATIONS_TELEMETRY.md`](docs/OPERATIONS_TELEMETRY.md), [`docs/OPERA
 
 Current diagnostics work also retains the boundaries exposed by GH-97/GH-98: model-free App Server probes can succeed while the actual model-backed turn still sees protected `.git`, unavailable GitHub DNS, or unavailable WSL-to-Windows interop. The Supervisor provides a read-only issue dashboard plus an explicit, low-cost model-turn environment probe. Host brokers emit structured status so diagnostics can report current/last operations without scraping terminal output. See [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md).
 
+## Autonomous work plans
+
+Supervisor includes a deterministic policy core for operator-approved autonomous windows and dependency-aware work plans. See [docs/AUTONOMOUS_WORK.md](docs/AUTONOMOUS_WORK.md). The initial policy slice is intentionally model-free and fail-closed; GitHub mutation remains a separate host-service responsibility.
+
 ## Repositories
 
 - Game repository: `Shashakar/RPG-Kingdom`
