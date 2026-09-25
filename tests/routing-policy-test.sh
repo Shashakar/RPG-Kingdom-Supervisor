@@ -29,13 +29,14 @@ assert_route $'gpt-6-luna\tlow\tluna' "risk:mechanical"
 assert_route $'gpt-6-luna\tmedium\tluna' "risk:normal"
 assert_route $'gpt-6-sol\tmedium\tsol' "risk:investigative"
 assert_route $'gpt-6-sol\thigh\tsol' "risk:architecture"
-assert_route $'gpt-6-astra\tmedium\tastra' "risk:end-to-end"
+assert_route $'gpt-6-sol\thigh\tsol' "risk:end-to-end"
 
 # Explicit model overrides risk classification and reviewer routing hints.
 assert_route $'gpt-6-astra\thigh\tastra' $'risk:normal\nmodel:astra\neffort:high'
 assert_route $'gpt-6-luna\tmedium\tluna' $'model:luna\neffort:medium'
 assert_route $'gpt-6-sol\tmedium\tsol' $'risk:mechanical\nmodel:sol\neffort:medium'
 assert_route $'gpt-6-sol\thigh\tsol' $'risk:normal\nsymphony:rework\nrepair-route:sol'
+assert_route $'gpt-6-astra\tmedium\tastra' $'risk:end-to-end\nsymphony:rework\nrepair-route:astra'
 assert_route $'gpt-6-luna\tlow\tluna' $'risk:architecture\nsymphony:rework\nrepair-route:luna'
 
 assert_fails $'model:luna\nmodel:sol'

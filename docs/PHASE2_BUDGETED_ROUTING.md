@@ -178,11 +178,11 @@ Use exactly zero or one of:
 | `risk:normal` | GPT-6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
 | `risk:investigative` | GPT-6 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
 | `risk:architecture` | GPT-6 Sol | high | architecture-sensitive or cross-system boundary work |
-| `risk:end-to-end` | GPT-6 Astra | medium | hardest end-to-end work where stronger execution/tool use is justified |
+| `risk:end-to-end` | GPT-6 Sol | high | substantial end-to-end integration/tool work; escalate to Astra only from explicit evidence |
 
 If no risk or model label exists, the router defaults to Luna / medium.
 
-The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6 Sol covers investigative/debugging work at medium effort and architecture work at high effort; GPT-6 Astra is the hardest engine/tool-heavy end-to-end tier.**
+The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6 Sol covers investigative/debugging work at medium effort and architecture/end-to-end work at high effort; GPT-6 Astra is an explicit escalation tier, not the automatic consequence of end-to-end breadth.** Use `model:astra` when prior Sol work or concrete task evidence shows the stronger route is justified, or accept a fresh `repair-route:astra` recommendation during reviewed rework.
 
 ### Explicit model override
 
@@ -291,4 +291,12 @@ The resulting policy is therefore:
 4. stop repeated ineffective behavior early;
 5. require explicit human/ChatGPT rearm only when a bounded worker lifetime still cannot complete.
 
-Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts.
+### #139 — Astra end-to-end cost benchmark
+
+`Shashakar/RPG-Kingdom#139` provided a production benchmark for the previous automatic Astra end-to-end route. After the initial discovery lifetime, a reviewed continuation began with a freshly reset five-hour allowance. That continuation consumed approximately 97 percentage points of the five-hour allowance and roughly 20–25 percentage points of the weekly allowance while producing a technically sound 16-file integration PR (596 additions / 27 deletions) with extensive Unity validation.
+
+Independent automated review approved the implementation, but immediate human playtesting still found basic player-facing acquisition/readability gaps: the weapon grant was not visibly communicated in normal play and the equip gesture needed adjustment. The result was useful, but there was no observed capability unique to Astra that justified making that cost the default for every `risk:end-to-end` issue.
+
+Accordingly, end-to-end breadth now defaults to **Sol / high**. Astra remains available through explicit `model:astra` override or a fresh reviewed `repair-route:astra` escalation. A task should escalate because there is evidence that Sol is insufficient—not merely because the task crosses multiple systems or uses Unity tooling.
+
+Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts or automatic high-cost routing.

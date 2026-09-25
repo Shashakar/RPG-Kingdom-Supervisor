@@ -98,9 +98,12 @@ rpgk_select_route() {
     route="luna"
     default_effort="low"
   elif rpgk_has_label risk:end-to-end "$labels"; then
-    model="gpt-6-astra"
-    route="astra"
-    default_effort="medium"
+    # End-to-end breadth alone does not justify the highest-cost route.
+    # Start substantial cross-system/tool work on Sol/high; Astra remains an
+    # explicit operator or review escalation when evidence shows Sol is insufficient.
+    model="gpt-6-sol"
+    route="sol"
+    default_effort="high"
   elif rpgk_has_label risk:architecture "$labels"; then
     model="gpt-6-sol"
     route="sol"
