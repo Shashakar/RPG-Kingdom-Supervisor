@@ -125,6 +125,14 @@ def repair_completed_since_state(workspace: Path, state: dict[str, Any]) -> bool
     return bool(completed and updated and completed > updated)
 
 
+def head_already_reviewed(pr: dict[str, Any], state: dict[str, Any]) -> bool:
+    history = state.get("history")
+    if not isinstance(history, list) or not history:
+        return False
+    latest = history[-1]
+    return isinstance(latest, dict) and latest.get("head") == pr.get("head", {}).get("sha")
+
+
 def run_git(workspace: Path, *args: str) -> str:
     completed = subprocess.run(["git", "-C", str(workspace), *args], check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return completed.stdout.strip()
@@ -287,19 +295,20 @@ def dispatch_rework(number: int, state: dict[str, Any]) -> None:
     remove_lifecycle_except(number, {"symphony:rework"})
 
 
-def reconcile_prior_state(issue: dict[str, Any], workspace: Path, prior: dict[str, Any]) -> bool:
+def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, Any], prior: dict[str, Any]) -> bool:
     number = int(issue["number"])
     current = labels(issue)
     state = prior.get("state")
+    same_reviewed_head = head_already_reviewed(pr, prior)
     if state == "human_review":
-        if repair_completed_since_state(workspace, prior):
+        if repair_completed_since_state(workspace, prior) and not same_reviewed_head:
             return False
         add_labels(number, "symphony:human-review")
         set_repair_route(number, "unchanged")
         remove_lifecycle_except(number, {"symphony:human-review"})
         return True
     if state == "human_attention":
-        if repair_completed_since_state(workspace, prior):
+        if repair_completed_since_state(workspace, prior) and not same_reviewed_head:
             return False
         add_labels(number, "symphony:human-attention")
         set_repair_route(number, "unchanged")
@@ -307,6 +316,13 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, prior: dict[st
         return True
     if state == "rework":
         if "symphony:ready" in current or "symphony:rearm" in current:
+            add_labels(number, "symphony:rework")
+            remove_label(number, "symphony:agent-review")
+            return True
+        if same_reviewed_head and repair_completed_since_state(workspace, prior):
+            # A preflight/host halt may still write the worker-attempt marker and queue agent
+            # review even though no repair commit reached the PR. Never spend another reviewer
+            # cycle on a head that the latest review already evaluated.
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
             return True
@@ -331,7 +347,7 @@ def process(issue: dict[str, Any]) -> None:
         return
 
     prior = latest_state(number)
-    if prior and reconcile_prior_state(issue, workspace, prior):
+    if prior and reconcile_prior_state(issue, workspace, pr, prior):
         return
 
     repairs = int(prior.get("repairAttempts", 0))
