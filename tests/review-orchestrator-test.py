@@ -200,6 +200,60 @@ def main() -> int:
         assert state["reviewCycle"] == 2
         assert len(state["history"]) == 2
 
+    # A newer attempt marker is not enough to justify review when preflight/host work never
+    # changed the PR head. Preserve the prior human-attention gate and do not spend another review.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        prior = {
+            "state": "human_attention", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 4, "repairAttempts": 2, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "luna",
+            "history": [{
+                "cycle": 4, "head": "a" * 40, "verdict": "changes_required",
+                "summary": "box outline is invalid", "findings": [],
+                "routingRecommendation": "luna", "reviewerRoute": "sol",
+                "reason": "review_loop_exhausted",
+            }],
+            "updatedAt": "2026-09-25T04:35:49+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-09-25T04:47:00Z")
+        review.run_reviewer = lambda *_: (_ for _ in ()).throw(
+            AssertionError("unchanged reviewed head must not be reviewed again")
+        )
+        review.process(issue(fake))
+        assert "symphony:human-attention" in fake.issue_labels[123]
+        assert "symphony:agent-review" not in fake.issue_labels[123]
+        assert latest_state_from(fake)["reviewCycle"] == 4
+
+    # The same protection applies to a rework dispatch that halts before producing a commit:
+    # retain rework/halt semantics instead of reviewing the rejected head again.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        prior = {
+            "state": "rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 1, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "luna",
+            "history": [{
+                "cycle": 1, "head": "a" * 40, "verdict": "changes_required",
+                "summary": "repair required", "findings": [],
+                "routingRecommendation": "luna", "reviewerRoute": "sol", "reason": "none",
+            }],
+            "updatedAt": "2026-09-25T04:35:49+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-09-25T04:47:00Z")
+        review.run_reviewer = lambda *_: (_ for _ in ()).throw(
+            AssertionError("halted unchanged repair head must not be reviewed again")
+        )
+        review.process(issue(fake))
+        assert "symphony:rework" in fake.issue_labels[123]
+        assert "symphony:agent-review" not in fake.issue_labels[123]
+        assert "symphony:ready" not in fake.issue_labels[123]
+        assert latest_state_from(fake)["reviewCycle"] == 1
+
     # Two automatic repairs consumed and a newer repair lifetime completed -> third failing review
     # goes to human attention rather than dispatching repair 3.
     with tempfile.TemporaryDirectory() as raw:
