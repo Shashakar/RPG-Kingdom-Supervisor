@@ -22,7 +22,7 @@ Phase 2 makes that path usage-aware:
 - risk/model labels route work among GPT-6 Luna, GPT-6 Sol, and GPT-6 Astra;
 - GPT-6 Luna / medium is the default for normal and unclassified bounded work;
 - `risk:investigative` promotes ambiguous debugging and multi-layer investigation to GPT-6 Sol / medium;
-- GPT-6 Sol / high remains the architecture-sensitive tier and GPT-6 Astra remains the hardest end-to-end tier;
+- GPT-6 Sol / high is the default architecture-sensitive and end-to-end tier; GPT-6 Astra is reserved for explicit operator/reviewer escalation when concrete evidence justifies the higher-cost route;
 - model and reasoning labels allow explicit human/ChatGPT overrides;
 - worker turns are capped at four for the current phase;
 - a persistent workspace marker prevents a second Codex worker lifetime from starting accidentally;
@@ -31,7 +31,7 @@ Phase 2 makes that path usage-aware:
 - worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads;
 - fixes that change behavior-bearing configuration/wiring must validate the relevant pre-existing behavior as well as the new acceptance path.
 
-The routing policy was originally adjusted after real #93/#95 benchmarks showed that Luna mechanical work had negligible visible allowance impact while one GPT-5.6 Terra investigative turn consumed 8 percentage points of the five-hour allowance. Terra is now historical benchmark data rather than an active route; GPT-6 Sol covers investigative and architecture-sensitive work. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
+The routing policy is grounded in production benchmarks. #93/#95 showed the cost separation between cheap mechanical work and stronger investigative models, while #139 showed that automatically routing end-to-end work to Astra could consume nearly an entire freshly reset five-hour allowance without a correspondingly unique implementation benefit. Terra is historical benchmark data rather than an active route; GPT-6 Sol now covers investigative, architecture-sensitive, and end-to-end work by default, with Astra reserved for explicit evidence-based escalation. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
 Phase 3 makes Unity dependence explicit:
 
