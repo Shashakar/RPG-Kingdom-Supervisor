@@ -92,6 +92,7 @@ The #46 operations-console work now includes the telemetry foundation, lifecycle
 - telemetry persistence redacts credentials/authorization values before writing state or serving dashboard JSON;
 - the dashboard projects GitHub-authoritative work into implementation, agent-review, rework, human-review, human-attention, halted/quota, and report-complete queues;
 - lifecycle rows correlate review cycles, repairs, PR/head information, model/effort routing, and time in state without creating a second lifecycle authority;
+- automated review is head-gated: a newer worker-attempt marker without a changed PR head (for example a Unity preflight/resource halt) cannot consume another review cycle or overwrite the prior human/rework gate;
 - one chronological activity feed correlates lifecycle transitions, review verdicts, Codex worker lifetimes, Unity validation, and Git handoff results, with links into existing Unity detail where correlation is available;
 - Supervisor startup reconciles dead-PID active-worker telemetry into explicit `stale-process` history and prunes expired local telemetry under a configurable retention window;
 - worker-lifetime drill-down correlates route, timing, outcome, token/quota telemetry, current lifecycle, review history, Unity runs, Git handoffs, artifacts, and chronological same-issue continuation context;
