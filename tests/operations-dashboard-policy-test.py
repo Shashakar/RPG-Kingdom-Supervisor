@@ -193,3 +193,6 @@ assert "X-Forwarded-Origin" not in server
 for text in ("manual-validation-overview", "Manual Validation", "conciseSummary", "Merge PR", "Details"):
     assert text in html, text
 assert "limit=180" in html
+
+assert 'LOCAL_ACTION_HOSTS = {"127.0.0.1", "localhost", "::1"}' in server
+assert "parsed.hostname in LOCAL_ACTION_HOSTS" in server
