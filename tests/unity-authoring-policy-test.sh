@@ -34,7 +34,7 @@ grep -q 'generatedCopyBackAssets' "$ROOT/scripts/windows/run-unity-authoring.ps1
 grep -q '"\$generatedAsset.meta"' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 grep -q 'Publish-AssetsAtomically' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 grep -q 'new-scene executor changed-assets evidence must exactly match' "$ROOT/scripts/windows/run-unity-authoring.ps1"
-grep -q 'generated navigation assets are only supported for new-scene composition' "$ROOT/scripts/windows/run-unity-authoring.ps1"
+grep -q 'generated navigation assets are only supported for composition authoring tiers' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 grep -q 'new-scene-provenance' "$ROOT/scripts/unity-author-host.sh"
 grep -q 'SymphonyMechanicalSceneAuthoring.ApplyFromCommandLine' "$ROOT/scripts/windows/run-unity-authoring.ps1"
 
