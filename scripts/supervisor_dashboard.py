@@ -327,41 +327,6 @@ def serve(port: int) -> None:
                 raise ValueError("operator action payload must be an object")
             return value
 
-        def do_POST(self) -> None:  # noqa: N802
-            parsed = urlparse(self.path)
-            if parsed.path in {"/api/operator/rearm", "/api/operator/merge"}:
-                try:
-                    payload = self._operator_request()
-                    if parsed.path == "/api/operator/rearm":
-                        result = operator_actions.rearm(
-                            str(payload.get("identifier") or ""),
-                            allow_below_reserve=payload.get("allowBelowReserve") is True,
-                        )
-                    else:
-                        result = operator_actions.merge(
-                            str(payload.get("identifier") or ""),
-                            int(payload.get("prNumber") or 0),
-                            str(payload.get("expectedHeadSha") or ""),
-                        )
-                    self.send_json(result)
-                except PermissionError as exc:
-                    self.send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
-                except (ValueError, json.JSONDecodeError, operator_actions.ActionError) as exc:
-                    self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
-                return
-            if parsed.path == "/api/autonomous/control":
-                try:
-                    length = int(self.headers.get("Content-Length", "0"))
-                    payload = json.loads(self.rfile.read(max(0, min(length, 16384))).decode("utf-8"))
-                    action = str(payload.get("action") or "")
-                    issue = payload.get("issue")
-                    result = autonomous_scheduler.control(action, issue=issue)
-                    self.send_json(result)
-                except Exception as exc:
-                    self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if parsed.path == "/":
@@ -454,19 +419,42 @@ def serve(port: int) -> None:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path in {"/api/operator/rearm", "/api/operator/merge"}:
+                try:
+                    payload = self._operator_request()
+                    if parsed.path == "/api/operator/rearm":
+                        result = operator_actions.rearm(
+                            str(payload.get("identifier") or ""),
+                            allow_below_reserve=payload.get("allowBelowReserve") is True,
+                        )
+                    else:
+                        result = operator_actions.merge(
+                            str(payload.get("identifier") or ""),
+                            int(payload.get("prNumber") or 0),
+                            str(payload.get("expectedHeadSha") or ""),
+                        )
+                    self.send_json(result)
+                except PermissionError as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+                except (ValueError, json.JSONDecodeError, operator_actions.ActionError) as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                return
             if parsed.path != "/api/autonomous/control":
-                self.send_error(HTTPStatus.NOT_FOUND); return
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
             length = int(self.headers.get("Content-Length", "0") or "0")
             try:
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 action = str(payload.get("action") or "")
                 if action not in {"enable","disable","pause","resume","stop-after-issue","plan-enable","plan-disable","move-up","move-down"}:
-                    self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST); return
+                    self.send_json({"error":"invalid action"}, HTTPStatus.BAD_REQUEST)
+                    return
                 issue = int(payload["issue"]) if payload.get("issue") is not None else None
                 autonomous_scheduler.update_control(action, issue)
                 self.send_json({"ok": True, "action": action})
             except (json.JSONDecodeError, ValueError) as exc:
                 self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
