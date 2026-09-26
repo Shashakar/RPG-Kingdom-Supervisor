@@ -38,7 +38,7 @@ AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_
 AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
 AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
 ACTION_TOKEN = secrets.token_urlsafe(32)
-LOCAL_ACTION_ORIGINS = {"http://127.0.0.1", "https://127.0.0.1", "http://localhost", "https://localhost"}
+LOCAL_ACTION_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 def _normalize_origin(value: str) -> str:
     parsed = urlparse(value.strip())
@@ -51,7 +51,7 @@ def _normalize_origin(value: str) -> str:
     return f"{parsed.scheme}://{host}{port}"
 
 def _allowed_action_origins() -> set[str]:
-    allowed = set(LOCAL_ACTION_ORIGINS)
+    allowed: set[str] = set()
     raw = os.environ.get("RPGK_DASHBOARD_ALLOWED_ORIGINS", "")
     for value in raw.split(","):
         if value.strip():
@@ -64,7 +64,7 @@ def _origin_allowed(value: str, request_host: str = "") -> bool:
     except (ValueError, UnicodeError):
         return False
     parsed = urlparse(origin)
-    if parsed.hostname in {"127.0.0.1", "localhost"}:
+    if parsed.hostname in LOCAL_ACTION_HOSTS:
         return True
     # A normal reverse proxy preserves the browser-facing Host. Exact Origin
     # authority == request Host is same-origin and does not rely on forwarded headers.
