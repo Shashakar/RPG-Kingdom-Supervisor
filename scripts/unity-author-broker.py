@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 PROTOCOL_VERSION = 1
-SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition"})
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -102,7 +102,7 @@ def validate_shared_lock(state_root: Path, workspace: Path) -> str | None:
     return None
 
 
-def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str) -> str | None:
+def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str | None, requested_operations: list[Any]) -> str | None:
     match = ISSUE_WORKSPACE.fullmatch(workspace.name)
     if match is None:
         return "workspace is not a GH issue workspace"
@@ -123,6 +123,11 @@ def validate_authorization(state_root: Path, workspace: Path, requested_tier: st
         return f"scene-authoring authorization tier '{authorized_tier}' does not permit requested tier '{requested_tier}'"
     if requested_tier == "existing-scene-composition" and payload.get("scene") != requested_scene:
         return f"scene-authoring authorization does not permit requested scene '{requested_scene}'"
+    authorized_operations = payload.get("operations")
+    if isinstance(authorized_operations, list) and authorized_operations:
+        requested_kinds = {operation.get("kind") for operation in requested_operations if isinstance(operation, dict)}
+        if not requested_kinds.issubset(set(authorized_operations)):
+            return "scene-authoring authorization does not permit one or more requested operations"
     try:
         authorized_workspace = Path(str(payload.get("workspace", ""))).resolve()
     except OSError:
@@ -151,9 +156,18 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         scene = authoring.get("scene")
         source_scene = authoring.get("sourceScene")
         operations = authoring.get("operations")
-        if not isinstance(scene, str) or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene or "\\\\" in scene:
+        if requested_tier == "prefab-derivative":
+            source_prefab = authoring.get("sourcePrefab")
+            destination_prefab = authoring.get("destinationPrefab")
+            if scene not in (None, "") or source_scene not in (None, ""):
+                raise ValueError("prefab-derivative requests must not declare a scene")
+            if not isinstance(source_prefab, str) or not source_prefab.startswith("Assets/") or not source_prefab.endswith(".prefab") or ".." in source_prefab or "\\\\" in source_prefab:
+                raise ValueError("sourcePrefab must be an exact project-relative Assets/*.prefab path")
+            if not isinstance(destination_prefab, str) or not destination_prefab.startswith("Assets/RPGKingdom/Generated/AgentDerivatives/") or not destination_prefab.endswith(".prefab") or ".." in destination_prefab or "\\\\" in destination_prefab:
+                raise ValueError("destinationPrefab must be an exact prefab under the generated derivative root")
+        elif not isinstance(scene, str) or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene or "\\\\" in scene:
             raise ValueError("scene must be a project-relative Assets/*.unity path")
-        if source_scene is not None and source_scene != "":
+        if requested_tier != "prefab-derivative" and source_scene is not None and source_scene != "":
             if not isinstance(source_scene, str) or not source_scene.startswith("Assets/") or not source_scene.endswith(".unity") or ".." in source_scene or "\\\\" in source_scene:
                 raise ValueError("sourceScene must be a project-relative Assets/*.unity path")
             if source_scene == scene:
@@ -162,6 +176,8 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
             raise ValueError("sourceScene is only valid for new-scene-composition")
         if not isinstance(operations, list) or not operations:
             raise ValueError("one or more authoring operations are required")
+        if requested_tier == "prefab-derivative" and (len(operations) != 1 or not isinstance(operations[0], dict) or operations[0].get("kind") != "create-prefab-derivative"):
+            raise ValueError("prefab-derivative requires exactly one create-prefab-derivative operation")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return None, None, response(request_id, "rejected", 64, stderr=f"RPG Kingdom Unity authoring broker: invalid request: {exc}\n")
 
@@ -176,7 +192,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    error = validate_authorization(state_root, workspace, requested_tier, scene)
+    error = validate_authorization(state_root, workspace, requested_tier, scene, operations)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
     return workspace, payload, None
@@ -262,7 +278,7 @@ def main() -> int:
                 "issue": workspace.name,
                 "workspace": str(workspace),
                 "tier": authoring["tier"],
-                "scene": authoring["scene"],
+                "scene": authoring.get("scene"),
                 "sourceScene": authoring.get("sourceScene"),
                 "startedAt": utc_now(),
             }

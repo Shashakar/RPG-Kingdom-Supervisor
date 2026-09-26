@@ -200,3 +200,8 @@ Do not put GitHub tokens or other secrets in this repository. Runtime credential
 ### Trusted reverse-proxy dashboard origins
 
 The dashboard listener remains localhost-bound by default. When the browser reaches it through a reverse proxy that preserves the browser-facing `Host`, exact same-origin requests are accepted automatically. For a proxy where the browser Origin intentionally differs from Host, set `RPGK_DASHBOARD_ALLOWED_ORIGINS` to a comma-separated list of exact origins, including scheme and optional port (for example `https://server.shashakar.com`). Localhost/127.0.0.1 browser origins remain accepted automatically. Non-local operator-action origins must exactly match this allowlist and still present the per-process action token embedded in the served dashboard. Forwarded host/origin headers are not authorization inputs.
+
+
+## Prefab derivative authoring
+
+Prefab derivative authoring is separately authorized and bounded to `create-prefab-derivative` with exact generated-root destinations. It does not broaden scene authoring tiers.

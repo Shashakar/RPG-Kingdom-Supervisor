@@ -120,11 +120,33 @@ wait_for_file "$RESPONSES/unknown.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("unsupported scene-authoring tier"))' "$RESPONSES/unknown.json" >/dev/null
 [[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
 
+
+# Prefab-derivative is a separately authorized tier and does not require a scene.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"prefab-derivative","operations":["create-prefab-derivative"]}\n' "$GH" > "$STATE/authoring/GH-111.json"
+temp="$REQUESTS/.derivative-ok.json.tmp.$"
+cat > "$temp" <<'JSON'
+{"protocolVersion":1,"requestId":"derivative-ok","operation":"author","authoring":{"protocolVersion":1,"tier":"prefab-derivative","sourcePrefab":"Assets/Environment/Tree.prefab","destinationPrefab":"Assets/RPGKingdom/Generated/AgentDerivatives/Tree.prefab","operations":[{"kind":"create-prefab-derivative","visualOffsetY":-0.25,"foundationMode":"none"}]}}
+JSON
+mv "$temp" "$REQUESTS/derivative-ok.json"
+wait_for_file "$RESPONSES/derivative-ok.json"
+jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/derivative-ok.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
+
+# Derivative authority must not grant unrelated operations.
+temp="$REQUESTS/.derivative-bad-op.json.tmp.$"
+cat > "$temp" <<'JSON'
+{"protocolVersion":1,"requestId":"derivative-bad-op","operation":"author","authoring":{"protocolVersion":1,"tier":"prefab-derivative","sourcePrefab":"Assets/Environment/Tree.prefab","destinationPrefab":"Assets/RPGKingdom/Generated/AgentDerivatives/Tree.prefab","operations":[{"kind":"set-transform"}]}}
+JSON
+mv "$temp" "$REQUESTS/derivative-bad-op.json"
+wait_for_file "$RESPONSES/derivative-bad-op.json"
+jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("exactly one create-prefab-derivative"))' "$RESPONSES/derivative-bad-op.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
+
 printf 'GH-999\n' > "$STATE/locks/unity-editor.lock/owner"
 write_request wrong-lock mechanical-structural
 wait_for_file "$RESPONSES/wrong-lock.json"
 jq -e '.status == "rejected" and .exitCode == 82' "$RESPONSES/wrong-lock.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true

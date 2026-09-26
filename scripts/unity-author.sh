@@ -38,11 +38,12 @@ command -v jq >/dev/null 2>&1 || { echo "RPG Kingdom Unity authoring: jq is requ
 
 if ! jq -e '
   .protocolVersion == 1 and
-  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "existing-scene-composition" or .tier == "new-scene-composition") and
-  (.scene | type == "string" and startswith("Assets/") and endswith(".unity") and (contains("..") | not) and (contains("\\") | not)) and
+  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "existing-scene-composition" or .tier == "new-scene-composition" or .tier == "prefab-derivative") and
+  ((.tier == "prefab-derivative" and ((.scene // "") == "") and (.sourcePrefab | type == "string" and startswith("Assets/") and endswith(".prefab") and (contains("..") | not) and (contains("\\") | not)) and (.destinationPrefab | type == "string" and startswith("Assets/RPGKingdom/Generated/AgentDerivatives/") and endswith(".prefab") and (contains("..") | not) and (contains("\\") | not))) or (.tier != "prefab-derivative" and (.scene | type == "string" and startswith("Assets/") and endswith(".unity") and (contains("..") | not) and (contains("\\") | not)))) and
   ((.sourceScene // "") | type == "string") and
   (((.sourceScene // "") == "") or (((.sourceScene | startswith("Assets/")) and (.sourceScene | endswith(".unity")) and ((.sourceScene | contains("..")) | not) and ((.sourceScene | contains("\\")) | not) and (.sourceScene != .scene)))) and
-  (.operations | type == "array" and length > 0)
+  (.operations | type == "array" and length > 0) and
+  (.tier != "prefab-derivative" or (.operations | length == 1 and .[0].kind == "create-prefab-derivative"))
 ' "$authoring_request" >/dev/null; then
   echo "RPG Kingdom Unity authoring: invalid supported authoring request envelope" >&2
   exit 64
