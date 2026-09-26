@@ -81,7 +81,7 @@ for service in ("symphony", "review", "unity", "git"):
 # authoritative lifecycle queue.
 for text in (
     "Recently Completed",
-    "Trusted successful terminal states only; halted or awaiting-human work is never called finished.",
+    "The latest trusted successful terminal states. Older work remains available in Work / Activity history.",
     'id = \'finished-tasks\'',
     "/api/finished-tasks",
     "Report complete",
