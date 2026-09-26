@@ -180,3 +180,19 @@ for forbidden in (
 
 assert 'ThreadingHTTPServer(("127.0.0.1", port)' in python_text
 print("operations-dashboard-policy-test: PASS")
+
+
+# Reverse-proxy operator actions require exact configured origins while localhost remains valid.
+server = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
+for text in ("RPGK_DASHBOARD_ALLOWED_ORIGINS", "_normalize_origin", "_origin_allowed", "operator action origin is not trusted"):
+    assert text in server, text
+assert "X-Forwarded-Host" not in server
+assert "X-Forwarded-Origin" not in server
+
+# Overview exposes a compact manual-validation decision surface rather than full review prose.
+for text in ("manual-validation-overview", "Manual Validation", "conciseSummary", "Merge PR", "Details"):
+    assert text in html, text
+assert "limit=180" in html
+
+assert 'LOCAL_ACTION_HOSTS = {"127.0.0.1", "localhost", "::1"}' in server
+assert "parsed.hostname in LOCAL_ACTION_HOSTS" in server
