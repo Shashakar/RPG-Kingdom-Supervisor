@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 PROTOCOL_VERSION = 1
-SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "new-scene-composition"})
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -102,7 +102,7 @@ def validate_shared_lock(state_root: Path, workspace: Path) -> str | None:
     return None
 
 
-def validate_authorization(state_root: Path, workspace: Path, requested_tier: str) -> str | None:
+def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str) -> str | None:
     match = ISSUE_WORKSPACE.fullmatch(workspace.name)
     if match is None:
         return "workspace is not a GH issue workspace"
@@ -121,6 +121,8 @@ def validate_authorization(state_root: Path, workspace: Path, requested_tier: st
         return f"scene-authoring authorization has unsupported tier '{authorized_tier}'"
     if authorized_tier != requested_tier:
         return f"scene-authoring authorization tier '{authorized_tier}' does not permit requested tier '{requested_tier}'"
+    if requested_tier == "existing-scene-composition" and payload.get("scene") != requested_scene:
+        return f"scene-authoring authorization does not permit requested scene '{requested_scene}'"
     try:
         authorized_workspace = Path(str(payload.get("workspace", ""))).resolve()
     except OSError:
@@ -174,7 +176,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    error = validate_authorization(state_root, workspace, requested_tier)
+    error = validate_authorization(state_root, workspace, requested_tier, scene)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
     return workspace, payload, None

@@ -54,6 +54,7 @@ def parse_requirements(body: str) -> dict[str, Any] | None:
         "componentAdditions": _strings(raw.get("componentAdditions"), "componentAdditions"),
         "componentRemovals": _strings(raw.get("componentRemovals"), "componentRemovals"),
         "dependency": str(raw.get("dependency") or "").strip() or None,
+        "scene": str(raw.get("scene") or "").strip() or None,
     }
 
 
@@ -91,6 +92,11 @@ def evaluate(
         }
     base["requirements"] = requirements
     base["authorizationTier"] = requirements["tier"]
+    if requirements["tier"] == "existing-scene-composition":
+        scene = requirements.get("scene")
+        if not scene or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene or "\\\\" in scene:
+            return {**base, "status": "invalid", "supported": False, "authoringAuthorized": False, "reason": "existing-scene-composition requires an exact scene Assets/*.unity path"}
+        base["authorizedScene"] = scene
     if not isinstance(contract, dict):
         return {
             **base,

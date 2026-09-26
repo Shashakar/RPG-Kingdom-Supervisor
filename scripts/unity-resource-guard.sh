@@ -169,20 +169,22 @@ labels="$(jq -r '.[].name' <<<"$labels_json")"
 
 mechanical_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-mechanical")' <<<"$labels_json")"
 structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-structural")' <<<"$labels_json")"
+existing_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-existing-composition")' <<<"$labels_json")"
 new_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-new-composition")' <<<"$labels_json")"
 authoring_count=0
 [[ "$mechanical_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$structural_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
+[[ "$existing_scene_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$new_scene_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 if (( authoring_count > 1 )); then
-  halt_issue "conflicting scene-authoring labels: mechanical, structural, and new-scene authority are mutually exclusive"
+  halt_issue "conflicting scene-authoring labels: mechanical, structural, existing-scene composition, and new-scene authority are mutually exclusive"
   exit 75
 fi
 
 structural_deferred="false"
 mkdir -p "$PREFLIGHT_DIR"
 rm -f -- "$PREFLIGHT_EVIDENCE"
-if [[ "$structural_authoring" == "true" || "$new_scene_authoring" == "true" ]]; then
+if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" ]]; then
   issue_json="$(api GET "/issues/$issue_number")"
   issue_body_file="$(mktemp)"
   jq -r '.body // ""' <<<"$issue_json" > "$issue_body_file"
@@ -221,7 +223,10 @@ if [[ "$structural_authoring" == "true" || "$new_scene_authoring" == "true" ]]; 
     rm -f -- "$issue_body_file"
     authorization_tier="mechanical-structural"
     legacy_reason="legacy structural issue has no explicit symphony-scene-authoring-requirements block"
-    if [[ "$new_scene_authoring" == "true" ]]; then
+    if [[ "$existing_scene_authoring" == "true" ]]; then
+      authorization_tier="existing-scene-composition"
+      legacy_reason="existing-scene composition requires an explicit symphony-scene-authoring-requirements block"
+    elif [[ "$new_scene_authoring" == "true" ]]; then
       authorization_tier="new-scene-composition"
       legacy_reason="new-scene composition requires an explicit symphony-scene-authoring-requirements block"
     fi
@@ -233,7 +238,10 @@ if [[ "$structural_authoring" == "true" || "$new_scene_authoring" == "true" ]]; 
       --arg reason "$legacy_reason" \
       '{protocolVersion:1,issue:$issue,status:"unknown",supported:null,authorizationTier:$tier,contractPath:$contract,contractRevision:$revision,reason:$reason}' \
       > "$PREFLIGHT_EVIDENCE"
-    if [[ "$new_scene_authoring" == "true" ]]; then
+    if [[ "$existing_scene_authoring" == "true" ]]; then
+      halt_issue "existing-scene composition requires explicit supported scene-authoring requirements"
+      exit 78
+    elif [[ "$new_scene_authoring" == "true" ]]; then
       halt_issue "new-scene composition requires explicit supported scene-authoring requirements"
       exit 78
     fi
@@ -243,16 +251,18 @@ fi
 
 mkdir -p "$AUTHORING_DIR"
 rm -f -- "$AUTHORING_MARKER"
-if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$new_scene_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
+if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$existing_scene_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$new_scene_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
   authoring_tier="mechanical"
   [[ "$structural_authoring" == "true" ]] && authoring_tier="mechanical-structural"
+  [[ "$existing_scene_authoring" == "true" ]] && authoring_tier="existing-scene-composition"
   [[ "$new_scene_authoring" == "true" ]] && authoring_tier="new-scene-composition"
   jq -cn \
     --arg issue "$issue_identifier" \
     --arg workspace "$PWD" \
     --arg tier "$authoring_tier" \
     --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,authorizedAt:$authorizedAt}' \
+    --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \
+    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,scene:(if $scene == "" then null else $scene end),authorizedAt:$authorizedAt}' \
     > "$AUTHORING_MARKER.tmp.$$"
   mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
   echo "RPG Kingdom Unity guard: recorded $authoring_tier scene-authoring authority for $issue_identifier"

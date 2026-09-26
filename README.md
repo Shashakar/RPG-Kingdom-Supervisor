@@ -50,6 +50,7 @@ Phase 4 turns that scheduling contract into real Unity validation:
 - the worker-facing runner submits typed `health`, `editmode`, or `playmode` requests through workspace-local IPC instead of invoking Windows interop from the Codex sandbox;
 - the host broker revalidates workspace/resource ownership and performs the WSL-to-Windows hop through the host-only runner;
 - the runner reads the Unity version declared by the issue workspace;
+- scene authoring distinguishes mechanical, structural, exact existing-scene environmental composition, and issue-owned new-scene composition; existing-scene composition is human-approved and bound to one exact scene in the host receipt;
 - PowerShell/robocopy mirrors `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project;
 - the staged `Library/` cache survives across issues;
 - Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
