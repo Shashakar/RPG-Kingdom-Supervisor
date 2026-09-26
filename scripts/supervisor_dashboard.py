@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only localhost operations dashboard for RPG Kingdom Supervisor."""
+"""Localhost operations dashboard for RPG Kingdom Supervisor."""
 from __future__ import annotations
 
 import argparse
@@ -458,7 +458,7 @@ def serve(port: int) -> None:
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
-    print("Ctrl+C to stop. The dashboard is bound to localhost; autonomous controls mutate only durable Supervisor scheduling state.")
+    print("Ctrl+C to stop. The dashboard is localhost-only; operator mutations are limited to typed autonomous, merge, and rearm actions.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -468,7 +468,7 @@ def serve(port: int) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="RPG Kingdom Supervisor read-only operations dashboard")
+    parser = argparse.ArgumentParser(description="RPG Kingdom Supervisor operations dashboard")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     serve(args.port)
