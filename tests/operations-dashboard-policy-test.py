@@ -80,7 +80,7 @@ for service in ("symphony", "review", "unity", "git"):
 # human review, or human attention with completion. Open report-only completion is merged from the
 # authoritative lifecycle queue.
 for text in (
-    "Finished tasks",
+    "Recently Completed",
     "Trusted successful terminal states only; halted or awaiting-human work is never called finished.",
     'id = \'finished-tasks\'',
     "/api/finished-tasks",
