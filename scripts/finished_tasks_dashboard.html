@@ -18,7 +18,7 @@
     const head = document.createElement('div');
     head.className = 'section-head';
     head.style.marginTop = '20px';
-    head.innerHTML = '<div><h2>Finished tasks</h2><p>Trusted successful terminal states only; halted or awaiting-human work is never called finished.</p></div>';
+    head.innerHTML = '<div><h2>Recently Completed</h2><p>The latest trusted successful terminal states. Older work remains available in Work / Activity history.</p></div>';
     const panel = document.createElement('div');
     panel.id = 'finished-tasks';
     panel.className = 'panel compact-list';
@@ -69,7 +69,7 @@
     });
     const items = [...byIssue.values()]
       .sort((a,b) => (new Date(b.completedAt || 0).getTime() || 0) - (new Date(a.completedAt || 0).getTime() || 0))
-      .slice(0, 12);
+      .slice(0, 8);
 
     panel.innerHTML = items.length ? items.map(item => `<div class="worker-summary">
       <div>
@@ -79,7 +79,7 @@
       <div><div class="small">State</div><span class="pill status-passed">${esc(item.statusLabel || 'Done')}</span></div>
       <div><div class="small">Finished</div><span class="mono">${esc(fmtTime(item.completedAt))}</span></div>
       <div><button type="button" onclick="openIssue('${esc(item.identifier)}')">Issue detail</button></div>
-    </div>`).join('') : '<div class="zero">No trusted finished tasks in the recent window.</div>';
+    </div>`).join('') : '<div class="zero">No recently completed tasks.</div>';
   }
 
   async function loadFinishedTasks(){
