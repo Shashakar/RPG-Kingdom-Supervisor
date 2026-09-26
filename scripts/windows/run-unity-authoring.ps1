@@ -438,7 +438,7 @@ if ($IsPrefabDerivative) {
     Publish-AssetsAtomically -AssetPaths $expected
     $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $expected -Force
 }
-else if ($IsNewSceneComposition) {
+elseif ($IsNewSceneComposition) {
     if ((Get-Sha256 $StageSourceScene) -ne $StageSourceHashBefore -or (Get-Sha256 $StageSourceMeta) -ne $StageSourceMetaHashBefore) {
         Fail-Authoring "source scene or metadata changed in the Unity stage" 92
     }
