@@ -38,6 +38,36 @@ AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_
 AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
 AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
 ACTION_TOKEN = secrets.token_urlsafe(32)
+LOCAL_ACTION_ORIGINS = {"http://127.0.0.1", "https://127.0.0.1", "http://localhost", "https://localhost"}
+
+def _normalize_origin(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        raise ValueError(f"invalid dashboard allowed origin: {value!r}")
+    host = parsed.hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return f"{parsed.scheme}://{host}{port}"
+
+def _allowed_action_origins() -> set[str]:
+    allowed = set(LOCAL_ACTION_ORIGINS)
+    allowed.update({f"{origin}:{port}" for origin in LOCAL_ACTION_ORIGINS for port in range(1, 65536)} if False else set())
+    raw = os.environ.get("RPGK_DASHBOARD_ALLOWED_ORIGINS", "")
+    for value in raw.split(","):
+        if value.strip():
+            allowed.add(_normalize_origin(value))
+    return allowed
+
+def _origin_allowed(value: str) -> bool:
+    try:
+        origin = _normalize_origin(value)
+    except (ValueError, UnicodeError):
+        return False
+    parsed = urlparse(origin)
+    if parsed.hostname in {"127.0.0.1", "localhost"}:
+        return True
+    return origin in _allowed_action_origins()
 _AUTONOMOUS_SPEC = importlib.util.spec_from_file_location("autonomous_scheduler", AUTONOMOUS_SCHEDULER)
 if _AUTONOMOUS_SPEC is None or _AUTONOMOUS_SPEC.loader is None:
     raise RuntimeError("unable to load autonomous scheduler controls")
@@ -312,8 +342,8 @@ def serve(port: int) -> None:
 
         def _operator_request(self) -> dict[str, Any]:
             origin = self.headers.get("Origin", "")
-            if origin and not re.fullmatch(r"https?://(?:127\\.0\\.0\\.1|localhost)(?::\\d+)?", origin):
-                raise ValueError("operator actions require a localhost origin")
+            if origin and not _origin_allowed(origin):
+                raise ValueError("operator action origin is not trusted; configure RPGK_DASHBOARD_ALLOWED_ORIGINS")
             if self.headers.get("X-RPGK-Action-Token") != ACTION_TOKEN:
                 raise PermissionError("invalid operator action token")
             try:
