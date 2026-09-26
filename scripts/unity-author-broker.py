@@ -119,11 +119,17 @@ def validate_authorization(state_root: Path, workspace: Path, requested_tier: st
     authorized_tier = payload.get("tier")
     if authorized_tier not in SUPPORTED_TIERS:
         return f"scene-authoring authorization has unsupported tier '{authorized_tier}'"
-    if authorized_tier != requested_tier:
+    selected_authorization = payload if authorized_tier == requested_tier else None
+    if selected_authorization is None:
+        for entry in payload.get("auxiliaryAuthoring") or []:
+            if isinstance(entry, dict) and entry.get("tier") == requested_tier:
+                selected_authorization = entry
+                break
+    if selected_authorization is None:
         return f"scene-authoring authorization tier '{authorized_tier}' does not permit requested tier '{requested_tier}'"
     if requested_tier == "existing-scene-composition" and payload.get("scene") != requested_scene:
         return f"scene-authoring authorization does not permit requested scene '{requested_scene}'"
-    authorized_operations = payload.get("operations")
+    authorized_operations = selected_authorization.get("operations")
     if isinstance(authorized_operations, list) and authorized_operations:
         requested_kinds = {operation.get("kind") for operation in requested_operations if isinstance(operation, dict)}
         if not requested_kinds.issubset(set(authorized_operations)):

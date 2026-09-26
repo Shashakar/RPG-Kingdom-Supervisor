@@ -51,6 +51,7 @@ def parse_requirements(body: str) -> dict[str, Any] | None:
         "tier": tier,
         "sourcePhaseOnly": source_phase_only,
         "operations": _strings(raw.get("operations"), "operations"),
+        "auxiliaryAuthoring": raw.get("auxiliaryAuthoring") or [],
         "componentAdditions": _strings(raw.get("componentAdditions"), "componentAdditions"),
         "componentRemovals": _strings(raw.get("componentRemovals"), "componentRemovals"),
         "dependency": str(raw.get("dependency") or "").strip() or None,
@@ -90,6 +91,17 @@ def evaluate(
             "requirements": None,
             "recommendedNextAction": "Add an explicit known or deferred structural requirements block before redispatch.",
         }
+    auxiliary = requirements["auxiliaryAuthoring"]
+    if not isinstance(auxiliary, list) or any(not isinstance(entry, dict) for entry in auxiliary):
+        return {**base, "status": "invalid", "supported": False, "authoringAuthorized": False, "reason": "auxiliaryAuthoring must be an array of objects"}
+    normalized_auxiliary = []
+    for entry in auxiliary:
+        aux_tier = str(entry.get("tier") or "").strip()
+        aux_ops = _strings(entry.get("operations"), "auxiliaryAuthoring.operations")
+        if not aux_tier or not aux_ops:
+            return {**base, "status": "invalid", "supported": False, "authoringAuthorized": False, "reason": "each auxiliaryAuthoring entry requires a tier and one or more operations"}
+        normalized_auxiliary.append({"tier": aux_tier, "operations": aux_ops})
+    requirements["auxiliaryAuthoring"] = normalized_auxiliary
     base["requirements"] = requirements
     base["authorizationTier"] = requirements["tier"]
     if requirements["tier"] == "existing-scene-composition":
@@ -129,6 +141,24 @@ def evaluate(
     for operation in requirements["operations"]:
         if operation not in supported_ops:
             unsupported.append({"kind": "operation", "value": operation})
+
+    authorized_auxiliary: list[dict[str, Any]] = []
+    for auxiliary in requirements["auxiliaryAuthoring"]:
+        aux_tier = auxiliary["tier"]
+        aux_ops = auxiliary["operations"]
+        if tier != "existing-scene-composition" or aux_tier != "prefab-derivative":
+            unsupported.append({"kind": "auxiliary-tier", "value": aux_tier})
+            continue
+        if aux_tier not in tiers:
+            unsupported.append({"kind": "auxiliary-tier", "value": aux_tier})
+            continue
+        aux_supported_ops = set(operations_by_tier.get(aux_tier, set()))
+        aux_unsupported = [operation for operation in aux_ops if operation not in aux_supported_ops]
+        for operation in aux_unsupported:
+            unsupported.append({"kind": "auxiliary-operation", "value": operation})
+        if not aux_unsupported:
+            authorized_auxiliary.append({"tier": aux_tier, "operations": aux_ops})
+    base["authorizedAuxiliaryAuthoring"] = authorized_auxiliary
 
     if requirements["mode"] == "deferred":
         if unsupported:

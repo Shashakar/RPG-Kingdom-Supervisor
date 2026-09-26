@@ -23,7 +23,7 @@ def marker(payload: dict) -> str:
 CONTRACT = {
     "schemaVersion": 1,
     "supportedProtocolVersions": [1],
-    "supportedTiers": ["mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition"],
+    "supportedTiers": ["mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative"],
     "operationKindsByTier": [
         {
             "tier": "mechanical-structural",
@@ -32,6 +32,10 @@ CONTRACT = {
         {
             "tier": "existing-scene-composition",
             "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "bake-navmesh"],
+        },
+        {
+            "tier": "prefab-derivative",
+            "operationKinds": ["create-prefab-derivative"],
         },
         {
             "tier": "new-scene-composition",
@@ -84,6 +88,27 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertEqual("supported", result["status"])
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual("Assets/RPGKingdom/Scenes/PlaytestScene.unity", result["authorizedScene"])
+
+    def test_existing_scene_can_explicitly_authorize_derivative_auxiliary_lane(self):
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["set-transform", "instantiate-existing-prefab", "bake-navmesh"],
+            "auxiliaryAuthoring": [{"tier": "prefab-derivative", "operations": ["create-prefab-derivative"]}],
+        }))
+        self.assertEqual("supported", result["status"])
+        self.assertEqual([{"tier": "prefab-derivative", "operations": ["create-prefab-derivative"]}], result["authorizedAuxiliaryAuthoring"])
+
+    def test_lower_tier_cannot_gain_derivative_auxiliary_lane(self):
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "mechanical-structural",
+            "operations": ["add-component"],
+            "auxiliaryAuthoring": [{"tier": "prefab-derivative", "operations": ["create-prefab-derivative"]}],
+        }))
+        self.assertEqual("unsupported", result["status"])
+        self.assertIn({"kind": "auxiliary-tier", "value": "prefab-derivative"}, result["unsupported"])
 
     def test_existing_scene_requires_exact_scene(self):
         result = self.evaluate(marker({

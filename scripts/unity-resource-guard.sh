@@ -263,7 +263,8 @@ if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" &
     --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \
     --argjson operations "$(jq -c '.requirements.operations // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
-    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,authorizedAt:$authorizedAt}' \
+    --argjson auxiliaryAuthoring "$(jq -c '.authorizedAuxiliaryAuthoring // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
+    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,auxiliaryAuthoring:$auxiliaryAuthoring,authorizedAt:$authorizedAt}' \
     > "$AUTHORING_MARKER.tmp.$$"
   mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
   echo "RPG Kingdom Unity guard: recorded $authoring_tier scene-authoring authority for $issue_identifier"
