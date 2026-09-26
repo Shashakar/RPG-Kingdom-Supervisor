@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import diagnostics  # type: ignore  # noqa: E402
 import finished_tasks  # type: ignore  # noqa: E402
+import operator_actions  # type: ignore  # noqa: E402
 import review_state  # type: ignore  # noqa: E402
 import supervisor_activity  # type: ignore  # noqa: E402
 import supervisor_detail  # type: ignore  # noqa: E402
@@ -35,6 +37,7 @@ FINISHED_TASKS_SCRIPT = FINISHED_TASKS_PATH.read_text(encoding="utf-8")
 AUTONOMOUS_STATE_ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT","~/.local/state/rpg-kingdom-supervisor")))
 AUTONOMOUS_STATUS_PATH = AUTONOMOUS_STATE_ROOT / "autonomous-status.json"
 AUTONOMOUS_SCHEDULER = SCRIPT_DIR / "autonomous-scheduler.py"
+ACTION_TOKEN = secrets.token_urlsafe(32)
 _AUTONOMOUS_SPEC = importlib.util.spec_from_file_location("autonomous_scheduler", AUTONOMOUS_SCHEDULER)
 if _AUTONOMOUS_SPEC is None or _AUTONOMOUS_SPEC.loader is None:
     raise RuntimeError("unable to load autonomous scheduler controls")
@@ -114,6 +117,28 @@ QUOTA_FRESHNESS_SCRIPT = r"""
   };
   if (state.operations) renderQuotaFreshness();
 })();
+</script>
+"""
+
+
+ACTION_SCRIPT = r"""
+<script>
+window.RPGK_ACTION_TOKEN = "__RPGK_ACTION_TOKEN__";
+async function operatorAction(path,payload){
+  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':window.RPGK_ACTION_TOKEN},body:JSON.stringify(payload)});
+  const data=await response.json();
+  if(!response.ok) throw new Error(data.error||'Operator action failed');
+  await refreshAll();
+  return data;
+}
+async function rearmIssue(identifier,below=false){
+  if(!confirm('Rearm '+identifier+(below?' with operator-approved below-reserve continuation?':'?')))return;
+  try{await operatorAction('/api/operator/rearm',{identifier,allowBelowReserve:below});}catch(e){alert(e.message);}
+}
+async function mergeReviewedPr(identifier,prNumber,headSha){
+  if(!confirm('Merge reviewed PR #'+prNumber+' for '+identifier+'?'))return;
+  try{await operatorAction('/api/operator/merge',{identifier,prNumber,expectedHeadSha:headSha});}catch(e){alert(e.message);}
+}
 </script>
 """
 
@@ -254,7 +279,7 @@ COMPACT_LAYOUT_STYLE = r"""
 
 def rendered_page() -> str:
     marker = "</body>"
-    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT
+    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT + ACTION_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN)
     return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
@@ -284,6 +309,58 @@ def serve(port: int) -> None:
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _operator_request(self) -> dict[str, Any]:
+            origin = self.headers.get("Origin", "")
+            if origin and not re.fullmatch(r"https?://(?:127\\.0\\.0\\.1|localhost)(?::\\d+)?", origin):
+                raise ValueError("operator actions require a localhost origin")
+            if self.headers.get("X-RPGK-Action-Token") != ACTION_TOKEN:
+                raise PermissionError("invalid operator action token")
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as exc:
+                raise ValueError("invalid content length") from exc
+            if length <= 0 or length > 16384:
+                raise ValueError("invalid operator action payload size")
+            value = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError("operator action payload must be an object")
+            return value
+
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path in {"/api/operator/rearm", "/api/operator/merge"}:
+                try:
+                    payload = self._operator_request()
+                    if parsed.path == "/api/operator/rearm":
+                        result = operator_actions.rearm(
+                            str(payload.get("identifier") or ""),
+                            allow_below_reserve=payload.get("allowBelowReserve") is True,
+                        )
+                    else:
+                        result = operator_actions.merge(
+                            str(payload.get("identifier") or ""),
+                            int(payload.get("prNumber") or 0),
+                            str(payload.get("expectedHeadSha") or ""),
+                        )
+                    self.send_json(result)
+                except PermissionError as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+                except (ValueError, json.JSONDecodeError, operator_actions.ActionError) as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                return
+            if parsed.path == "/api/autonomous/control":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(max(0, min(length, 16384))).decode("utf-8"))
+                    action = str(payload.get("action") or "")
+                    issue = payload.get("issue")
+                    result = autonomous_scheduler.control(action, issue=issue)
+                    self.send_json(result)
+                except Exception as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
