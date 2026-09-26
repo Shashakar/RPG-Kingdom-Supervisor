@@ -89,30 +89,42 @@ jq -e '.status == "completed" and .exitCode == 0 and .result.success == true and
 [[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 2 ]]
 
 
+# Exact existing-scene composition authorization permits only the recorded target scene.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity"}\n' "$GH" > "$STATE/authoring/GH-111.json"
+write_request existing-ok existing-scene-composition "" Assets/RPGKingdom/Scenes/VerticalSlice.unity
+wait_for_file "$RESPONSES/existing-ok.json"
+jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/existing-ok.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+
+write_request existing-wrong existing-scene-composition "" Assets/RPGKingdom/Scenes/OtherScene.unity
+wait_for_file "$RESPONSES/existing-wrong.json"
+jq -e '.status == "rejected" and .exitCode == 83 and (.stderr | contains("does not permit requested scene"))' "$RESPONSES/existing-wrong.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+
 # Exact new-scene authorization permits the third tier and preserves sourceScene in broker status.
 printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"new-scene-composition"}\n' "$GH" > "$STATE/authoring/GH-111.json"
 write_request composition-ok new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/PlaytestScene.unity
 wait_for_file "$RESPONSES/composition-ok.json"
 jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/composition-ok.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
 
 # New-scene source and target must differ before the host runner is invoked.
 write_request composition-same new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/VerticalSlice.unity
 wait_for_file "$RESPONSES/composition-same.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("must differ"))' "$RESPONSES/composition-same.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
 
 # Unknown tiers are rejected before the host runner.
 write_request unknown structural
 wait_for_file "$RESPONSES/unknown.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("unsupported scene-authoring tier"))' "$RESPONSES/unknown.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
 
 printf 'GH-999\n' > "$STATE/locks/unity-editor.lock/owner"
 write_request wrong-lock mechanical-structural
 wait_for_file "$RESPONSES/wrong-lock.json"
 jq -e '.status == "rejected" and .exitCode == 82' "$RESPONSES/wrong-lock.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
 
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
