@@ -146,4 +146,14 @@ allowed, reason, detail = policy._runtime_progress_decision(
 assert not allowed
 assert detail["repeatedFocusedFailureTurns"] == 2
 
+# Continuation telemetry must classify routes consistently with the canonical worker policy.
+assert policy.route_class(["risk:end-to-end"]) == "sol"
+assert policy.route_class(["risk:architecture"]) == "sol"
+assert policy.route_class(["risk:investigative"]) == "sol"
+assert policy.route_class(["risk:mechanical"]) == "luna"
+assert policy.route_class(["risk:normal"]) == "luna"
+assert policy.route_class(["risk:end-to-end", "model:astra"]) == "astra"
+assert policy.route_class(["risk:end-to-end", "model:sol"]) == "sol"
+assert policy.route_class(["risk:end-to-end", "model:luna"]) == "luna"
+
 print("continuation-policy-follow-through-test: PASS")
