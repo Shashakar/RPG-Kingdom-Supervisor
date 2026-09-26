@@ -218,7 +218,7 @@ foreach ($derivative in $DerivativeRequests) {
     Assert-DerivativePrefabPath -Value $destinationPrefab -FieldName "derivative destinationPrefab" -Destination $true
     Assert-DerivativeProvenancePath -Value $provenancePath
     if ($sourcePrefab -eq $destinationPrefab) { Fail-Authoring "derivative source and destination must differ" 64 }
-    $workspaceSource = Join-Path $SourceProjectPath ($sourcePrefab -replace '/', '\\')
+    $workspaceSource = Join-Path $SourceProjectPath ($sourcePrefab -replace '/', '\')
     if (-not (Test-Path -LiteralPath $workspaceSource -PathType Leaf)) { Fail-Authoring "derivative source '$sourcePrefab' does not exist" 82 }
     $DerivativeSourceSnapshots += [PSCustomObject]@{ AssetPath=$sourcePrefab; WorkspacePath=$workspaceSource; WorkspaceHash=(Get-Sha256 $workspaceSource) }
     $DerivativeCopyBackAssets += @($destinationPrefab, "$destinationPrefab.meta", $provenancePath, "$provenancePath.meta")
@@ -285,7 +285,7 @@ foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
 $StageScene = Join-Path $StageProject ($scene -replace '/', '\')
 $StageSceneMeta = "$StageScene.meta"
 foreach ($snapshot in $DerivativeSourceSnapshots) {
-    $stageSource = Join-Path $StageProject ($snapshot.AssetPath -replace '/', '\\')
+    $stageSource = Join-Path $StageProject ($snapshot.AssetPath -replace '/', '\')
     if (-not (Test-Path -LiteralPath $stageSource -PathType Leaf)) { Fail-Authoring "staged derivative source '$($snapshot.AssetPath)' is missing" 82 }
     $snapshot | Add-Member -NotePropertyName StagePath -NotePropertyValue $stageSource -Force
     $snapshot | Add-Member -NotePropertyName StageHash -NotePropertyValue (Get-Sha256 $stageSource) -Force
