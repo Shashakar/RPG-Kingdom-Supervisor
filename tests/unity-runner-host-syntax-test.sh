@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PS_SCRIPT="$ROOT/scripts/windows/run-unity-tests.ps1"
+AUTHOR_PS_SCRIPT="$ROOT/scripts/windows/run-unity-authoring.ps1"
+
+if grep -Eq '^[[:space:]]*else[[:space:]]+if[[:space:]]*\(' "$AUTHOR_PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: authoring bridge contains invalid PowerShell 'else if'; use 'elseif'" >&2
+  exit 1
+fi
 
 if ! grep -Fq 'Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -PassThru' "$PS_SCRIPT"; then
   echo "unity-runner-host-syntax-test: Unity launch must return a process handle for progress/ownership tracking" >&2
@@ -61,10 +67,11 @@ if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v wslpath >/dev/nul
   exit 0
 fi
 
-script_windows="$(wslpath -w "$PS_SCRIPT")"
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
-  "\$tokens = \$null; \$errors = \$null; [System.Management.Automation.Language.Parser]::ParseFile('$script_windows', [ref]\$tokens, [ref]\$errors) | Out-Null; if (\$errors.Count -gt 0) { \$errors | ForEach-Object { [Console]::Error.WriteLine(\$_.Message) }; exit 1 }" \
-  >/dev/null
+for script in "$PS_SCRIPT" "$AUTHOR_PS_SCRIPT"; do
+  script_windows="$(wslpath -w "$script")"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+    "\$tokens = \$null; \$errors = \$null; [System.Management.Automation.Language.Parser]::ParseFile('$script_windows', [ref]\$tokens, [ref]\$errors) | Out-Null; if (\$errors.Count -gt 0) { \$errors | ForEach-Object { [Console]::Error.WriteLine(\$_.Message) }; exit 1 }" \
+    >/dev/null
+done
 
 echo "unity-runner-host-syntax-test: PASS"
