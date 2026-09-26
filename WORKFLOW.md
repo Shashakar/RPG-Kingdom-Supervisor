@@ -202,6 +202,19 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
 Use only operations documented in `docs/SCENE_AUTHORING.md` and implemented by the reviewed RPG Kingdom executor. Structural authority is bounded: it is not permission for arbitrary reflection, arbitrary component types, transforms, free-form hierarchy editing, prefab surgery, object creation/deletion, or creative composition. Do not hand-edit Unity YAML. If the required structural operation is not explicitly supported, stop and report that missing operation instead of bypassing the seam.
 
 A successful `unity-author.sh` call means the staged Editor mutation was safely copied back into the issue workspace; it is **not validation evidence**. Inspect the resulting source diff and run the narrowest relevant fresh EditMode/PlayMode validation with `unity-runner.sh` before handoff.
+{% elsif issue.labels contains "authoring:scene-existing-composition" %}
+This issue is explicitly authorized for **bounded existing-scene environmental composition** in the exact scene approved by the issue's `symphony-scene-authoring-requirements` contract. RPG Kingdom's checked-in `AGENTS.md`, `docs/SCENE_AUTHORING.md`, and project-side authoring executor remain authoritative for eligible world objects, protected functional subtrees, and supported operations.
+
+Write temporary typed JSON requests using `tier: "existing-scene-composition"` and the exact authorized scene, then invoke:
+
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
+  --request /tmp/rpgk-authoring.json
+```
+
+Use only operations declared by the issue contract and implemented by the reviewed RPG Kingdom executor. This authority is bounded to the exact existing production scene and environmental composition: it does not permit arbitrary scene discovery, raw YAML edits, prefab mutation, protected gameplay/system hierarchy changes, arbitrary reflection/C#, or unrelated structural authoring. Generated navigation output is allowed only through the reviewed deterministic NavMesh path documented by the project.
+
+A successful `unity-author.sh` call is authoring evidence, not validation evidence. Inspect the resulting diff and run fresh relevant EditMode/PlayMode validation through `unity-runner.sh` before handoff.
 {% else %}
 This issue does **not** carry scene-authoring authority. Do not invoke `unity-author.sh` or modify a production scene merely because the Unity editor resource is available.
 {% endif %}
@@ -249,11 +262,11 @@ The App Server launcher chooses the model before this thread starts:
 - `risk:normal` or no risk label -> GPT-6 Luna / medium reasoning;
 - `risk:investigative` -> GPT-6 Sol / medium reasoning;
 - `risk:architecture` -> GPT-6 Sol / high reasoning;
-- `risk:end-to-end` -> GPT-6 Astra / medium reasoning.
+- `risk:end-to-end` -> GPT-6 Sol / high reasoning.
 
 `model:luna`, `model:sol`, or `model:astra` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
 
-GPT-6 Luna is the default workhorse for bounded implementation. GPT-6 Sol handles investigative work at medium effort and architecture-sensitive work at high effort. GPT-6 Astra is reserved for work where stronger end-to-end execution is likely to reduce iteration cost. Do not promote routine work merely because a higher-cost model is available.
+GPT-6 Luna is the default workhorse for bounded implementation. GPT-6 Sol handles investigative work at medium effort and architecture-sensitive work at high effort. GPT-6 Sol is the default for end-to-end work at high effort. GPT-6 Astra is reserved for explicit operator or reviewer escalation when concrete evidence justifies the higher-cost route. Do not promote work merely because a higher-cost model is available.
 
 ## GitHub issue handling
 
