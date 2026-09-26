@@ -14,11 +14,11 @@ Scene-authoring authority is dispatch-scoped, issue-scoped, workspace-scoped, an
 | --- | --- | --- |
 | `authoring:scene-mechanical` | `mechanical` | Tier 1: non-structural serialized mechanical configuration |
 | `authoring:scene-structural` | `mechanical-structural` | Tier 2: separately reviewed, bounded structural operations implemented and allowlisted by RPG Kingdom, plus typed configuration |
-| `authoring:scene-new-composition` | `new-scene-composition` | New-scene lane: create one issue-owned scene from an approved source, then iteratively compose only that unmerged target |
+| `authoring:scene-existing-composition` | `existing-scene-composition` | Human-approved environmental composition in one exact existing production scene; target is issue-declared and receipt-bound |\n| `authoring:scene-new-composition` | `new-scene-composition` | New-scene lane: create one issue-owned scene from an approved source, then iteratively compose only that unmerged target |
 
 An authoring issue must also own `resource:unity-editor`. When validation is required it must carry the normal `validation:unity-required` label.
 
-The three authoring labels are mutually exclusive. No authoring tier implicitly grants another tier. The Unity preflight writes the exact authorized request tier into a host-owned receipt for that worker lifetime. The client, broker, host adapter, and Windows staging runner reject unknown tiers; the broker and host additionally require the request tier to exactly match the receipt.
+The four authoring labels are mutually exclusive. No authoring tier implicitly grants another tier. The Unity preflight writes the exact authorized request tier into a host-owned receipt for that worker lifetime. The client, broker, host adapter, and Windows staging runner reject unknown tiers; the broker and host additionally require the request tier to exactly match the receipt.
 
 Scene-authoring authority is never inferred from issue prose, model intent, or possession of the Unity resource. Authorization and project executor capability are separate gates: the issue label grants one exact request tier, while the RPG Kingdom capability contract determines whether the declared operations/types are actually supported.
 
@@ -88,6 +88,25 @@ Phase C: feature requirements become mode=known
 
 Legacy Tier-2 issues created before this metadata contract remain diagnosable as `unknown` and retain their prior authorization behavior. New or materially revised Tier-2 issues should always carry the explicit requirements block so unsupported work can be stopped before model dispatch.
 
+
+### Existing-scene environmental composition
+
+This lane exists for bounded environmental/world composition in an established production scene after explicit human approval. The issue must carry `authoring:scene-existing-composition` and a known requirements block with the exact target scene:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "existing-scene-composition",
+  "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+  "operations": ["set-transform", "instantiate-existing-prefab", "bake-navmesh"]
+}
+-->
+```
+
+Supervisor validates the requested operations against RPG Kingdom's checked-in capability contract and writes the exact scene into the host-owned dispatch receipt. Broker and host reject any request for another scene. The project executor remains authoritative for eligible world objects, protected functional subtrees, and operation semantics.
+
+Copy-back is limited to that exact existing scene plus executor-attested deterministic navigation outputs under `Assets/RPGKingdom/Navigation/Generated/` and their metadata. The publish remains rollback-capable and fails closed on unrelated changed assets. This does not grant generic production-scene authority, prefab mutation, arbitrary hierarchy editing, or raw YAML access.
 
 ### New-scene composition
 
@@ -237,7 +256,7 @@ Object names may be used only when unique in the loaded scene. Use the full hier
 5. Existing-scene tiers open and mutate the requested scene through the reviewed RPG Kingdom Editor executor.
 6. New-scene composition either copies the authorized source into an absent target or reopens the host-recorded issue-owned target.
 7. Unity writes a structured result naming the changed asset set.
-8. Existing-scene tiers require exactly one changed scene.
+8. Mechanical and mechanical-structural tiers require exactly one changed scene. Existing-scene composition requires the exact authorized scene plus only executor-attested generated navigation outputs.
 9. New-scene composition requires the target scene assets plus, when present, the executor's exact reviewed `generatedNavigationAssets` entries and each matching `.meta` under `Assets/RPGKingdom/Navigation/Generated/`.
 10. Supervisor verifies source-scene hashes for the new-scene tier and **only after all checks pass** performs rollback-capable bounded copy-back.
 
