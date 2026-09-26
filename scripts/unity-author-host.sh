@@ -44,15 +44,19 @@ expected_request_dir="$project/Logs/SymphonyUnity/.author-broker/requests"
 
 requested_tier="$(jq -r '.authoring.tier // empty' "$request")"
 case "$requested_tier" in
-  mechanical|mechanical-structural|existing-scene-composition|new-scene-composition) ;;
+  mechanical|mechanical-structural|existing-scene-composition|new-scene-composition|prefab-derivative) ;;
   *) echo "RPG Kingdom Unity authoring: unsupported requested tier '$requested_tier'" >&2; exit 64 ;;
 esac
 
 authorization="$STATE_ROOT/authoring/$issue_identifier.json"
 target_scene="$(jq -r '.authoring.scene // empty' "$request")"
 if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier "$requested_tier" --arg scene "$target_scene" '
-  .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and .tier == $tier and
-  ($tier != "existing-scene-composition" or .scene == $scene)
+  .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and
+  (
+    (.tier == $tier and ($tier != "existing-scene-composition" or .scene == $scene))
+    or
+    ([.auxiliaryAuthoring[]? | select(.tier == $tier)] | length == 1)
+  )
 ' "$authorization" >/dev/null 2>&1; then
   echo "RPG Kingdom Unity authoring: current dispatch is not authorized for requested tier '$requested_tier'" >&2
   exit 83
