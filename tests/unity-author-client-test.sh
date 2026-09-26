@@ -3,7 +3,26 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap '[[ -n "${BROKER_PID:-}" ]] && kill "$BROKER_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap '[[ -n "${BROKER_PID:-}" ]] && 
+# Explicit prefab-derivative authorization passes a scene-free derivative request.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"prefab-derivative","operations":["create-prefab-derivative"]}\n' "$GH" > "$STATE/authoring/GH-111.json"
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"prefab-derivative","sourcePrefab":"Assets/Environment/Tree.prefab","destinationPrefab":"Assets/RPGKingdom/Generated/AgentDerivatives/Tree.prefab","operations":[{"kind":"create-prefab-derivative","visualOffsetY":-0.25,"foundationMode":"none"}]}
+JSON
+output="$(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS=2 RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS=10 bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST")"
+grep -q 'tier:prefab-derivative' <<<"$output"
+
+# Client rejects derivative destinations outside the generated root.
+cat > "$REQUEST" <<'JSON'
+{"protocolVersion":1,"tier":"prefab-derivative","sourcePrefab":"Assets/Environment/Tree.prefab","destinationPrefab":"Assets/Environment/TreeAgent.prefab","operations":[{"kind":"create-prefab-derivative","visualOffsetY":-0.25,"foundationMode":"none"}]}
+JSON
+set +e
+(cd "$GH" && RPGK_SYMPHONY_WORKSPACE_ROOT="$WORKSPACES" bash "$ROOT/scripts/unity-author.sh" apply --request "$REQUEST") >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 64 ]] || { echo "expected derivative destination rejection, got $status" >&2; exit 1; }
+
+kill "$BROKER_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 WORKSPACES="$TMP/workspaces"
 STATE="$TMP/state"
