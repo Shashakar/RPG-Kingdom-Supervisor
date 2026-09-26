@@ -90,7 +90,7 @@ def merge(identifier: str, pr_number: int, expected_head_sha: str) -> dict[str, 
     bad = [c for c in checks if isinstance(c, dict) and str(c.get("conclusion") or c.get("state") or "").upper() not in {"SUCCESS","NEUTRAL","SKIPPED"}]
     if bad:
         raise ActionError("required PR checks are not green")
-    result = _run(["gh", "pr", "merge", str(pr_number), "--repo", REPO, "--squash", "--match-head-commit", expected_head_sha, "--delete-branch=false"])
+    result = _run(["gh", "pr", "merge", str(pr_number), "--repo", REPO, "--squash", "--match-head-commit", expected_head_sha])
     if result.returncode != 0:
         raise ActionError(result.stderr.strip() or result.stdout.strip() or "merge failed")
     return {"ok": True, "issue": f"GH-{issue}", "prNumber": pr_number, "headSha": expected_head_sha}
