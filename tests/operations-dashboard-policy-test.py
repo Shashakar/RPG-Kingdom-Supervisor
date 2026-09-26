@@ -94,13 +94,12 @@ assert "TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT" in python_text
 
 # Work/activity keeps all lifecycle queues and issue drill-down is a direct path.
 for queue in (
-    "Implementing",
-    "Agent Review",
+    "Active Work",
+    "Automated Review",
     "Rework",
-    "Human Review",
-    "Human Attention",
-    "Halted / Quota",
-    "Report Complete",
+    "Needs Manual Validation",
+    "Blocked / Rearm",
+    "Recently Completed",
 ):
     assert queue in html
 assert "Recent activity" in html
