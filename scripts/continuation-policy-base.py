@@ -54,7 +54,7 @@ def route_class(labels: list[str]) -> str:
         if f"model:{model}" in label_set:
             return model
     if "risk:end-to-end" in label_set:
-        return "astra"
+        return "sol"
     if "risk:architecture" in label_set:
         return "sol"
     if "risk:investigative" in label_set:
