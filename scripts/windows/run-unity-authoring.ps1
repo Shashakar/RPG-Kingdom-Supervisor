@@ -190,13 +190,26 @@ if ($null -eq $authoring -or [int]$authoring.protocolVersion -ne 1) {
     Fail-Authoring "unsupported authoring protocol" 64
 }
 $tier = [string]$authoring.tier
-if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "existing-scene-composition" -and $tier -ne "new-scene-composition") {
-    Fail-Authoring "unsupported scene-authoring tier '$tier'" 64
+if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "existing-scene-composition" -and $tier -ne "new-scene-composition" -and $tier -ne "prefab-derivative") {
+    Fail-Authoring "unsupported authoring tier '$tier'" 64
 }
+$IsPrefabDerivative = $tier -eq "prefab-derivative"
 $scene = [string]$authoring.scene
-Assert-ScenePath -Value $scene -FieldName "scene"
+if ($IsPrefabDerivative) {
+    if (-not [string]::IsNullOrWhiteSpace($scene) -or -not [string]::IsNullOrWhiteSpace([string]$authoring.sourceScene)) {
+        Fail-Authoring "prefab-derivative requests must not declare a scene" 64
+    }
+    Assert-DerivativePrefabPath -Value ([string]$authoring.sourcePrefab) -FieldName "sourcePrefab" -Destination $false
+    Assert-DerivativePrefabPath -Value ([string]$authoring.destinationPrefab) -FieldName "destinationPrefab" -Destination $true
+}
+else {
+    Assert-ScenePath -Value $scene -FieldName "scene"
+}
 if ($null -eq $authoring.operations -or @($authoring.operations).Count -eq 0) {
     Fail-Authoring "authoring request has no operations" 64
+}
+if ($IsPrefabDerivative -and (@($authoring.operations).Count -ne 1 -or [string]$authoring.operations[0].kind -ne "create-prefab-derivative")) {
+    Fail-Authoring "prefab-derivative requires exactly one create-prefab-derivative operation" 64
 }
 
 $IsNewSceneComposition = $tier -eq "new-scene-composition"
@@ -249,8 +262,10 @@ elseif (-not [string]::IsNullOrWhiteSpace([string]$authoring.sourceScene)) {
 }
 
 $StageProject = Join-Path (Join-Path $StageRoot $UnityVersion) "RPG-Kingdom"
-$WorkspaceTargetScene = Join-Path $SourceProjectPath ($scene -replace '/', '\')
-$WorkspaceTargetMeta = "$WorkspaceTargetScene.meta"
+if (-not $IsPrefabDerivative) {
+    $WorkspaceTargetScene = Join-Path $SourceProjectPath ($scene -replace '/', '\')
+    $WorkspaceTargetMeta = "$WorkspaceTargetScene.meta"
+}
 if ($IsNewSceneComposition) {
     $WorkspaceSourceScene = Join-Path $SourceProjectPath ($AuthorizedSourceScene -replace '/', '\')
     $WorkspaceSourceMeta = "$WorkspaceSourceScene.meta"
@@ -270,7 +285,7 @@ if ($IsNewSceneComposition) {
     $WorkspaceSourceHashBefore = Get-Sha256 $WorkspaceSourceScene
     $WorkspaceSourceMetaHashBefore = Get-Sha256 $WorkspaceSourceMeta
 }
-else {
+elseif (-not $IsPrefabDerivative) {
     if (-not (Test-Path -LiteralPath $WorkspaceTargetScene -PathType Leaf)) {
         Fail-Authoring "scene authoring may only modify an existing scene; '$scene' does not exist in the source workspace" 82
     }
@@ -282,8 +297,10 @@ foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
     Invoke-ProjectMirror -Source (Join-Path $SourceProjectPath $directory) -Destination (Join-Path $StageProject $directory)
 }
 
-$StageScene = Join-Path $StageProject ($scene -replace '/', '\')
-$StageSceneMeta = "$StageScene.meta"
+if (-not $IsPrefabDerivative) {
+    $StageScene = Join-Path $StageProject ($scene -replace '/', '\')
+    $StageSceneMeta = "$StageScene.meta"
+}
 foreach ($snapshot in $DerivativeSourceSnapshots) {
     $stageSource = Join-Path $StageProject ($snapshot.AssetPath -replace '/', '\')
     if (-not (Test-Path -LiteralPath $stageSource -PathType Leaf)) { Fail-Authoring "staged derivative source '$($snapshot.AssetPath)' is missing" 82 }
@@ -307,7 +324,7 @@ if ($IsNewSceneComposition) {
         Fail-Authoring "iterative staged target scene or meta does not exist after mirroring" 82
     }
 }
-elseif (-not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
+elseif (-not $IsPrefabDerivative -and -not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
     Fail-Authoring "staged scene '$scene' does not exist after mirroring" 82
 }
 
@@ -370,11 +387,18 @@ if ($unityExitCode -ne 0 -or $result.success -ne $true) {
     $errorText = [string]$result.error
     Fail-Authoring "Unity authoring failed (Unity exit $unityExitCode): $errorText" 1
 }
-if ([string]$result.scene -ne $scene) {
-    Fail-Authoring "executor returned scene '$($result.scene)' but request authorized '$scene'" 92
+if ($IsPrefabDerivative) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$result.scene)) {
+        Fail-Authoring "prefab-derivative executor unexpectedly returned a scene" 92
+    }
 }
-if (-not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
-    Fail-Authoring "executor reported success but the staged target scene is missing" 92
+else {
+    if ([string]$result.scene -ne $scene) {
+        Fail-Authoring "executor returned scene '$($result.scene)' but request authorized '$scene'" 92
+    }
+    if (-not (Test-Path -LiteralPath $StageScene -PathType Leaf)) {
+        Fail-Authoring "executor reported success but the staged target scene is missing" 92
+    }
 }
 
 $changedAssets = @($result.changedAssets | ForEach-Object { [string]$_ })
@@ -395,7 +419,26 @@ foreach ($generatedAsset in $generatedNavigationAssets) {
     $generatedCopyBackAssets += @($generatedAsset, $generatedMeta)
 }
 
-if ($IsNewSceneComposition) {
+if ($IsPrefabDerivative) {
+    $sourcePrefab = [string]$authoring.sourcePrefab
+    $destinationPrefab = [string]$authoring.destinationPrefab
+    $provenancePath = "$destinationPrefab.provenance.json"
+    $expected = @($destinationPrefab, "$destinationPrefab.meta", $provenancePath, "$provenancePath.meta" | Sort-Object)
+    $actual = @($changedAssets | Sort-Object)
+    $generatedDerivativeAssets = @($result.generatedDerivativeAssets | ForEach-Object { [string]$_ } | Sort-Object)
+    if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
+        Fail-Authoring "prefab-derivative changed-assets evidence must exactly match the derivative prefab and provenance outputs" 92
+    }
+    if ($generatedDerivativeAssets.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $generatedDerivativeAssets).Count -ne 0) {
+        Fail-Authoring "prefab-derivative generated-assets evidence must exactly match the derivative prefab and provenance outputs" 92
+    }
+    if ([string]$result.sourcePrefab -ne $sourcePrefab -or [string]$result.destinationPrefab -ne $destinationPrefab -or $result.sourceUnchanged -ne $true) {
+        Fail-Authoring "prefab-derivative executor did not attest the exact source/destination and source immutability" 92
+    }
+    Publish-AssetsAtomically -AssetPaths $expected
+    $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $expected -Force
+}
+else if ($IsNewSceneComposition) {
     if ((Get-Sha256 $StageSourceScene) -ne $StageSourceHashBefore -or (Get-Sha256 $StageSourceMeta) -ne $StageSourceMetaHashBefore) {
         Fail-Authoring "source scene or metadata changed in the Unity stage" 92
     }
