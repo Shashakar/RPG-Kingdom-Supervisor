@@ -214,7 +214,10 @@ if ($IsPrefabDerivative -and (@($authoring.operations).Count -ne 1 -or [string]$
 
 $IsNewSceneComposition = $tier -eq "new-scene-composition"
 $IsExistingSceneComposition = $tier -eq "existing-scene-composition"
-$DerivativeRequests = @($authoring.derivativeOutputs)
+$DerivativeRequests = @()
+if ($null -ne $authoring.derivativeOutputs) {
+    $DerivativeRequests = @($authoring.derivativeOutputs)
+}
 if ($DerivativeRequests.Count -gt 16) {
     Fail-Authoring "at most 16 derivative outputs may be authorized per request" 64
 }

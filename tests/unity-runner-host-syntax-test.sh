@@ -5,6 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PS_SCRIPT="$ROOT/scripts/windows/run-unity-tests.ps1"
 AUTHOR_PS_SCRIPT="$ROOT/scripts/windows/run-unity-authoring.ps1"
 
+if ! grep -Fq '$DerivativeRequests = @()' "$AUTHOR_PS_SCRIPT" || ! grep -Fq 'if ($null -ne $authoring.derivativeOutputs)' "$AUTHOR_PS_SCRIPT"; then
+  echo "unity-runner-host-syntax-test: omitted derivativeOutputs must remain an empty collection" >&2
+  exit 1
+fi
+
 if grep -Eq '^[[:space:]]*else[[:space:]]+if[[:space:]]*\(' "$AUTHOR_PS_SCRIPT"; then
   echo "unity-runner-host-syntax-test: authoring bridge contains invalid PowerShell 'else if'; use 'elseif'" >&2
   exit 1
