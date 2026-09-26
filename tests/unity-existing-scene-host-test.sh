@@ -33,7 +33,7 @@ cat > "$request" <<'JSON'
 {"protocolVersion":1,"requestId":"ok","operation":"author","authoring":{"protocolVersion":1,"tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/PlaytestScene.unity","operations":[{"kind":"set-transform","objectPath":"World","localPosition":{"x":0,"y":0,"z":0},"localEulerAngles":{"x":0,"y":0,"z":0},"localScale":{"x":1,"y":1,"z":1}}]}}
 JSON
 bash "$ROOT/scripts/unity-author-host.sh" --project "$GH" --request "$request" >/dev/null
-[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 2 ]]
+[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 1 ]]
 
 derivative="$GH/Logs/SymphonyUnity/.author-broker/requests/derivative.json"
 cat > "$derivative" <<'JSON'
