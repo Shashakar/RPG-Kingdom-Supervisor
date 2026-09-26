@@ -73,3 +73,8 @@ The primary work hierarchy is **Active Work → Manual Validation → Recently C
 The localhost dashboard is read-mostly, not universally read-only. It exposes only two typed operator mutations: **Merge PR** for an exact automated-reviewed PR/head generation and **Rearm** for an exact currently halted issue. Rearm may carry a one-worker-lifetime below-reserve approval; the normal 10% weekly reserve remains the unattended/automatic threshold. Both actions are POST-only, localhost-origin/token protected, stale-state checked, and do not expose arbitrary GitHub commands or label editing.
 
 Project-owned prefab derivative authoring may declare exact `derivativeOutputs` on an existing-scene-composition request. Each entry binds an exact source prefab, a destination prefab under `Assets/RPGKingdom/Generated/AgentDerivatives/`, and provenance JSON under the same root. The host hashes source prefabs before execution, requires them unchanged afterward, and permits copy-back only of the exact derivative prefab/meta/provenance/meta set attested in `changedAssets` alongside the already-authorized scene/NavMesh outputs.
+
+
+### Trusted reverse-proxy dashboard origins
+
+The dashboard listener remains localhost-bound by default. If the browser reaches it through a trusted reverse proxy, set `RPGK_DASHBOARD_ALLOWED_ORIGINS` to a comma-separated list of exact origins, including scheme and optional port (for example `https://server.shashakar.com`). Localhost/127.0.0.1 browser origins remain accepted automatically. Non-local operator-action origins must exactly match this allowlist and still present the per-process action token embedded in the served dashboard. Forwarded host/origin headers are not authorization inputs.
