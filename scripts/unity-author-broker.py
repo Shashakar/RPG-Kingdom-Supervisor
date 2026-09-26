@@ -102,7 +102,7 @@ def validate_shared_lock(state_root: Path, workspace: Path) -> str | None:
     return None
 
 
-def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str | None) -> str | None:
+def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str | None, requested_operations: list[Any]) -> str | None:
     match = ISSUE_WORKSPACE.fullmatch(workspace.name)
     if match is None:
         return "workspace is not a GH issue workspace"
@@ -123,6 +123,11 @@ def validate_authorization(state_root: Path, workspace: Path, requested_tier: st
         return f"scene-authoring authorization tier '{authorized_tier}' does not permit requested tier '{requested_tier}'"
     if requested_tier == "existing-scene-composition" and payload.get("scene") != requested_scene:
         return f"scene-authoring authorization does not permit requested scene '{requested_scene}'"
+    authorized_operations = payload.get("operations")
+    if isinstance(authorized_operations, list) and authorized_operations:
+        requested_kinds = {operation.get("kind") for operation in requested_operations if isinstance(operation, dict)}
+        if not requested_kinds.issubset(set(authorized_operations)):
+            return "scene-authoring authorization does not permit one or more requested operations"
     try:
         authorized_workspace = Path(str(payload.get("workspace", ""))).resolve()
     except OSError:
@@ -187,7 +192,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    error = validate_authorization(state_root, workspace, requested_tier, scene)
+    error = validate_authorization(state_root, workspace, requested_tier, scene, operations)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
     return workspace, payload, None
