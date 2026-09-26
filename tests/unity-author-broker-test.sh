@@ -146,7 +146,7 @@ printf 'GH-999\n' > "$STATE/locks/unity-editor.lock/owner"
 write_request wrong-lock mechanical-structural
 wait_for_file "$RESPONSES/wrong-lock.json"
 jq -e '.status == "rejected" and .exitCode == 82' "$RESPONSES/wrong-lock.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
