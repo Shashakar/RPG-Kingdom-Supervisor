@@ -196,3 +196,10 @@ assert "limit=180" in html
 
 assert 'LOCAL_ACTION_HOSTS = {"127.0.0.1", "localhost", "::1"}' in server
 assert "parsed.hostname in LOCAL_ACTION_HOSTS" in server
+
+# Operator actions visibly acknowledge pending/success/failure and prevent duplicate pending submissions.
+server = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
+for text in ("RPGK_PENDING_ACTIONS", "Merging…", "Merged", "Rearming…", "Rearmed", "refreshing lifecycle", "state==='pending'"):
+    assert text in server, text
+for text in ('data-action-key="merge:', 'data-action-key="rearm:', 'data-action-status-key="merge:', 'data-action-status-key="rearm:'):
+    assert text in html, text

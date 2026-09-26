@@ -159,20 +159,53 @@ QUOTA_FRESHNESS_SCRIPT = r"""
 ACTION_SCRIPT = r"""
 <script>
 window.RPGK_ACTION_TOKEN = "__RPGK_ACTION_TOKEN__";
-async function operatorAction(path,payload){
-  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':window.RPGK_ACTION_TOKEN},body:JSON.stringify(payload)});
-  const data=await response.json();
-  if(!response.ok) throw new Error(data.error||'Operator action failed');
-  await refreshAll();
-  return data;
+window.RPGK_PENDING_ACTIONS = new Map();
+function actionKey(identifier,kind){return kind+':'+identifier;}
+function renderActionFeedback(){
+  const pending=window.RPGK_PENDING_ACTIONS;
+  document.querySelectorAll('[data-action-key]').forEach(el=>{
+    const item=pending.get(el.dataset.actionKey);
+    if(!item)return;
+    el.disabled=item.state==='pending'||item.state==='success';
+    el.textContent=item.label;
+  });
+  document.querySelectorAll('[data-action-status-key]').forEach(el=>{
+    const item=pending.get(el.dataset.actionStatusKey);
+    if(!item){el.textContent='';return;}
+    el.textContent=item.message||'';
+    el.className='meta action-status '+(item.state==='error'?'bad':item.state==='success'?'good':'');
+  });
+}
+const baseRenderOverviewForActions=renderOverview,baseRenderQueuesForActions=renderQueues;
+renderOverview=function(){baseRenderOverviewForActions();renderActionFeedback();};
+renderQueues=function(){baseRenderQueuesForActions();renderActionFeedback();};
+async function operatorAction(path,payload,key,pendingLabel,successLabel){
+  if(window.RPGK_PENDING_ACTIONS.get(key)?.state==='pending')return null;
+  window.RPGK_PENDING_ACTIONS.set(key,{state:'pending',label:pendingLabel,message:pendingLabel});
+  renderActionFeedback();
+  try{
+    const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':window.RPGK_ACTION_TOKEN},body:JSON.stringify(payload)});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'Operator action failed');
+    window.RPGK_PENDING_ACTIONS.set(key,{state:'success',label:successLabel,message:successLabel+' — refreshing lifecycle…'});
+    renderActionFeedback();
+    await refreshAll();
+    return data;
+  }catch(e){
+    window.RPGK_PENDING_ACTIONS.set(key,{state:'error',label:key.startsWith('merge:')?'Merge PR':'Rearm',message:e.message||String(e)});
+    renderActionFeedback();
+    throw e;
+  }
 }
 async function rearmIssue(identifier,below=false){
   if(!confirm('Rearm '+identifier+(below?' with operator-approved below-reserve continuation?':'?')))return;
-  try{await operatorAction('/api/operator/rearm',{identifier,allowBelowReserve:below});}catch(e){alert(e.message);}
+  const key=actionKey(identifier,'rearm');
+  try{await operatorAction('/api/operator/rearm',{identifier,allowBelowReserve:below},key,'Rearming…','Rearmed');}catch(e){}
 }
 async function mergeReviewedPr(identifier,prNumber,headSha){
   if(!confirm('Merge reviewed PR #'+prNumber+' for '+identifier+'?'))return;
-  try{await operatorAction('/api/operator/merge',{identifier,prNumber,expectedHeadSha:headSha});}catch(e){alert(e.message);}
+  const key=actionKey(identifier,'merge');
+  try{await operatorAction('/api/operator/merge',{identifier,prNumber,expectedHeadSha:headSha},key,'Merging…','Merged');}catch(e){}
 }
 </script>
 """
