@@ -52,7 +52,6 @@ def _normalize_origin(value: str) -> str:
 
 def _allowed_action_origins() -> set[str]:
     allowed = set(LOCAL_ACTION_ORIGINS)
-    allowed.update({f"{origin}:{port}" for origin in LOCAL_ACTION_ORIGINS for port in range(1, 65536)} if False else set())
     raw = os.environ.get("RPGK_DASHBOARD_ALLOWED_ORIGINS", "")
     for value in raw.split(","):
         if value.strip():
