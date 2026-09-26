@@ -30,6 +30,7 @@ python3 "$ROOT/tests/supervisor-detail-test.py"
 python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
 python3 "$ROOT/tests/codex-concurrent-usage-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
+python3 "$ROOT/tests/gh125-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
 bash "$ROOT/tests/report-completion-after-run-test.sh"
@@ -67,6 +68,7 @@ python3 -m py_compile \
   "$ROOT/scripts/autonomous-scheduler.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
   "$ROOT/scripts/finished_tasks.py" \
+  "$ROOT/scripts/operator_actions.py" \
   "$ROOT/scripts/first-party-skill-policy.py" \
   "$ROOT/scripts/codex-usage-snapshot.py" \
   "$ROOT/scripts/continuation-policy.py" \
