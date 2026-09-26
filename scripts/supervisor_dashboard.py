@@ -58,7 +58,7 @@ def _allowed_action_origins() -> set[str]:
             allowed.add(_normalize_origin(value))
     return allowed
 
-def _origin_allowed(value: str) -> bool:
+def _origin_allowed(value: str, request_host: str = "") -> bool:
     try:
         origin = _normalize_origin(value)
     except (ValueError, UnicodeError):
@@ -66,6 +66,12 @@ def _origin_allowed(value: str) -> bool:
     parsed = urlparse(origin)
     if parsed.hostname in {"127.0.0.1", "localhost"}:
         return True
+    # A normal reverse proxy preserves the browser-facing Host. Exact Origin
+    # authority == request Host is same-origin and does not rely on forwarded headers.
+    if request_host:
+        expected_authority = parsed.netloc.lower()
+        if request_host.strip().lower() == expected_authority:
+            return True
     return origin in _allowed_action_origins()
 _AUTONOMOUS_SPEC = importlib.util.spec_from_file_location("autonomous_scheduler", AUTONOMOUS_SCHEDULER)
 if _AUTONOMOUS_SPEC is None or _AUTONOMOUS_SPEC.loader is None:
@@ -341,7 +347,7 @@ def serve(port: int) -> None:
 
         def _operator_request(self) -> dict[str, Any]:
             origin = self.headers.get("Origin", "")
-            if origin and not _origin_allowed(origin):
+            if origin and not _origin_allowed(origin, self.headers.get("Host", "")):
                 raise ValueError("operator action origin is not trusted; configure RPGK_DASHBOARD_ALLOWED_ORIGINS")
             if self.headers.get("X-RPGK-Action-Token") != ACTION_TOKEN:
                 raise PermissionError("invalid operator action token")
