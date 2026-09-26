@@ -51,6 +51,25 @@ function Assert-ScenePath {
     }
 }
 
+$DerivativeRoot = "Assets/RPGKingdom/Generated/AgentDerivatives/"
+
+function Assert-DerivativePrefabPath {
+    param([string]$Value, [string]$FieldName, [bool]$Destination)
+    if ([string]::IsNullOrWhiteSpace($Value) -or -not $Value.StartsWith("Assets/") -or -not $Value.EndsWith(".prefab") -or $Value.Contains("..") -or $Value.Contains("\")) {
+        Fail-Authoring "$FieldName must be a project-relative Assets/*.prefab path" 64
+    }
+    if ($Destination -and -not $Value.StartsWith($DerivativeRoot, [System.StringComparison]::Ordinal)) {
+        Fail-Authoring "$FieldName must be under '$DerivativeRoot'" 64
+    }
+}
+
+function Assert-DerivativeProvenancePath {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value) -or -not $Value.StartsWith($DerivativeRoot, [System.StringComparison]::Ordinal) -or -not $Value.EndsWith(".json") -or $Value.Contains("..") -or $Value.Contains("\")) {
+        Fail-Authoring "derivative provenancePath must be a JSON asset under '$DerivativeRoot'" 64
+    }
+}
+
 function Assert-UnityHostIdle {
     $unityProcesses = @(Get-Process -Name "Unity" -ErrorAction SilentlyContinue)
     if ($unityProcesses.Count -gt 0) {
@@ -182,6 +201,31 @@ if ($null -eq $authoring.operations -or @($authoring.operations).Count -eq 0) {
 
 $IsNewSceneComposition = $tier -eq "new-scene-composition"
 $IsExistingSceneComposition = $tier -eq "existing-scene-composition"
+$DerivativeRequests = @($authoring.derivativeOutputs)
+if ($DerivativeRequests.Count -gt 16) {
+    Fail-Authoring "at most 16 derivative outputs may be authorized per request" 64
+}
+if ($DerivativeRequests.Count -gt 0 -and -not $IsExistingSceneComposition) {
+    Fail-Authoring "project-owned derivative outputs are only supported for existing-scene-composition" 64
+}
+$DerivativeCopyBackAssets = @()
+$DerivativeSourceSnapshots = @()
+foreach ($derivative in $DerivativeRequests) {
+    $sourcePrefab = [string]$derivative.sourcePrefab
+    $destinationPrefab = [string]$derivative.destinationPrefab
+    $provenancePath = [string]$derivative.provenancePath
+    Assert-DerivativePrefabPath -Value $sourcePrefab -FieldName "derivative sourcePrefab" -Destination $false
+    Assert-DerivativePrefabPath -Value $destinationPrefab -FieldName "derivative destinationPrefab" -Destination $true
+    Assert-DerivativeProvenancePath -Value $provenancePath
+    if ($sourcePrefab -eq $destinationPrefab) { Fail-Authoring "derivative source and destination must differ" 64 }
+    $workspaceSource = Join-Path $SourceProjectPath ($sourcePrefab -replace '/', '\\')
+    if (-not (Test-Path -LiteralPath $workspaceSource -PathType Leaf)) { Fail-Authoring "derivative source '$sourcePrefab' does not exist" 82 }
+    $DerivativeSourceSnapshots += [PSCustomObject]@{ AssetPath=$sourcePrefab; WorkspacePath=$workspaceSource; WorkspaceHash=(Get-Sha256 $workspaceSource) }
+    $DerivativeCopyBackAssets += @($destinationPrefab, "$destinationPrefab.meta", $provenancePath, "$provenancePath.meta")
+}
+if ($DerivativeCopyBackAssets.Count -ne @($DerivativeCopyBackAssets | Select-Object -Unique).Count) {
+    Fail-Authoring "derivative output paths must be unique" 64
+}
 if ($IsNewSceneComposition) {
     if ($CompositionMode -ne "initial" -and $CompositionMode -ne "iterative") {
         Fail-Authoring "new-scene composition requires an authorized composition mode" 83
@@ -240,6 +284,12 @@ foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
 
 $StageScene = Join-Path $StageProject ($scene -replace '/', '\')
 $StageSceneMeta = "$StageScene.meta"
+foreach ($snapshot in $DerivativeSourceSnapshots) {
+    $stageSource = Join-Path $StageProject ($snapshot.AssetPath -replace '/', '\\')
+    if (-not (Test-Path -LiteralPath $stageSource -PathType Leaf)) { Fail-Authoring "staged derivative source '$($snapshot.AssetPath)' is missing" 82 }
+    $snapshot | Add-Member -NotePropertyName StagePath -NotePropertyValue $stageSource -Force
+    $snapshot | Add-Member -NotePropertyName StageHash -NotePropertyValue (Get-Sha256 $stageSource) -Force
+}
 if ($IsNewSceneComposition) {
     $StageSourceScene = Join-Path $StageProject ($AuthorizedSourceScene -replace '/', '\')
     $StageSourceMeta = "$StageSourceScene.meta"
@@ -333,6 +383,11 @@ if ($generatedNavigationAssets.Count -ne @($generatedNavigationAssets | Select-O
     Fail-Authoring "executor generated-navigation-assets evidence contains duplicate paths" 92
 }
 $generatedCopyBackAssets = @()
+foreach ($snapshot in $DerivativeSourceSnapshots) {
+    if ((Get-Sha256 $snapshot.StagePath) -ne $snapshot.StageHash -or (Get-Sha256 $snapshot.WorkspacePath) -ne $snapshot.WorkspaceHash) {
+        Fail-Authoring "derivative source '$($snapshot.AssetPath)' changed during authoring" 92
+    }
+}
 foreach ($generatedAsset in $generatedNavigationAssets) {
     Assert-GeneratedAssetPath -Value $generatedAsset
     $generatedMeta = "$generatedAsset.meta"
@@ -377,12 +432,12 @@ if ($IsNewSceneComposition) {
     $result | Add-Member -NotePropertyName sourceHashAfter -NotePropertyValue (Get-Sha256 $StageSourceScene) -Force
 }
 elseif ($IsExistingSceneComposition) {
-    $expected = @(@($scene) + @($generatedCopyBackAssets) | Sort-Object)
+    $expected = @(@($scene) + @($generatedCopyBackAssets) + @($DerivativeCopyBackAssets) | Sort-Object)
     $actual = @($changedAssets | Sort-Object)
     if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
-        Fail-Authoring "existing-scene executor changed-assets evidence must exactly match the authorized scene plus executor-attested generated navigation assets" 92
+        Fail-Authoring "existing-scene executor changed-assets evidence must exactly match the authorized scene, navigation assets, and exact derivative outputs" 92
     }
-    $copyBackAssets = @(@($scene) + @($generatedCopyBackAssets))
+    $copyBackAssets = @(@($scene) + @($generatedCopyBackAssets) + @($DerivativeCopyBackAssets))
     Publish-AssetsAtomically -AssetPaths $copyBackAssets
     $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
 }
