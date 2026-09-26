@@ -23,11 +23,15 @@ def marker(payload: dict) -> str:
 CONTRACT = {
     "schemaVersion": 1,
     "supportedProtocolVersions": [1],
-    "supportedTiers": ["mechanical", "mechanical-structural", "new-scene-composition"],
+    "supportedTiers": ["mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition"],
     "operationKindsByTier": [
         {
             "tier": "mechanical-structural",
             "operationKinds": ["add-component", "remove-component", "set-object-reference"],
+        },
+        {
+            "tier": "existing-scene-composition",
+            "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "bake-navmesh"],
         },
         {
             "tier": "new-scene-composition",
@@ -69,6 +73,26 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual([], result["unsupported"])
 
+
+    def test_supported_existing_scene_requirements_authorize_exact_scene(self):
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["set-transform", "instantiate-existing-prefab", "bake-navmesh"],
+        }))
+        self.assertEqual("supported", result["status"])
+        self.assertTrue(result["authoringAuthorized"])
+        self.assertEqual("Assets/RPGKingdom/Scenes/PlaytestScene.unity", result["authorizedScene"])
+
+    def test_existing_scene_requires_exact_scene(self):
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "operations": ["set-transform"],
+        }))
+        self.assertEqual("invalid", result["status"])
+        self.assertFalse(result["supported"])
 
     def test_supported_new_scene_requirements_authorize_exact_tier(self):
         result = self.evaluate(
