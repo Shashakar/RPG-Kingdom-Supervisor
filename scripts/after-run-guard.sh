@@ -20,6 +20,10 @@ if [[ ! "$workspace_name" =~ ^GH-([0-9]+)$ ]]; then
   exit 0
 fi
 issue_number="${BASH_REMATCH[1]}"
+OPERATOR_OVERRIDE_MARKER="$STATE_ROOT/operator-overrides/GH-$issue_number.json"
+if [[ "${RPGK_GUARD_DRY_RUN:-0}" != "1" ]]; then
+  trap 'rm -f -- "$OPERATOR_OVERRIDE_MARKER" 2>/dev/null || true' EXIT
+fi
 
 finish_worker_telemetry() {
   local original_status=$?
