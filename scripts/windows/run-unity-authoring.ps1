@@ -171,7 +171,7 @@ if ($null -eq $authoring -or [int]$authoring.protocolVersion -ne 1) {
     Fail-Authoring "unsupported authoring protocol" 64
 }
 $tier = [string]$authoring.tier
-if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "new-scene-composition") {
+if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "existing-scene-composition" -and $tier -ne "new-scene-composition") {
     Fail-Authoring "unsupported scene-authoring tier '$tier'" 64
 }
 $scene = [string]$authoring.scene
@@ -181,6 +181,7 @@ if ($null -eq $authoring.operations -or @($authoring.operations).Count -eq 0) {
 }
 
 $IsNewSceneComposition = $tier -eq "new-scene-composition"
+$IsExistingSceneComposition = $tier -eq "existing-scene-composition"
 if ($IsNewSceneComposition) {
     if ($CompositionMode -ne "initial" -and $CompositionMode -ne "iterative") {
         Fail-Authoring "new-scene composition requires an authorized composition mode" 83
@@ -375,9 +376,19 @@ if ($IsNewSceneComposition) {
     $result | Add-Member -NotePropertyName sourceHashBefore -NotePropertyValue $StageSourceHashBefore -Force
     $result | Add-Member -NotePropertyName sourceHashAfter -NotePropertyValue (Get-Sha256 $StageSourceScene) -Force
 }
+elseif ($IsExistingSceneComposition) {
+    $expected = @(@($scene) + @($generatedCopyBackAssets) | Sort-Object)
+    $actual = @($changedAssets | Sort-Object)
+    if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
+        Fail-Authoring "existing-scene executor changed-assets evidence must exactly match the authorized scene plus executor-attested generated navigation assets" 92
+    }
+    $copyBackAssets = @(@($scene) + @($generatedCopyBackAssets))
+    Publish-AssetsAtomically -AssetPaths $copyBackAssets
+    $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
+}
 else {
     if ($generatedNavigationAssets.Count -ne 0) {
-        Fail-Authoring "generated navigation assets are only supported for new-scene composition" 92
+        Fail-Authoring "generated navigation assets are only supported for composition authoring tiers" 92
     }
     if ($changedAssets.Count -ne 1 -or $changedAssets[0] -ne $scene) {
         Fail-Authoring "executor changed-assets evidence does not exactly match the one authorized scene '$scene'" 92
