@@ -9,7 +9,7 @@ printf 'm_EditorVersion: 6000.3.10f1\n' > "$GH/ProjectSettings/ProjectVersion.tx
 printf 'scene\n' > "$GH/Assets/RPGKingdom/Scenes/PlaytestScene.unity"
 printf 'GH-119\n' > "$TMP/state/locks/unity-editor.lock/owner"
 printf '%s\n' "$GH" > "$TMP/state/locks/unity-editor.lock/workspace"
-printf '{"protocolVersion":1,"issue":"GH-119","workspace":"%s","tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/PlaytestScene.unity"}\n' "$GH" > "$TMP/state/authoring/GH-119.json"
+printf '{"protocolVersion":1,"issue":"GH-119","workspace":"%s","tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/PlaytestScene.unity","operations":["set-transform"],"auxiliaryAuthoring":[{"tier":"prefab-derivative","operations":["create-prefab-derivative"]}]}\n' "$GH" > "$TMP/state/authoring/GH-119.json"
 
 cat > "$TMP/bin/wslpath" <<'SH'
 #!/usr/bin/env bash
@@ -33,7 +33,14 @@ cat > "$request" <<'JSON'
 {"protocolVersion":1,"requestId":"ok","operation":"author","authoring":{"protocolVersion":1,"tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/PlaytestScene.unity","operations":[{"kind":"set-transform","objectPath":"World","localPosition":{"x":0,"y":0,"z":0},"localEulerAngles":{"x":0,"y":0,"z":0},"localScale":{"x":1,"y":1,"z":1}}]}}
 JSON
 bash "$ROOT/scripts/unity-author-host.sh" --project "$GH" --request "$request" >/dev/null
-[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 1 ]]
+[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 2 ]]
+
+derivative="$GH/Logs/SymphonyUnity/.author-broker/requests/derivative.json"
+cat > "$derivative" <<'JSON'
+{"protocolVersion":1,"requestId":"derivative","operation":"author","authoring":{"protocolVersion":1,"tier":"prefab-derivative","sourcePrefab":"Assets/Environment/Tree.prefab","destinationPrefab":"Assets/RPGKingdom/Generated/AgentDerivatives/Tree.prefab","operations":[{"kind":"create-prefab-derivative","visualOffsetY":-0.25,"foundationMode":"none"}]}}
+JSON
+bash "$ROOT/scripts/unity-author-host.sh" --project "$GH" --request "$derivative" >/dev/null
+[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 2 ]]
 
 wrong="$GH/Logs/SymphonyUnity/.author-broker/requests/wrong.json"
 cat > "$wrong" <<'JSON'
@@ -44,5 +51,5 @@ bash "$ROOT/scripts/unity-author-host.sh" --project "$GH" --request "$wrong" >/d
 status=$?
 set -e
 [[ "$status" -eq 83 ]] || { echo "expected exact-scene authorization rejection, got $status" >&2; exit 1; }
-[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 1 ]]
+[[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 2 ]]
 echo "unity-existing-scene-host-test: PASS"
