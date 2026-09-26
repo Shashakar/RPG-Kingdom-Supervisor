@@ -61,7 +61,7 @@ Per-turn quota values are historical App Server snapshots. They are not reconstr
 
 ## Safety boundary
 
-The dashboard exposes observability only. It must not add issue/PR lifecycle mutation, merge, rearm, process-kill, force-unlock, or other operational mutation controls. Those behaviors remain owned by their existing host-side adapters and workflows.
+The dashboard is read-mostly. It must not add generic issue/PR lifecycle mutation, process-kill, force-unlock, arbitrary label editing, or generic host/GitHub controls. The only approved lifecycle mutations are the exact reviewed-head Merge PR action and exact halted-issue Rearm action, both delegated to narrow host-side adapters.
 
 The HTTP server remains bound to `127.0.0.1`. Dashboard presentation changes must preserve that boundary and all API-backed observability introduced by the operations telemetry, lifecycle/activity, usage analysis, issue diagnostics, worker lifetime, and Unity run-history systems.
 
