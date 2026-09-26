@@ -64,3 +64,12 @@ Per-turn quota values are historical App Server snapshots. They are not reconstr
 The dashboard exposes observability only. It must not add issue/PR lifecycle mutation, merge, rearm, process-kill, force-unlock, or other operational mutation controls. Those behaviors remain owned by their existing host-side adapters and workflows.
 
 The HTTP server remains bound to `127.0.0.1`. Dashboard presentation changes must preserve that boundary and all API-backed observability introduced by the operations telemetry, lifecycle/activity, usage analysis, issue diagnostics, worker lifetime, and Unity run-history systems.
+
+
+## Operator lifecycle actions
+
+The primary work hierarchy is **Active Work → Manual Validation → Recently Completed → Finished / History**. Empty operational groups are suppressed so the current gate is visually dominant.
+
+The localhost dashboard is read-mostly, not universally read-only. It exposes only two typed operator mutations: **Merge PR** for an exact automated-reviewed PR/head generation and **Rearm** for an exact currently halted issue. Rearm may carry a one-worker-lifetime below-reserve approval; the normal 10% weekly reserve remains the unattended/automatic threshold. Both actions are POST-only, localhost-origin/token protected, stale-state checked, and do not expose arbitrary GitHub commands or label editing.
+
+Project-owned prefab derivative authoring may declare exact `derivativeOutputs` on an existing-scene-composition request. Each entry binds an exact source prefab, a destination prefab under `Assets/RPGKingdom/Generated/AgentDerivatives/`, and provenance JSON under the same root. The host hashes source prefabs before execution, requires them unchanged afterward, and permits copy-back only of the exact derivative prefab/meta/provenance/meta set attested in `changedAssets` alongside the already-authorized scene/NavMesh outputs.
