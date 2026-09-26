@@ -27,7 +27,7 @@ for name in (
 assert policy.route_class(["risk:mechanical"]) == "luna"
 assert policy.route_class(["risk:investigative"]) == "sol"
 assert policy.route_class(["risk:architecture"]) == "sol"
-assert policy.route_class(["risk:end-to-end"]) == "astra"
+assert policy.route_class(["risk:end-to-end"]) == "sol"
 assert policy.route_class(["risk:investigative", "model:luna"]) == "luna"
 assert policy.is_report_only(["completion:report-only"])
 assert not policy.is_report_only(["risk:mechanical"])
