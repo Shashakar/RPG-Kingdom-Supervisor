@@ -11,7 +11,7 @@ Usage:
   unity-author.sh apply --request PATH [--project PATH]
 
 The request must be protocolVersion=1, use a supported scene-authoring tier, contain one
-Assets/*.unity target scene, and contain one or more typed authoring operations. New-scene
+Assets/*.unity target scene, and contain one or more typed authoring operations. Existing-scene composition is exact-scene authorized. New-scene
 composition may additionally declare sourceScene for the initial copy request. The host
 and project-side executor perform the final safety validation.
 EOF
@@ -38,7 +38,7 @@ command -v jq >/dev/null 2>&1 || { echo "RPG Kingdom Unity authoring: jq is requ
 
 if ! jq -e '
   .protocolVersion == 1 and
-  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "new-scene-composition") and
+  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "existing-scene-composition" or .tier == "new-scene-composition") and
   (.scene | type == "string" and startswith("Assets/") and endswith(".unity") and (contains("..") | not) and (contains("\\") | not)) and
   ((.sourceScene // "") | type == "string") and
   (((.sourceScene // "") == "") or (((.sourceScene | startswith("Assets/")) and (.sourceScene | endswith(".unity")) and ((.sourceScene | contains("..")) | not) and ((.sourceScene | contains("\\")) | not) and (.sourceScene != .scene)))) and
