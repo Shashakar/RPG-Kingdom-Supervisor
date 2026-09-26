@@ -107,6 +107,11 @@ assert "Recent Codex worker lifetimes" in html
 assert "function openIssue(identifier)" in html
 assert "onclick=\"openIssue(" in html
 
+
+# Narrow/scaled views keep high-value status in the persistent header and hide duplicate overview cards.
+for text in ("header-actions", "header-services", "service-dot", "@media(max-width:850px)", ".overview-grid,.service-strip{display:none}"):
+    assert text in html, text
+
 # Usage and Unity remain available without dominating the initial overview.
 assert "Comparative Codex usage" in html
 assert "Grouped usage tables" in html
