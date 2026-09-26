@@ -283,7 +283,7 @@ def quota_spend(before: dict[str, Any] | None, after: dict[str, Any], key: str) 
     return max(0.0, before_remaining - after_remaining)
 
 
-def quota_decision(quota: dict[str, Any], route: str) -> tuple[bool, str, dict[str, Any]]:
+def quota_decision(quota: dict[str, Any], route: str, issue: str | None = None) -> tuple[bool, str, dict[str, Any]]:
     if quota.get("status") != "available":
         return False, f"quota unavailable: {quota.get('reason') or 'unknown reason'}", {}
     age = quota_age_seconds(quota)
@@ -308,6 +308,11 @@ def quota_decision(quota: dict[str, Any], route: str) -> tuple[bool, str, dict[s
     if float(primary) < min_primary:
         return False, f"primary quota {primary}% is below continuation threshold {min_primary}%", detail
     if float(weekly) < min_weekly:
+        override = telemetry.state_root() / "operator-overrides" / f"{issue}.json" if issue else None
+        if override is not None and override.is_file() and float(weekly) > 0:
+            detail["operatorBelowReserveOverride"] = True
+            detail["automaticMinimumWeeklyPercent"] = min_weekly
+            return True, f"operator-approved below-reserve continuation at {weekly}% weekly remaining", detail
         return False, f"weekly quota {weekly}% is below continuation threshold {min_weekly}%", detail
     return True, "quota healthy for automatic continuation", detail
 
@@ -514,7 +519,7 @@ def evaluate(workspace: Path, issue: str, turn: int, max_turns: int, labels: lis
     else:
         reasons.append(f"hard turn ceiling not reached ({turn}/{max_turns})")
 
-    quota_allowed, quota_reason, quota_details = quota_decision(quota, route)
+    quota_allowed, quota_reason, quota_details = quota_decision(quota, route, issue)
     if not quota_allowed:
         allowed = False
     reasons.append(quota_reason)
