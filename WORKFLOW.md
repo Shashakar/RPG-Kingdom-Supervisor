@@ -262,7 +262,7 @@ The App Server launcher chooses the model before this thread starts:
 - `risk:normal` or no risk label -> GPT-6 Luna / medium reasoning;
 - `risk:investigative` -> GPT-6 Sol / medium reasoning;
 - `risk:architecture` -> GPT-6 Sol / high reasoning;
-- `risk:end-to-end` -> GPT-6 Astra / medium reasoning.
+- `risk:end-to-end` -> GPT-6 Sol / high reasoning.
 
 `model:luna`, `model:sol`, or `model:astra` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
 
