@@ -261,7 +261,7 @@ if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" &
     --arg workspace "$PWD" \
     --arg tier "$authoring_tier" \
     --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \\
+    --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \
     '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,scene:(if $scene == "" then null else $scene end),authorizedAt:$authorizedAt}' \
     > "$AUTHORING_MARKER.tmp.$$"
   mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
