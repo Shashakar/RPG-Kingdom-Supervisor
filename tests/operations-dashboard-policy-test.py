@@ -86,7 +86,7 @@ for text in (
     "/api/finished-tasks",
     "Report complete",
     "status-passed",
-    "No trusted finished tasks in the recent window.",
+    "No recently completed tasks.",
 ):
     assert text in finished_html, text
 assert "FINISHED_TASKS_SCRIPT" in python_text
