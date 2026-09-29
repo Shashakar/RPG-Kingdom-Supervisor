@@ -79,10 +79,10 @@ case "$filter" in
     done
     echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"progressing","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-progress"}'
     ;;
-  stall-owned)
-    write_progress 1 unity_running "$$"
+  stall-owned|client-abandon-owned)
+    write_progress 1 unity_running "$"
     while [[ ! -f "$cancel" ]]; do sleep 0.05; done
-    write_progress 2 recovery_cancelled "$$"
+    write_progress 2 recovery_cancelled "$"
     echo 'fake request-owned Unity cancelled' >&2
     exit 91
     ;;
@@ -185,6 +185,45 @@ grep -Fq 'progressing' <<<"$busy_output" || { echo "unity-broker-test: HostBusy 
 wait "$ACTIVE_CLIENT_PID"
 ACTIVE_CLIENT_PID=""
 grep -Fq '"total":1' "$TMP/progress-client.log" || { echo "unity-broker-test: progressing run did not finish successfully" >&2; exit 1; }
+
+# If the submitting worker/client disappears, a positively-owned Unity request is cancelled
+# without waiting for the much longer stall threshold. This reproduces the GH-182 failure shape.
+env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter client-abandon-owned \
+  >"$TMP/abandoned-client.log" 2>&1 &
+ACTIVE_CLIENT_PID=$!
+for _ in $(seq 1 80); do
+  if jq -e '.state == "running" and .activeRequest.testFilter == "client-abandon-owned" and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+jq -e '.state == "running" and .activeRequest.clientPid != null and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: broker did not expose live submitting client" >&2
+  exit 1
+}
+abandoned_request_id="$(jq -r '.activeRequest.requestId' "$STATE/unity-broker/status.json")"
+kill -KILL "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+wait "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+ACTIVE_CLIENT_PID=""
+for _ in $(seq 1 80); do
+  response="$BROKER_DIR/responses/$abandoned_request_id.json"
+  [[ -f "$response" ]] && jq -e '.status == "ClientAbandoned" and .exitCode == 93 and .details.reason == "client_process_exited" and .details.recoveryAction == "request_owned_unity_cancel"' "$response" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.status == "ClientAbandoned" and .exitCode == 93 and .details.recoveryResult == "host_runner_exited"' "$BROKER_DIR/responses/$abandoned_request_id.json" >/dev/null || {
+  echo "unity-broker-test: abandoned client must cancel and terminalize its owned Unity request" >&2
+  exit 1
+}
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "ClientAbandoned"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "ready" and .lastResult.status == "ClientAbandoned"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: abandoned request did not release Unity slot" >&2
+  exit 1
+}
+post_abandon_output="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter one-test)"
+grep -Fq '"total":1' <<<"$post_abandon_output" || { echo "unity-broker-test: slot was not reusable after abandoned client recovery" >&2; exit 1; }
 
 # A positively-owned Unity stall is cancelled through the bounded request control path.
 set +e
