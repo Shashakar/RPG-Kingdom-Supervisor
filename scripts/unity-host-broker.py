@@ -211,7 +211,7 @@ def prepare_request(
             raise ValueError("unsupported broker protocol version")
         if operation not in ALLOWED_OPERATIONS:
             raise ValueError(f"unsupported Unity operation '{operation}'")
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         return response_for_error(
             request_id,
             operation,
