@@ -42,6 +42,7 @@ class RequestSpec:
     operation: str
     test_filter: str
     workspace: Path
+    client_pid: int | None = None
 
 
 @dataclass
@@ -200,6 +201,12 @@ def prepare_request(
         request_id = str(request.get("requestId", request_id))
         operation = str(request.get("operation", ""))
         test_filter = str(request.get("testFilter", ""))
+        raw_client_pid = request.get("clientPid")
+        client_pid = None
+        if raw_client_pid is not None:
+            client_pid = int(raw_client_pid)
+            if client_pid <= 0:
+                raise ValueError("clientPid must be a positive integer")
         if request.get("protocolVersion") != PROTOCOL_VERSION:
             raise ValueError("unsupported broker protocol version")
         if operation not in ALLOWED_OPERATIONS:
@@ -254,6 +261,7 @@ def prepare_request(
         operation=operation,
         test_filter=test_filter,
         workspace=workspace,
+        client_pid=client_pid,
     )
 
 
@@ -428,6 +436,18 @@ def refresh_progress(active: ActiveOperation, now: float | None = None) -> bool:
     return True
 
 
+def process_is_alive(pid: int | None) -> bool:
+    if pid is None or pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[str, Any]:
     current = now if now is not None else time.monotonic()
     progress = active.last_progress or {}
@@ -438,6 +458,8 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "operation": active.spec.operation,
         "testFilter": active.spec.test_filter,
         "childPid": active.process.pid,
+        "clientPid": active.spec.client_pid,
+        "clientAlive": process_is_alive(active.spec.client_pid),
         "startedAt": active.started_at,
         "elapsedSeconds": int(max(0.0, current - active.started_monotonic)),
         "phase": progress.get("phase") or "host_startup",
@@ -479,13 +501,13 @@ def stall_details(
     }
 
 
-def request_cancel(active: ActiveOperation, *, stall_seconds: float) -> None:
+def request_cancel(active: ActiveOperation, *, stall_seconds: float, reason: str = "no_observed_progress") -> None:
     atomic_json(
         active.cancel_path,
         {
             "protocolVersion": PROTOCOL_VERSION,
             "requestId": active.spec.request_id,
-            "reason": "no_observed_progress",
+            "reason": reason,
             "stallThresholdSeconds": stall_seconds,
             "requestedAt": utc_now(),
         },
@@ -600,6 +622,112 @@ def recover_stalled_operation(
             (
                 "RPG Kingdom Unity broker: validation is stalled, but request-owned Unity process identity "
                 "could not be proven. No destructive recovery was attempted; operator inspection is required."
+            ),
+            details=details,
+        ),
+    )
+
+
+def recover_abandoned_operation(
+    active: ActiveOperation,
+    *,
+    recovery_grace_seconds: float,
+    kill_grace_seconds: float,
+) -> tuple[str, dict[str, Any]]:
+    """Recover an operation whose submitting client no longer exists.
+
+    The broker only performs destructive recovery when ownership is proven:
+    request-scoped Unity cancellation when a Unity PID was reported, or process
+    group termination while the host is still in a known pre-Unity phase.
+    """
+    progress = active.last_progress or {}
+    phase = str(progress.get("phase") or "host_startup")
+    try:
+        unity_pid = int(progress.get("unityPid") or 0)
+    except (TypeError, ValueError):
+        unity_pid = 0
+
+    details = {
+        "reason": "client_process_exited",
+        "clientPid": active.spec.client_pid,
+        "activeRequest": active_snapshot(active),
+    }
+
+    if unity_pid > 0:
+        request_cancel(active, stall_seconds=0, reason="client_process_exited")
+        deadline = time.monotonic() + max(0.1, recovery_grace_seconds)
+        while active.process.poll() is None and time.monotonic() < deadline:
+            refresh_progress(active)
+            time.sleep(0.05)
+        if active.process.poll() is not None:
+            details.update(
+                recoveryAction="request_owned_unity_cancel",
+                recoveryResult="host_runner_exited",
+            )
+            return (
+                "recovered",
+                complete_operation(
+                    active,
+                    status_override="ClientAbandoned",
+                    exit_code_override=93,
+                    extra_stderr=(
+                        "RPG Kingdom Unity broker: submitting client exited; "
+                        "the request-owned Unity operation was cancelled.\n"
+                    ),
+                    details_override=details,
+                ),
+            )
+        details.update(
+            recoveryAction="request_owned_unity_cancel",
+            recoveryResult="cancel_requested_but_host_runner_still_active",
+        )
+        return (
+            "blocked",
+            response_for_status(
+                active.spec.request_id,
+                active.spec.operation,
+                "ClientAbandonRecoveryBlocked",
+                94,
+                (
+                    "RPG Kingdom Unity broker: submitting client exited; cancellation was requested "
+                    "for the request-owned Unity process, but the host runner did not exit. "
+                    "The Unity slot remains blocked for safe operator recovery."
+                ),
+                details=details,
+            ),
+        )
+
+    if phase in SAFE_PRE_UNITY_PHASES or phase == "host_startup":
+        terminate_process_group(active.process, kill_grace_seconds)
+        details.update(
+            recoveryAction="terminate_pre_unity_host_process_group",
+            recoveryResult="host_runner_terminated",
+        )
+        return (
+            "recovered",
+            complete_operation(
+                active,
+                status_override="ClientAbandoned",
+                exit_code_override=93,
+                extra_stderr=(
+                    "RPG Kingdom Unity broker: submitting client exited before Unity ownership "
+                    "was established; the request-owned host process group was terminated.\n"
+                ),
+                details_override=details,
+            ),
+        )
+
+    details.update(recoveryAction="none", recoveryResult="ownership_ambiguous")
+    return (
+        "blocked",
+        response_for_status(
+            active.spec.request_id,
+            active.spec.operation,
+            "ClientAbandonRecoveryBlocked",
+            94,
+            (
+                "RPG Kingdom Unity broker: submitting client exited, but Unity ownership "
+                "could not be proven. No destructive recovery was attempted."
             ),
             details=details,
         ),
@@ -739,6 +867,14 @@ def main() -> int:
             if active is not None:
                 refresh_progress(active, now)
                 if reap_completed_active():
+                    now = time.monotonic()
+                elif active is not None and active.spec.client_pid is not None and not process_is_alive(active.spec.client_pid):
+                    disposition, response = recover_abandoned_operation(
+                        active,
+                        recovery_grace_seconds=max(args.stall_recovery_grace_seconds, 0.1),
+                        kill_grace_seconds=args.kill_grace_seconds,
+                    )
+                    make_terminal(response, keep_active=disposition == "blocked")
                     now = time.monotonic()
                 elif active is not None and active.recovery_blocked:
                     if now - last_status_write >= 1.0:
