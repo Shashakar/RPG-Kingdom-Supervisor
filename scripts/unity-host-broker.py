@@ -805,8 +805,43 @@ def main() -> int:
     pid = os.getpid()
     (broker_root / "pid").write_text(f"{pid}\n", encoding="utf-8")
     status_path = broker_root / "status.json"
+    previous_status: dict[str, Any] | None = None
+    try:
+        candidate = json.loads(status_path.read_text(encoding="utf-8"))
+        if isinstance(candidate, dict):
+            previous_status = candidate
+    except (OSError, json.JSONDecodeError):
+        pass
+
     last_result: dict[str, Any] | None = None
     active: ActiveOperation | None = None
+    inherited_owner: dict[str, Any] | None = None
+    if previous_status is not None and previous_status.get("state") in {"running", "blocked"}:
+        candidate_owner = previous_status.get("activeRequest")
+        if isinstance(candidate_owner, dict):
+            try:
+                inherited_pid = int(candidate_owner.get("childPid") or 0)
+            except (TypeError, ValueError):
+                inherited_pid = 0
+            if inherited_pid > 0 and process_is_alive(inherited_pid):
+                inherited_owner = dict(candidate_owner)
+                inherited_owner["inheritedFromBrokerPid"] = previous_status.get("pid")
+                inherited_owner["recoveryBlocked"] = True
+                inherited_owner["recoveryReason"] = "previous_broker_child_still_alive"
+            else:
+                last_result = {
+                    "requestId": candidate_owner.get("requestId"),
+                    "operation": candidate_owner.get("operation"),
+                    "status": "RecoveredStaleOwner",
+                    "exitCode": 0,
+                    "summary": None,
+                    "details": {
+                        "reason": "previous_broker_child_not_alive",
+                        "previousBrokerPid": previous_status.get("pid"),
+                        "childPid": inherited_pid or None,
+                    },
+                    "completedAt": utc_now(),
+                }
     last_status_write = 0.0
 
     def write_status(state: str, active_request: dict[str, Any] | None = None) -> None:
@@ -856,13 +891,39 @@ def main() -> int:
         last_status_write = time.monotonic()
 
     stale_count = fail_stale_requests(workspace_root)
-    write_status("ready")
+    write_status("blocked" if inherited_owner is not None else "ready", inherited_owner)
     if stale_count:
         print(f"RPG Kingdom Unity broker: rejected {stale_count} stale request(s)", file=sys.stderr)
 
     try:
         while not STOP_REQUESTED:
             now = time.monotonic()
+
+            if inherited_owner is not None:
+                try:
+                    inherited_pid = int(inherited_owner.get("childPid") or 0)
+                except (TypeError, ValueError):
+                    inherited_pid = 0
+                if inherited_pid <= 0 or not process_is_alive(inherited_pid):
+                    last_result = {
+                        "requestId": inherited_owner.get("requestId"),
+                        "operation": inherited_owner.get("operation"),
+                        "status": "RecoveredStaleOwner",
+                        "exitCode": 0,
+                        "summary": None,
+                        "details": {
+                            "reason": "inherited_host_child_exited",
+                            "previousBrokerPid": inherited_owner.get("inheritedFromBrokerPid"),
+                            "childPid": inherited_pid or None,
+                        },
+                        "completedAt": utc_now(),
+                    }
+                    inherited_owner = None
+                    write_status("ready")
+                    last_status_write = now
+                elif now - last_status_write >= 1.0:
+                    write_status("blocked", inherited_owner)
+                    last_status_write = now
 
             if active is not None:
                 refresh_progress(active, now)
@@ -929,6 +990,21 @@ def main() -> int:
                 if active is not None:
                     refresh_progress(active)
                     reap_completed_active()
+
+                if inherited_owner is not None:
+                    busy = response_for_status(
+                        prepared.request_id,
+                        prepared.operation,
+                        "HostBusy",
+                        87,
+                        (
+                            "RPG Kingdom Unity broker: host is blocked by an inherited request "
+                            f"{inherited_owner.get('requestId') or 'unknown'} from the previous broker lifetime"
+                        ),
+                        details={"activeRequest": inherited_owner, "recoveryState": "inherited_owner_alive"},
+                    )
+                    write_response(request_path, busy)
+                    continue
 
                 if active is not None:
                     active_description = f"{active.spec.request_id} ({active.spec.operation})"
