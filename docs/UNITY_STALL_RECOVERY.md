@@ -78,6 +78,20 @@ No unrelated Unity process is terminated. The broker enters `blocked` and retain
 
 This is intentionally fail-closed. A manual editor, another issue's process, or an otherwise ambiguous Windows process must never be killed merely because elapsed time looks suspicious.
 
+## Client lifetime and broker restart reconciliation
+
+Each worker-facing request now includes the submitting `unity-runner.sh` PID. The host broker treats that PID as a lease on the request, not as authority to kill arbitrary processes.
+
+If the submitting client exits while its host operation is still active, the broker does not wait for the ordinary no-progress threshold:
+
+- when progress proves a request-owned Unity PID, the broker uses the same request-scoped cancel marker described above and returns `ClientAbandoned` (exit 93) once the host runner exits;
+- while still in host startup or a known pre-Unity phase, the broker may terminate only its own request-owned host process group and return `ClientAbandoned`;
+- when Unity ownership cannot be proven, the broker returns `ClientAbandonRecoveryBlocked` (exit 94), keeps the slot blocked, and requires safe operator/natural resolution.
+
+This prevents a terminated Symphony worker lifetime from silently leaving a useful Unity slot occupied for later turns.
+
+Broker startup also reconciles the previous `status.json`. If the previous broker recorded a running/blocked host child and that PID is still alive, the new broker starts in `blocked` with the inherited owner metadata rather than incorrectly advertising `ready`. It does not kill that inherited process because PID identity alone is insufficient proof of safe Unity ownership. Once the inherited host child is no longer alive, the broker records `RecoveredStaleOwner` and returns to `ready`. If the recorded child is already dead at startup, reconciliation happens immediately.
+
 ## Worker behavior
 
 The worker-facing `unity-runner.sh` prints explicit lifecycle markers for both outcomes:
@@ -126,6 +140,8 @@ Do not lower the stall threshold merely to make validation appear faster. Unity 
 - an explicit retry succeeding after safe recovery;
 - the absolute timeout remaining available for non-test host operations;
 - ambiguous process ownership returning `StallRecoveryBlocked` without destructive cancellation;
-- reconciliation back to `ready` after the ambiguous host process is externally resolved.
+- reconciliation back to `ready` after the ambiguous host process is externally resolved;
+- a disappeared submitting client cancelling a positively-owned Unity request and releasing the slot;
+- broker restart reconciliation refusing to advertise `ready` while a previously recorded host child is still alive.
 
 `tests/unity-run-history-test.py` covers durable `Stalled`/`StallRecoveryBlocked` classification plus active phase/progress data used by the dashboard.
