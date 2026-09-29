@@ -80,9 +80,9 @@ case "$filter" in
     echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"progressing","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-progress"}'
     ;;
   stall-owned|client-abandon-owned)
-    write_progress 1 unity_running "$"
+    write_progress 1 unity_running "$$"
     while [[ ! -f "$cancel" ]]; do sleep 0.05; done
-    write_progress 2 recovery_cancelled "$"
+    write_progress 2 recovery_cancelled "$$"
     echo 'fake request-owned Unity cancelled' >&2
     exit 91
     ;;
