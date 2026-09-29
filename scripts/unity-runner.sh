@@ -101,7 +101,7 @@ jq -cn \
   --arg operation "$command" \
   --arg testFilter "$test_filter" \
   --arg requestedAt "$requested_at" \
-  --argjson clientPid "$" \
+  --argjson clientPid "$$" \
   '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
