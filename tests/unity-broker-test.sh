@@ -5,10 +5,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 BROKER_PID=""
 ACTIVE_CLIENT_PID=""
+INHERITED_CHILD_PID=""
 cleanup() {
   if [[ -n "$ACTIVE_CLIENT_PID" ]]; then
     kill "$ACTIVE_CLIENT_PID" 2>/dev/null || true
     wait "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$INHERITED_CHILD_PID" ]]; then
+    kill "$INHERITED_CHILD_PID" 2>/dev/null || true
+    wait "$INHERITED_CHILD_PID" 2>/dev/null || true
   fi
   if [[ -n "$BROKER_PID" ]]; then
     kill "$BROKER_PID" 2>/dev/null || true
@@ -284,6 +289,43 @@ for _ in $(seq 1 80); do
 done
 jq -e '.state == "ready" and .lastResult.status == "StallRecoveryBlocked"' "$STATE/unity-broker/status.json" >/dev/null || {
   echo "unity-broker-test: broker did not reconcile after ambiguous process exited" >&2
+  exit 1
+}
+
+# Restart reconciliation: do not advertise ready while a previously recorded host child is alive.
+kill "$BROKER_PID"
+wait "$BROKER_PID" 2>/dev/null || true
+BROKER_PID=""
+
+sleep 30 &
+INHERITED_CHILD_PID=$!
+printf '{"protocolVersion":1,"state":"running","pid":999999,"activeRequest":{"requestId":"inherited-request","operation":"editmode","childPid":%s}}\n' "$INHERITED_CHILD_PID" > "$STATE/unity-broker/status.json"
+
+RPGK_FAKE_HEALTH_HANG_FILE="$HEALTH_HANG_FILE" python3 -u "$ROOT/scripts/unity-host-broker.py" \
+  --workspace-root "$WORKSPACES" --state-root "$STATE" --host-runner "$FAKE_HOST" \
+  --poll-ms 25 --command-timeout-seconds 3 --stall-seconds 1 \
+  --stall-recovery-grace-seconds 1 --kill-grace-seconds 0.2 \
+  >"$TMP/restarted-broker.log" 2>&1 &
+BROKER_PID=$!
+
+for _ in $(seq 1 80); do
+  jq -e '.state == "blocked" and .activeRequest.requestId == "inherited-request" and .activeRequest.recoveryReason == "previous_broker_child_still_alive"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "blocked" and .activeRequest.requestId == "inherited-request"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: restarted broker must retain a live inherited owner" >&2
+  exit 1
+}
+
+kill "$INHERITED_CHILD_PID"
+wait "$INHERITED_CHILD_PID" 2>/dev/null || true
+INHERITED_CHILD_PID=""
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "RecoveredStaleOwner"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "ready" and .lastResult.status == "RecoveredStaleOwner" and .lastResult.details.reason == "inherited_host_child_exited"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: restarted broker did not reconcile after inherited child exit" >&2
   exit 1
 }
 
