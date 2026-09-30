@@ -6,10 +6,8 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-/home/dex/.local/state/rpg-kingdom-sup
 STATUS_FILE="$STATE_ROOT/dashboard-update.json"
 LOCK_FILE="$STATE_ROOT/dashboard-update.lock"
 CLOUDFLARE_TASK="${RPGK_CLOUDFLARE_REFRESH_TASK:-RPG Kingdom Supervisor - Refresh Cloudflare}"
-OPERATOR_USER="${RPGK_OPERATOR_USER:-dex}"
-
 git_cmd() {
-  runuser -u "$OPERATOR_USER" -- git -C "$SUPERVISOR_ROOT" "$@"
+  git -C "$SUPERVISOR_ROOT" "$@"
 }
 
 mkdir -p "$STATE_ROOT"
@@ -58,8 +56,8 @@ git_cmd merge --ff-only origin/main
 current="$(git_cmd rev-parse HEAD)"
 write_status "restarting" "Code updated; restarting Supervisor services" "$previous" "$current"
 
-systemctl restart rpg-kingdom-supervisor.service
-systemctl restart rpg-kingdom-diagnostics.service
+sudo -n /usr/bin/systemctl restart rpg-kingdom-supervisor.service
+sudo -n /usr/bin/systemctl restart rpg-kingdom-diagnostics.service
 
 # Windows cloudflared can retain a stale WSL localhost route after the dashboard restarts.
 # A pre-created elevated Windows Scheduled Task is the deliberately narrow privilege bridge.
