@@ -168,7 +168,6 @@ run_readiness_smoke() {
   set +e
   smoke_output="$(bash "$UNITY_RUNNER" editmode --project "$PWD" --filter "$UNITY_SMOKE_FILTER" 2>&1)"
   smoke_status=$?
-  set -e
   if (( smoke_status != 0 )); then
     smoke_reason="$(tr '\n' ' ' <<<"$smoke_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-400)"
     echo "RPG Kingdom Unity guard: Unity readiness smoke failed (exit $smoke_status): $smoke_reason" >&2
