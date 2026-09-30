@@ -56,6 +56,14 @@ class DashboardUpdateTest(unittest.TestCase):
         self.assertIn("LastTaskResult -ne 0", script)
         self.assertIn("Timed out waiting for Cloudflared refresh task to complete", script)
 
+    def test_host_verifies_deployed_head_matches_fetched_origin_main(self) -> None:
+        script = (ROOT / "scripts/dashboard-update-host.sh").read_text(encoding="utf-8")
+        self.assertIn('target="$(git_cmd rev-parse origin/main)"', script)
+        self.assertIn('if [[ "$current" != "$target" ]]', script)
+        self.assertIn("Update verification failed:", script)
+        self.assertIn("Post-restart verification failed:", script)
+        self.assertIn("Updated Supervisor to $current", script)
+
     def test_dashboard_requires_stable_public_recovery(self) -> None:
         script = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
         self.assertIn("stableSuccesses>=3", script)
