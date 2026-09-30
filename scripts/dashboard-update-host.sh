@@ -63,7 +63,34 @@ sudo -n /usr/bin/systemctl restart rpg-kingdom-diagnostics.service
 # A pre-created elevated Windows Scheduled Task is the deliberately narrow privilege bridge.
 POWERSHELL_EXE="${RPGK_POWERSHELL_EXE:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
 if [[ -x "$POWERSHELL_EXE" ]]; then
-  "$POWERSHELL_EXE" -NoProfile -NonInteractive -Command "Start-ScheduledTask -TaskName '$CLOUDFLARE_TASK'" >/dev/null
+  if [[ "$CLOUDFLARE_TASK" == *"'"* ]]; then
+    write_status "failed" "Cloudflared refresh task name contains an unsupported quote" "$previous" "$current"
+    exit 22
+  fi
+  # Start-ScheduledTask is asynchronous. Wait for this specific invocation to
+  # acquire a new LastRunTime, finish, and report exit code 0 before declaring
+  # the deployment complete.
+  if ! "$POWERSHELL_EXE" -NoProfile -NonInteractive -Command "
+    \$ErrorActionPreference = 'Stop'
+    \$taskName = '$CLOUDFLARE_TASK'
+    \$before = (Get-ScheduledTaskInfo -TaskName \$taskName).LastRunTime
+    Start-ScheduledTask -TaskName \$taskName
+    \$deadline = (Get-Date).AddSeconds(60)
+    do {
+      Start-Sleep -Milliseconds 500
+      \$task = Get-ScheduledTask -TaskName \$taskName
+      \$info = Get-ScheduledTaskInfo -TaskName \$taskName
+      \$ran = \$info.LastRunTime -gt \$before
+      if (\$ran -and \$task.State -ne 'Running') {
+        if (\$info.LastTaskResult -ne 0) { throw \"Cloudflared refresh task failed with result \$(\$info.LastTaskResult)\" }
+        exit 0
+      }
+    } while ((Get-Date) -lt \$deadline)
+    throw 'Timed out waiting for Cloudflared refresh task to complete'
+  " >/dev/null; then
+    write_status "failed" "Supervisor restarted, but the Cloudflared refresh task did not complete successfully" "$previous" "$current"
+    exit 22
+  fi
 else
   write_status "failed" "Supervisor restarted, but Windows PowerShell was not found at $POWERSHELL_EXE so Cloudflared was not refreshed" "$previous" "$current"
   exit 22
