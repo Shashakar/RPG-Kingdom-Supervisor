@@ -306,7 +306,14 @@ MANAGEMENT_SCRIPT = r"""
     b.disabled=true;out.textContent='Starting update… the dashboard may briefly disconnect.';
     try{
       const r=await fetch('/api/operator/update',{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':'__RPGK_ACTION_TOKEN__'},body:'{}'});
-      const d=await r.json();
+      let d={};
+      const contentType=r.headers.get('content-type')||'';
+      if(contentType.includes('application/json')){
+        d=await r.json();
+      }else{
+        const body=await r.text();
+        if(!r.ok)throw new Error('HTTP '+r.status+(body?' (non-JSON response)':''));
+      }
       if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
       out.textContent=d.message||'Update started. Waiting for dashboard to return…';
       let attempts=0;
