@@ -82,13 +82,17 @@ RPGK_UNITY_RUNNER_READY=1
 
 Phase 4 removes that placeholder. Do not set or depend on it.
 
-`unity-resource-guard.sh` now calls:
+`unity-resource-guard.sh` first calls:
 
 ```bash
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh health --project "$PWD"
 ```
 
-for any dispatch requesting `resource:unity-editor`. Readiness therefore comes from the real project-declared Unity version, installed Windows editor, PowerShell/robocopy bridge, and writable staging root.
+for any dispatch requesting `resource:unity-editor`. After the exclusive lock is acquired, a `validation:unity-required` dispatch also runs a narrow known-good EditMode smoke through the supported runner before Codex starts. The smoke proves the actual broker -> Windows bridge -> Unity editor -> Test Framework -> result path, not merely broker responsiveness.
+
+A successful smoke is cached for the current broker process lifetime and exact smoke filter. A broker restart invalidates it automatically. A failed smoke releases the just-acquired Unity lock, removes the dispatch lease through the normal preflight halt path, and prevents a Codex implementation lifetime from being consumed.
+
+Readiness therefore comes from both host prerequisites and an actual Unity test execution for required-validation work.
 
 ## Dispatch examples
 
