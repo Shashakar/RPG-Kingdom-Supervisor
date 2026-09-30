@@ -43,6 +43,8 @@ class RequestSpec:
     test_filter: str
     workspace: Path
     client_pid: int | None = None
+    worker_run_id: str | None = None
+    worker_pid: int | None = None
 
 
 @dataclass
@@ -448,6 +450,45 @@ def process_is_alive(pid: int | None) -> bool:
     return True
 
 
+def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None, int | None]:
+    """Resolve the durable Supervisor worker that owns this workspace.
+
+    The Codex App Server PID is recorded for the whole worker lifetime and is a
+    stronger ownership signal than the transient shell process that submitted a
+    Unity request. Ambiguous or dead records are ignored.
+    """
+    active_dir = state_root / "workers" / "active"
+    matches: list[tuple[str, int]] = []
+    for path in sorted(active_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        try:
+            recorded_workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
+            worker_pid = int(payload.get("pid") or 0)
+        except (OSError, TypeError, ValueError):
+            continue
+        run_id = str(payload.get("runId") or "").strip()
+        if recorded_workspace == workspace and worker_pid > 0 and run_id and process_is_alive(worker_pid):
+            matches.append((run_id, worker_pid))
+    if len(matches) != 1:
+        return None, None
+    return matches[0]
+
+
+def request_owner_alive(active: ActiveOperation) -> bool:
+    if active.spec.worker_pid is not None:
+        return process_is_alive(active.spec.worker_pid)
+    return process_is_alive(active.spec.client_pid)
+
+
+def request_owner_reason(active: ActiveOperation) -> str:
+    return "worker_process_exited" if active.spec.worker_pid is not None else "client_process_exited"
+
+
 def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[str, Any]:
     current = now if now is not None else time.monotonic()
     progress = active.last_progress or {}
@@ -460,6 +501,10 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "childPid": active.process.pid,
         "clientPid": active.spec.client_pid,
         "clientAlive": process_is_alive(active.spec.client_pid),
+        "workerRunId": active.spec.worker_run_id,
+        "workerPid": active.spec.worker_pid,
+        "workerAlive": process_is_alive(active.spec.worker_pid) if active.spec.worker_pid is not None else None,
+        "ownershipSource": "worker-lease" if active.spec.worker_pid is not None else "client-process",
         "startedAt": active.started_at,
         "elapsedSeconds": int(max(0.0, current - active.started_monotonic)),
         "phase": progress.get("phase") or "host_startup",
@@ -647,14 +692,17 @@ def recover_abandoned_operation(
     except (TypeError, ValueError):
         unity_pid = 0
 
+    reason = request_owner_reason(active)
     details = {
-        "reason": "client_process_exited",
+        "reason": reason,
         "clientPid": active.spec.client_pid,
+        "workerRunId": active.spec.worker_run_id,
+        "workerPid": active.spec.worker_pid,
         "activeRequest": active_snapshot(active),
     }
 
     if unity_pid > 0:
-        request_cancel(active, stall_seconds=0, reason="client_process_exited")
+        request_cancel(active, stall_seconds=0, reason=reason)
         deadline = time.monotonic() + max(0.1, recovery_grace_seconds)
         while active.process.poll() is None and time.monotonic() < deadline:
             refresh_progress(active)
@@ -671,7 +719,7 @@ def recover_abandoned_operation(
                     status_override="ClientAbandoned",
                     exit_code_override=93,
                     extra_stderr=(
-                        "RPG Kingdom Unity broker: submitting client exited; "
+                        "RPG Kingdom Unity broker: owning worker/client exited; "
                         "the request-owned Unity operation was cancelled.\n"
                     ),
                     details_override=details,
@@ -710,7 +758,7 @@ def recover_abandoned_operation(
                 status_override="ClientAbandoned",
                 exit_code_override=93,
                 extra_stderr=(
-                    "RPG Kingdom Unity broker: submitting client exited before Unity ownership "
+                    "RPG Kingdom Unity broker: owning worker/client exited before Unity ownership "
                     "was established; the request-owned host process group was terminated.\n"
                 ),
                 details_override=details,
@@ -726,7 +774,7 @@ def recover_abandoned_operation(
             "ClientAbandonRecoveryBlocked",
             94,
             (
-                "RPG Kingdom Unity broker: submitting client exited, but Unity ownership "
+                "RPG Kingdom Unity broker: owning worker/client exited, but Unity ownership "
                 "could not be proven. No destructive recovery was attempted."
             ),
             details=details,
@@ -929,7 +977,7 @@ def main() -> int:
                 refresh_progress(active, now)
                 if reap_completed_active():
                     now = time.monotonic()
-                elif active is not None and active.spec.client_pid is not None and not process_is_alive(active.spec.client_pid):
+                elif active is not None and not request_owner_alive(active):
                     disposition, response = recover_abandoned_operation(
                         active,
                         recovery_grace_seconds=max(args.stall_recovery_grace_seconds, 0.1),
@@ -1020,6 +1068,10 @@ def main() -> int:
                     )
                     write_response(request_path, busy)
                     continue
+
+                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                prepared.worker_run_id = worker_run_id
+                prepared.worker_pid = worker_pid
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)

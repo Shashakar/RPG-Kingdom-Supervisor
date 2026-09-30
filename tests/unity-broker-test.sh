@@ -6,6 +6,7 @@ TMP="$(mktemp -d)"
 BROKER_PID=""
 ACTIVE_CLIENT_PID=""
 INHERITED_CHILD_PID=""
+DURABLE_WORKER_PID=""
 cleanup() {
   if [[ -n "$ACTIVE_CLIENT_PID" ]]; then
     kill "$ACTIVE_CLIENT_PID" 2>/dev/null || true
@@ -14,6 +15,10 @@ cleanup() {
   if [[ -n "$INHERITED_CHILD_PID" ]]; then
     kill "$INHERITED_CHILD_PID" 2>/dev/null || true
     wait "$INHERITED_CHILD_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$DURABLE_WORKER_PID" ]]; then
+    kill "$DURABLE_WORKER_PID" 2>/dev/null || true
+    wait "$DURABLE_WORKER_PID" 2>/dev/null || true
   fi
   if [[ -n "$BROKER_PID" ]]; then
     kill "$BROKER_PID" 2>/dev/null || true
@@ -84,8 +89,14 @@ case "$filter" in
     done
     echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"progressing","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-progress"}'
     ;;
-  stall-owned|client-abandon-owned)
-    write_progress 1 unity_running "$$"
+  client-exit-worker-live)
+    write_progress 1 staging 0
+    sleep 0.8
+    write_progress 2 tests_running "$BASHPID"
+    echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"client-exit-worker-live","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-worker-lease"}'
+    ;;
+  stall-owned|client-abandon-owned|worker-abandon-owned)
+    write_progress 1 unity_running "$BASHPID"
     while [[ ! -f "$cancel" ]]; do sleep 0.05; done
     write_progress 2 recovery_cancelled "$$"
     echo 'fake request-owned Unity cancelled' >&2
@@ -190,6 +201,88 @@ grep -Fq 'progressing' <<<"$busy_output" || { echo "unity-broker-test: HostBusy 
 wait "$ACTIVE_CLIENT_PID"
 ACTIVE_CLIENT_PID=""
 grep -Fq '"total":1' "$TMP/progress-client.log" || { echo "unity-broker-test: progressing run did not finish successfully" >&2; exit 1; }
+
+# A transient unity-runner client may disappear while the durable Codex worker is still alive.
+# The worker telemetry lease is authoritative, so the request must continue instead of becoming
+# ClientAbandoned. This reproduces the GH-186 post-#142 failure shape.
+mkdir -p "$STATE/workers/active"
+sleep 30 &
+DURABLE_WORKER_PID=$!
+jq -cn --arg workspace "$WORKSPACE" --argjson pid "$DURABLE_WORKER_PID"   '{protocolVersion:1,runId:"GH-321-implementation-worker-live",issue:321,identifier:"GH-321",role:"implementation",workspace:$workspace,pid:$pid}'   > "$STATE/workers/active/implementation.json"
+
+env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter client-exit-worker-live   >"$TMP/worker-lease-client.log" 2>&1 &
+ACTIVE_CLIENT_PID=$!
+for _ in $(seq 1 80); do
+  if jq -e '.state == "running" and .activeRequest.testFilter == "client-exit-worker-live" and .activeRequest.ownershipSource == "worker-lease" and .activeRequest.workerAlive == true' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+jq -e --argjson pid "$DURABLE_WORKER_PID" '.activeRequest.workerRunId == "GH-321-implementation-worker-live" and .activeRequest.workerPid == $pid' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: broker did not bind request to durable worker lease" >&2
+  exit 1
+}
+worker_lease_request_id="$(jq -r '.activeRequest.requestId' "$STATE/unity-broker/status.json")"
+kill -KILL "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+wait "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+ACTIVE_CLIENT_PID=""
+for _ in $(seq 1 80); do
+  response="$BROKER_DIR/responses/$worker_lease_request_id.json"
+  [[ -f "$response" ]] && jq -e '.status == "completed" and .exitCode == 0' "$response" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.status == "completed" and .summary.total == 1' "$BROKER_DIR/responses/$worker_lease_request_id.json" >/dev/null || {
+  echo "unity-broker-test: transient client exit incorrectly cancelled a live worker request" >&2
+  exit 1
+}
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "completed"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+rm -f "$STATE/workers/active/implementation.json"
+kill "$DURABLE_WORKER_PID" 2>/dev/null || true
+wait "$DURABLE_WORKER_PID" 2>/dev/null || true
+DURABLE_WORKER_PID=""
+
+# If the durable worker lease ends while the request is active, the broker still reclaims
+# the request even if the transient unity-runner client is alive.
+sleep 30 &
+DURABLE_WORKER_PID=$!
+jq -cn --arg workspace "$WORKSPACE" --argjson pid "$DURABLE_WORKER_PID" \
+  '{protocolVersion:1,runId:"GH-321-implementation-worker-dead",issue:321,identifier:"GH-321",role:"implementation",workspace:$workspace,pid:$pid}' \
+  > "$STATE/workers/active/implementation.json"
+
+env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter worker-abandon-owned \
+  >"$TMP/worker-abandoned-client.log" 2>&1 &
+ACTIVE_CLIENT_PID=$!
+for _ in $(seq 1 80); do
+  if jq -e '.state == "running" and .activeRequest.testFilter == "worker-abandon-owned" and .activeRequest.ownershipSource == "worker-lease" and .activeRequest.workerAlive == true' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+worker_abandon_request_id="$(jq -r '.activeRequest.requestId' "$STATE/unity-broker/status.json")"
+kill -KILL "$DURABLE_WORKER_PID" 2>/dev/null || true
+wait "$DURABLE_WORKER_PID" 2>/dev/null || true
+DURABLE_WORKER_PID=""
+set +e
+wait "$ACTIVE_CLIENT_PID"
+worker_abandon_status=$?
+set -e
+ACTIVE_CLIENT_PID=""
+[[ "$worker_abandon_status" -eq 93 ]] || {
+  echo "unity-broker-test: dead durable worker should terminate request with exit 93, got $worker_abandon_status" >&2
+  exit 1
+}
+jq -e '.status == "ClientAbandoned" and .exitCode == 93 and .details.reason == "worker_process_exited" and .details.recoveryAction == "request_owned_unity_cancel"' "$BROKER_DIR/responses/$worker_abandon_request_id.json" >/dev/null || {
+  echo "unity-broker-test: dead durable worker was not reclaimed through request-owned cancellation" >&2
+  exit 1
+}
+rm -f "$STATE/workers/active/implementation.json"
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "ClientAbandoned"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
 
 # If the submitting worker/client disappears, a positively-owned Unity request is cancelled
 # without waiting for the much longer stall threshold. This reproduces the GH-182 failure shape.

@@ -13,6 +13,8 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 BROKER_STATUS="$STATE_ROOT/unity-broker/status.json"
 UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
+UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources}"
+UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
 STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
 CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
@@ -129,6 +131,50 @@ try_recover_stale_lock() {
 
   rm -rf -- "$quarantine"
   echo "RPG Kingdom Unity guard: recovered stale unity-editor lock previously owned by $owner"
+  return 0
+}
+
+release_current_lock() {
+  if [[ -d "$LOCK_DIR" && -f "$LOCK_DIR/owner" ]] && [[ "$(cat "$LOCK_DIR/owner")" == "$issue_identifier" ]]; then
+    rm -rf -- "$LOCK_DIR"
+  fi
+}
+
+smoke_is_current() {
+  local broker_pid
+  [[ -f "$BROKER_STATUS" && -f "$UNITY_SMOKE_STATUS" ]] || return 1
+  broker_pid="$(jq -r '.pid // empty' "$BROKER_STATUS" 2>/dev/null || true)"
+  [[ "$broker_pid" =~ ^[0-9]+$ ]] || return 1
+  jq -e --argjson pid "$broker_pid" --arg filter "$UNITY_SMOKE_FILTER"     '.protocolVersion == 1 and .status == "passed" and .brokerPid == $pid and .testFilter == $filter'     "$UNITY_SMOKE_STATUS" >/dev/null 2>&1
+}
+
+record_smoke_success() {
+  local broker_pid temp
+  broker_pid="$(jq -r '.pid // empty' "$BROKER_STATUS" 2>/dev/null || true)"
+  [[ "$broker_pid" =~ ^[0-9]+$ ]] || return 0
+  mkdir -p "$(dirname "$UNITY_SMOKE_STATUS")"
+  temp="$UNITY_SMOKE_STATUS.tmp.${BASHPID}"
+  jq -cn --argjson pid "$broker_pid" --arg filter "$UNITY_SMOKE_FILTER" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"     '{protocolVersion:1,status:"passed",brokerPid:$pid,testFilter:$filter,validatedAt:$at}' > "$temp"
+  mv "$temp" "$UNITY_SMOKE_STATUS"
+}
+
+run_readiness_smoke() {
+  local smoke_output smoke_status smoke_reason
+  if smoke_is_current; then
+    echo "RPG Kingdom Unity guard: reusing successful Unity readiness smoke for current broker lifetime"
+    return 0
+  fi
+
+  set +e
+  smoke_output="$(bash "$UNITY_RUNNER" editmode --project "$PWD" --filter "$UNITY_SMOKE_FILTER" 2>&1)"
+  smoke_status=$?
+  if (( smoke_status != 0 )); then
+    smoke_reason="$(tr '\n' ' ' <<<"$smoke_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-400)"
+    echo "RPG Kingdom Unity guard: Unity readiness smoke failed (exit $smoke_status): $smoke_reason" >&2
+    return "$smoke_status"
+  fi
+  echo "$smoke_output"
+  record_smoke_success
   return 0
 }
 
@@ -307,3 +353,15 @@ if ! acquire_lock; then
 fi
 
 echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"
+
+if [[ "$validation_mode" == "required" ]]; then
+  set +e
+  run_readiness_smoke
+  smoke_status=$?
+  set -e
+  if (( smoke_status != 0 )); then
+    release_current_lock
+    halt_issue "Unity readiness smoke failed after editor acquisition (exit $smoke_status); the supported EditMode smoke could not complete"
+    exit 79
+  fi
+fi
