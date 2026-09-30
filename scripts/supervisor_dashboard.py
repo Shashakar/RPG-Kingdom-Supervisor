@@ -278,10 +278,10 @@ MANAGEMENT_SCRIPT = r"""
     return '<section class="management-card"><div class="management-row"><div class="meta"><strong>Supervisor deployment</strong><div id="management-version">Loading deployed revision…</div><div id="management-last" class="meta"></div></div><button id="management-check" type="button">Check status</button><button id="management-update" type="button">Pull &amp; Restart</button></div><div id="management-result" class="management-result meta"></div></section>';
   }
   function installManagement(){
-    const overview=document.getElementById('view-overview');
-    if(!overview||document.getElementById('management-update'))return;
+    const slot=document.getElementById('management-slot');
+    if(!slot||document.getElementById('management-update'))return;
     const wrap=document.createElement('div');wrap.innerHTML=managementHtml();
-    overview.insertBefore(wrap.firstElementChild,overview.firstChild);
+    slot.appendChild(wrap.firstElementChild);
     document.getElementById('management-check').addEventListener('click',loadManagement);
     document.getElementById('management-update').addEventListener('click',runManagementUpdate);
     loadManagement();
