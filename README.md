@@ -57,7 +57,7 @@ Phase 4 turns that scheduling contract into real Unity validation:
 - Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
 - `results.xml`, `Editor.log`, and `summary.json` return to the ignored `Logs/SymphonyUnity/` directory;
 - active validation records phase/artifact progress so a long-running test can be distinguished from a request that has stopped moving;
-- active Symphony worker telemetry provides the durable Unity request lease; transient runner-shell exits no longer cancel live worker validation, while genuinely dead workers are still reclaimed safely;
+- active Symphony worker telemetry provides the durable Unity request lease; transient runner-shell exits no longer cancel live worker validation, while genuinely ended workers are still reclaimed safely;
 - positively-owned stalled requests are recovered through request-scoped cancellation, while ambiguous ownership blocks without killing unrelated Unity processes;
 - zero matched tests are reported as `NoTestsMatched`, not as a successful green run;
 - test execution is refused unless the current issue owns the Phase 3 Unity lock.
