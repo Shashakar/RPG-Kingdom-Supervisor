@@ -62,6 +62,15 @@ class DashboardUpdateTest(unittest.TestCase):
         self.assertIn("stableSuccesses=0", script)
         self.assertIn("public dashboard did not remain stable", script)
 
+    def test_dashboard_normal_refresh_validates_json_responses(self) -> None:
+        page = (ROOT / "scripts/supervisor_dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("async function apiJson", page)
+        self.assertIn("response.ok", page)
+        self.assertIn("application/json", page)
+        self.assertIn("Showing last successfully refreshed data; retrying automatically.", page)
+        self.assertIn("apiJson('/api/operations')", page)
+        self.assertNotIn("Dashboard refresh failed</strong>", page)
+
 
 if __name__ == "__main__":
     unittest.main()
