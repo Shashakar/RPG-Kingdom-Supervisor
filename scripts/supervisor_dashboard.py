@@ -19,6 +19,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import dashboard_update  # type: ignore  # noqa: E402
 import diagnostics  # type: ignore  # noqa: E402
 import finished_tasks  # type: ignore  # noqa: E402
 import operator_actions  # type: ignore  # noqa: E402
@@ -264,6 +265,60 @@ TURN_HISTORY_SCRIPT = r"""
 </script>
 """
 
+MANAGEMENT_SCRIPT = r"""
+<style>
+.management-card{border:1px solid #303a49;border-radius:10px;padding:12px;margin-bottom:10px;background:#141a22}
+.management-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.management-row .meta{flex:1 1 320px}
+.management-result{margin-top:8px;white-space:pre-wrap}
+</style>
+<script>
+(function(){
+  function managementHtml(){
+    return '<section class="management-card"><div class="management-row"><div class="meta"><strong>Supervisor deployment</strong><div id="management-version">Loading deployed revision…</div><div id="management-last" class="meta"></div></div><button id="management-check" type="button">Check status</button><button id="management-update" type="button">Pull &amp; Restart</button></div><div id="management-result" class="management-result meta"></div></section>';
+  }
+  function installManagement(){
+    const overview=document.getElementById('view-overview');
+    if(!overview||document.getElementById('management-update'))return;
+    const wrap=document.createElement('div');wrap.innerHTML=managementHtml();
+    overview.insertBefore(wrap.firstElementChild,overview.firstChild);
+    document.getElementById('management-check').addEventListener('click',loadManagement);
+    document.getElementById('management-update').addEventListener('click',runManagementUpdate);
+    loadManagement();
+  }
+  async function loadManagement(){
+    const version=document.getElementById('management-version'),last=document.getElementById('management-last');
+    if(!version)return;
+    try{
+      const d=await fetch('/api/management/update',{cache:'no-store'}).then(r=>r.json());
+      const relation=d.dirty?'local changes':d.behind>0?d.behind+' commit(s) behind origin/main':d.ahead>0?d.ahead+' commit(s) ahead of origin/main':'matches known origin/main';
+      version.textContent=(d.branch||'-')+' · '+(d.headShort||'-')+' · '+relation;
+      const u=d.lastUpdate||{};
+      last.textContent=u.state?('Last update: '+u.state+(u.message?' · '+u.message:'')):'No dashboard-triggered update recorded yet.';
+      const b=document.getElementById('management-update');
+      b.disabled=d.dirty||d.branch!=='main';
+      b.title=d.dirty?'Refusing update while local changes exist':d.branch!=='main'?'Updates require the main branch':'';
+    }catch(e){version.textContent='Deployment status unavailable: '+e;}
+  }
+  async function runManagementUpdate(){
+    if(!confirm('Pull origin/main and restart Supervisor, diagnostics, and Cloudflared?'))return;
+    const b=document.getElementById('management-update'),out=document.getElementById('management-result');
+    b.disabled=true;out.textContent='Starting update… the dashboard may briefly disconnect.';
+    try{
+      const r=await fetch('/api/operator/update',{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':'__RPGK_ACTION_TOKEN__'},body:'{}'});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
+      out.textContent=d.message||'Update started. Waiting for dashboard to return…';
+      let attempts=0;
+      const poll=async()=>{attempts++;try{const h=await fetch('/api/management/update',{cache:'no-store'});if(h.ok){out.textContent='Dashboard is back. Refreshing deployment status…';await loadManagement();b.disabled=false;return;}}catch(e){}if(attempts<60)setTimeout(poll,2000);else out.textContent='Update was started, but the dashboard did not return within two minutes.';};
+      setTimeout(poll,2000);
+    }catch(e){out.textContent='Update failed to start: '+e;b.disabled=false;}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installManagement);else installManagement();
+})();
+</script>
+"""
+
 COMPACT_LAYOUT_STYLE = r"""
 <style id="compact-operator-layout">
 @media (max-width:560px){
@@ -347,7 +402,7 @@ COMPACT_LAYOUT_STYLE = r"""
 
 def rendered_page() -> str:
     marker = "</body>"
-    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT + ACTION_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN)
+    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT + ACTION_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN) + MANAGEMENT_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN)
     return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
@@ -422,6 +477,10 @@ def serve(port: int) -> None:
                 self.send_json(supervisor_maintenance.status())
                 return
 
+            if parsed.path == "/api/management/update":
+                self.send_json(dashboard_update.status())
+                return
+
             if parsed.path == "/api/lifecycle":
                 self.send_json(supervisor_activity.collect())
                 return
@@ -487,6 +546,16 @@ def serve(port: int) -> None:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path == "/api/operator/update":
+                try:
+                    self._operator_request()
+                    self.send_json(dashboard_update.trigger(), HTTPStatus.ACCEPTED)
+                except PermissionError as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+                except (ValueError, json.JSONDecodeError, dashboard_update.UpdateError) as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                return
+
             if parsed.path in {"/api/operator/rearm", "/api/operator/merge"}:
                 try:
                     payload = self._operator_request()
@@ -526,7 +595,7 @@ def serve(port: int) -> None:
 
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"RPG Kingdom Supervisor dashboard: http://127.0.0.1:{port}")
-    print("Ctrl+C to stop. The dashboard is localhost-only; operator mutations are limited to typed autonomous, merge, and rearm actions.")
+    print("Ctrl+C to stop. The dashboard is localhost-only; operator mutations are limited to typed autonomous, merge, rearm, and Supervisor update actions.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

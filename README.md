@@ -126,7 +126,10 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
 - [`scripts/supervisor_maintenance.py`](scripts/supervisor_maintenance.py) — configurable local telemetry retention and stale active-worker restart reconciliation.
 - [`scripts/supervisor_detail.py`](scripts/supervisor_detail.py) — one-worker lifetime drill-down across lifecycle, usage, review, Unity, Git, and artifact sources.
-- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only dashboard server and existing observability APIs.
+- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only dashboard server, observability APIs, and narrowly typed operator controls.
+- [`scripts/dashboard_update.py`](scripts/dashboard_update.py) — read-only deployed-revision status plus the narrow trigger for the fixed host update service.
+- [`scripts/dashboard-update-host.sh`](scripts/dashboard-update-host.sh) — host-owned clean-main fast-forward/restart workflow used by the dashboard.
+- [`scripts/install-dashboard-update.sh`](scripts/install-dashboard-update.sh) — one-time WSL systemd/sudoers setup for dashboard-triggered updates.
 - [`scripts/supervisor_dashboard.html`](scripts/supervisor_dashboard.html) — dependency-free operator console presentation, navigation, drill-down, and progressive-disclosure UI.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
@@ -179,7 +182,7 @@ bash scripts/diagnose-issue.sh 98
 bash scripts/serve-diagnostics.sh
 ```
 
-The dashboard is available only on `http://127.0.0.1:8765` by default. Diagnostics remain read-only; explicit Merge PR and Rearm controls use narrow host-owned POST actions with stale-state validation. Its sticky status strip and **Overview** view surface service health, active work, Codex quota, and human-action-required state first. **Work / Activity** contains GitHub-authoritative lifecycle queues, the unified activity timeline, and recent worker lifetimes; relevant issue references open focused **Issue detail** directly. Comparative usage and Unity history live in their own views, with detailed tables and raw diagnostics progressively disclosed rather than competing with the operator overview. See [`docs/DASHBOARD.md`](docs/DASHBOARD.md) for the presentation contract.
+The dashboard is available only on `http://127.0.0.1:8765` by default. Diagnostics remain read-mostly; explicit Merge PR, Rearm, and Supervisor Update controls use narrow host-owned POST actions with validation. Its sticky status strip and **Overview** view surface service health, active work, Codex quota, and human-action-required state first. **Work / Activity** contains GitHub-authoritative lifecycle queues, the unified activity timeline, and recent worker lifetimes; relevant issue references open focused **Issue detail** directly. Comparative usage and Unity history live in their own views, with detailed tables and raw diagnostics progressively disclosed rather than competing with the operator overview. See [`docs/DASHBOARD.md`](docs/DASHBOARD.md) for the presentation contract.
 
 When host services and a real Symphony worker disagree, use the explicit diagnostics rather than broadening worker permissions. The model-turn environment probe remains available for Codex runtime investigation:
 

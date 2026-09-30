@@ -30,6 +30,7 @@ python3 "$ROOT/tests/supervisor-detail-test.py"
 python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
 python3 "$ROOT/tests/codex-concurrent-usage-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
+python3 "$ROOT/tests/dashboard-update-test.py"
 python3 "$ROOT/tests/gh125-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
@@ -67,6 +68,7 @@ python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
+  "$ROOT/scripts/dashboard_update.py" \
   "$ROOT/scripts/finished_tasks.py" \
   "$ROOT/scripts/operator_actions.py" \
   "$ROOT/scripts/first-party-skill-policy.py" \
@@ -98,6 +100,8 @@ bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/before-run-guard.sh"
 bash -n "$ROOT/scripts/codex-app-server-router.sh"
 bash -n "$ROOT/scripts/codex-concurrency-policy.sh"
+bash -n "$ROOT/scripts/dashboard-update-host.sh"
+bash -n "$ROOT/scripts/install-dashboard-update.sh"
 bash -n "$ROOT/scripts/git-handoff.sh"
 bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"
