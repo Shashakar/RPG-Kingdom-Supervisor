@@ -70,7 +70,13 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;p
     <button class="tab" data-view="usage" onclick="selectView('usage')">Usage</button>
     <button class="tab" data-view="unity" onclick="selectView('unity')">Unity</button>
     <button class="tab" data-view="issue" onclick="selectView('issue')">Issue detail</button>
+    <button class="tab" data-view="management" onclick="selectView('management')">Management</button>
   </nav>
+
+  <section id="view-management" class="view" aria-labelledby="management-title">
+    <div class="section-head"><div><h2 id="management-title">Management</h2><p>Deployment updates and infrequent Supervisor administration.</p></div></div>
+    <div id="management-slot"></div>
+  </section>
 
   <section id="view-overview" class="view active" aria-labelledby="overview-title">
     <div class="section-head"><div><h2 id="overview-title">System overview</h2><p>Health, active work, quota, and anything that needs human attention.</p></div></div>
