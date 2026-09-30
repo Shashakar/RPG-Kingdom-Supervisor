@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -243,5 +244,40 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert completed["unityRequestIds"] == ["unity-1"]
     handoff = next(item for item in combined["activity"] if item.get("id") == "git:GH-106:git-1")
     assert handoff["prNumber"] == 107 and handoff["headSha"] == "feedfacecafebeef"
+
+
+# Cached lifecycle reads must never wait for GitHub. The first read warms asynchronously,
+# subsequent stale reads return the last snapshot while exactly one refresh is in flight.
+activity._CACHE.update({"key": None, "expires": 0.0, "payload": None, "generated_monotonic": 0.0, "refreshing": False, "last_refresh_seconds": None, "last_error": None})
+slow_calls = {"count": 0}
+def slow_runner(args: list[str]) -> dict[str, object]:
+    slow_calls["count"] += 1
+    time.sleep(0.05)
+    return fake_runner(args)
+
+with tempfile.TemporaryDirectory() as temp_dir:
+    root = Path(temp_dir)
+    started = time.monotonic()
+    warming = activity.collect(repo="Shashakar/RPG-Kingdom", runner=slow_runner, workspace_root=root)
+    assert time.monotonic() - started < 0.05, "cold lifecycle read must not block on GitHub"
+    assert warming["available"] is False and warming["cache"]["refreshing"] is True
+    deadline = time.monotonic() + 5
+    snapshot = warming
+    while time.monotonic() < deadline:
+        snapshot = activity.collect(repo="Shashakar/RPG-Kingdom", runner=slow_runner, workspace_root=root)
+        if snapshot.get("available"):
+            break
+        time.sleep(0.02)
+    assert snapshot["available"] is True, snapshot
+    assert snapshot["cache"]["lastRefreshSeconds"] is not None
+    activity._CACHE["expires"] = 0.0
+    before = slow_calls["count"]
+    started = time.monotonic()
+    stale = activity.collect(repo="Shashakar/RPG-Kingdom", runner=slow_runner, workspace_root=root)
+    assert time.monotonic() - started < 0.05, "stale lifecycle read must return immediately"
+    assert stale["available"] is True and stale["cache"]["refreshing"] is True
+    activity.collect(repo="Shashakar/RPG-Kingdom", runner=slow_runner, workspace_root=root)
+    time.sleep(0.01)
+    assert slow_calls["count"] <= before + 1, "concurrent stale reads must share one refresh"
 
 print("supervisor-activity-test: PASS")
