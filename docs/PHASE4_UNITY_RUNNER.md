@@ -24,6 +24,19 @@ The worker still uses the same narrow command surface, but `scripts/unity-runner
 
 The broker is intentionally not a generic command service. Its protocol accepts only `health`, `editmode`, and `playmode`, plus an optional Unity Test Framework filter. The broker derives the project path from the request location, requires it to be an immediate `GH-<number>` child of the configured Symphony workspace root, and revalidates the Unity lock before test operations.
 
+### Request ownership
+
+A Unity request can outlive the short-lived shell process that submitted it. When the request belongs to an active Symphony implementation/repair/report worker, the broker therefore resolves the workspace against Supervisor's durable worker telemetry under `workers/active/` and binds the Unity operation to that worker's recorded Codex App Server PID/run ID.
+
+That durable worker lease is authoritative while it exists:
+
+- a transient `unity-runner.sh` client PID may exit without cancelling otherwise-valid Unity work;
+- if the durable worker PID exits, the broker applies the same ownership-safe abandonment recovery used for genuinely abandoned requests;
+- requests made outside an active worker lifetime (for example host preflight) fall back to the submitting client PID lease;
+- status exposes both client and worker liveness plus the ownership source so diagnostics can distinguish shell turnover from actual task abandonment.
+
+This preserves #142's abandoned-work recovery without making a temporary tool process the lifetime authority for a longer Symphony task.
+
 ## Data flow
 
 ```text
@@ -117,6 +130,8 @@ Broker lifecycle outcomes are explicit at the runner boundary:
 ## Health and resource ownership
 
 `health` deliberately does not require the Unity lock because the Phase 3 preflight calls it before acquiring the resource. The broker/host adapter verifies the project and host prerequisites and confirms that no Windows `Unity.exe` is already running.
+
+For `validation:unity-required` dispatches, host preflight now goes further after acquiring the exclusive lock: it runs one known-good EditMode smoke test through the same broker/Windows/Unity path that later validation will use. A successful smoke result is cached only for the current broker PID and exact smoke filter. A broker restart or changed smoke filter invalidates the cache. If the smoke cannot acquire Unity, compile, execute a non-zero test set, and return normally, preflight releases the lock and halts before Codex starts.
 
 `editmode` and `playmode` require:
 
