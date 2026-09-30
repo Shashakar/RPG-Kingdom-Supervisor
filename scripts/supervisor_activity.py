@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import threading
 import time
 from typing import Any, Callable, Iterable
 
@@ -74,7 +75,8 @@ LABEL_EVENT_TITLES = {
     "symphony:report-complete": "Report-only work complete",
 }
 ISSUE_RE = re.compile(r"^GH-(\d+)$")
-_CACHE: dict[str, Any] = {"key": None, "expires": 0.0, "payload": None}
+_CACHE: dict[str, Any] = {"key": None, "expires": 0.0, "payload": None, "generated_monotonic": 0.0, "refreshing": False, "last_refresh_seconds": None, "last_error": None}
+_CACHE_LOCK = threading.Lock()
 
 GhRunner = Callable[[list[str]], dict[str, Any]]
 
@@ -667,21 +669,17 @@ def _dedupe_sort_activity(events: Iterable[dict[str, Any]], limit: int) -> list[
     return ordered[: max(1, min(limit, 500))]
 
 
-def collect(
-    *,
-    repo: str | None = None,
-    runner: GhRunner = run_gh,
-    workspace_root: Path | None = None,
-    limit: int = DEFAULT_ACTIVITY_LIMIT,
-    use_cache: bool = True,
-) -> dict[str, Any]:
-    repo = repo or os.environ.get("RPGK_REPO", DEFAULT_REPO)
-    workspace_root = workspace_root or _workspace_root()
-    cache_key = f"{repo}|{workspace_root}|{limit}"
-    now = time.monotonic()
-    if use_cache and _CACHE.get("key") == cache_key and now < float(_CACHE.get("expires") or 0) and _CACHE.get("payload"):
-        return deepcopy(_CACHE["payload"])
+def _cache_metadata(now: float, cache: dict[str, Any]) -> dict[str, Any]:
+    generated = float(cache.get("generated_monotonic") or 0.0)
+    return {
+        "ageSeconds": max(0.0, now - generated) if generated else None,
+        "refreshing": bool(cache.get("refreshing")),
+        "lastRefreshSeconds": cache.get("last_refresh_seconds"),
+        "lastError": cache.get("last_error"),
+    }
 
+
+def _collect_uncached(*, repo: str, runner: GhRunner, workspace_root: Path, limit: int) -> dict[str, Any]:
     active = supervisor_telemetry.active_workers()
     recent = supervisor_telemetry.recent_workers(50)
     lifecycle = collect_lifecycle(repo=repo, runner=runner, active_workers=active, recent_workers=recent)
@@ -696,7 +694,7 @@ def collect(
         ],
         limit,
     )
-    payload = supervisor_telemetry.sanitize({
+    return supervisor_telemetry.sanitize({
         "protocolVersion": PROTOCOL_VERSION,
         "generatedAt": iso_now(),
         "available": lifecycle.get("available", False),
@@ -706,10 +704,87 @@ def collect(
         "items": lifecycle.get("items", []),
         "activity": activity,
     })
-    if use_cache:
-        try:
-            cache_seconds = float(os.environ.get("RPGK_ACTIVITY_CACHE_SECONDS", DEFAULT_CACHE_SECONDS))
-        except ValueError:
-            cache_seconds = DEFAULT_CACHE_SECONDS
-        _CACHE.update({"key": cache_key, "expires": now + max(0.0, cache_seconds), "payload": deepcopy(payload)})
+
+
+def _refresh_cache(*, cache_key: str, repo: str, runner: GhRunner, workspace_root: Path, limit: int, cache_seconds: float) -> None:
+    started = time.monotonic()
+    try:
+        payload = _collect_uncached(repo=repo, runner=runner, workspace_root=workspace_root, limit=limit)
+    except Exception as exc:
+        with _CACHE_LOCK:
+            _CACHE.update({"refreshing": False, "last_refresh_seconds": time.monotonic() - started, "last_error": str(exc)})
+        return
+    finished = time.monotonic()
+    with _CACHE_LOCK:
+        _CACHE.update({
+            "key": cache_key,
+            "expires": finished + max(0.0, cache_seconds),
+            "payload": deepcopy(payload),
+            "generated_monotonic": finished,
+            "refreshing": False,
+            "last_refresh_seconds": finished - started,
+            "last_error": None,
+        })
+
+
+def collect(
+    *,
+    repo: str | None = None,
+    runner: GhRunner = run_gh,
+    workspace_root: Path | None = None,
+    limit: int = DEFAULT_ACTIVITY_LIMIT,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    repo = repo or os.environ.get("RPGK_REPO", DEFAULT_REPO)
+    workspace_root = workspace_root or _workspace_root()
+    cache_key = f"{repo}|{workspace_root}|{limit}"
+    if not use_cache:
+        return _collect_uncached(repo=repo, runner=runner, workspace_root=workspace_root, limit=limit)
+
+    try:
+        cache_seconds = float(os.environ.get("RPGK_ACTIVITY_CACHE_SECONDS", DEFAULT_CACHE_SECONDS))
+    except ValueError:
+        cache_seconds = DEFAULT_CACHE_SECONDS
+
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        same_key = _CACHE.get("key") == cache_key
+        payload = deepcopy(_CACHE.get("payload")) if same_key and _CACHE.get("payload") else None
+        fresh = bool(payload) and now < float(_CACHE.get("expires") or 0)
+        should_refresh = not fresh and not bool(_CACHE.get("refreshing"))
+        if should_refresh:
+            _CACHE["refreshing"] = True
+        metadata = _cache_metadata(now, _CACHE)
+
+    if should_refresh:
+        thread = threading.Thread(
+            target=_refresh_cache,
+            kwargs={
+                "cache_key": cache_key,
+                "repo": repo,
+                "runner": runner,
+                "workspace_root": workspace_root,
+                "limit": limit,
+                "cache_seconds": cache_seconds,
+            },
+            name="rpgk-lifecycle-refresh",
+            daemon=True,
+        )
+        thread.start()
+
+    if payload is None:
+        return {
+            "protocolVersion": PROTOCOL_VERSION,
+            "generatedAt": iso_now(),
+            "available": False,
+            "repo": repo,
+            "errors": ["Lifecycle snapshot is warming up."],
+            "queues": {name: [] for name in QUEUE_ORDER},
+            "items": [],
+            "activity": [],
+            "cache": metadata,
+        }
+
+    payload["cache"] = metadata
     return payload
+
