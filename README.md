@@ -126,7 +126,10 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
 - [`scripts/supervisor_maintenance.py`](scripts/supervisor_maintenance.py) — configurable local telemetry retention and stale active-worker restart reconciliation.
 - [`scripts/supervisor_detail.py`](scripts/supervisor_detail.py) — one-worker lifetime drill-down across lifecycle, usage, review, Unity, Git, and artifact sources.
-- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only read-only dashboard server and existing observability APIs.
+- [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only dashboard server, observability APIs, and narrowly typed operator controls.
+- [`scripts/dashboard_update.py`](scripts/dashboard_update.py) — read-only deployed-revision status plus the narrow trigger for the fixed host update service.
+- [`scripts/dashboard-update-host.sh`](scripts/dashboard-update-host.sh) — host-owned clean-main fast-forward/restart workflow used by the dashboard.
+- [`scripts/install-dashboard-update.sh`](scripts/install-dashboard-update.sh) — one-time WSL systemd/sudoers setup for dashboard-triggered updates.
 - [`scripts/supervisor_dashboard.html`](scripts/supervisor_dashboard.html) — dependency-free operator console presentation, navigation, drill-down, and progressive-disclosure UI.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
