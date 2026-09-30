@@ -37,6 +37,7 @@ PY
 
 previous=""
 current=""
+target=""
 trap 'rc=$?; if (( rc != 0 )); then write_status "failed" "Update failed with exit code $rc" "$previous" "$current"; fi' EXIT
 
 previous="$(git_cmd rev-parse HEAD)"
@@ -52,8 +53,13 @@ if [[ "$(git_cmd branch --show-current)" != "main" ]]; then
 fi
 
 git_cmd fetch --prune origin main
+target="$(git_cmd rev-parse origin/main)"
 git_cmd merge --ff-only origin/main
 current="$(git_cmd rev-parse HEAD)"
+if [[ "$current" != "$target" ]]; then
+  write_status "failed" "Update verification failed: local HEAD $current does not match fetched origin/main $target" "$previous" "$current"
+  exit 23
+fi
 write_status "restarting" "Code updated; restarting Supervisor services" "$previous" "$current"
 
 sudo -n /usr/bin/systemctl restart rpg-kingdom-supervisor.service
@@ -96,5 +102,12 @@ else
   exit 22
 fi
 
-write_status "succeeded" "Updated Supervisor and restarted Supervisor, diagnostics, and Cloudflared" "$previous" "$current"
+# Re-read both refs after all restart work. Never report success if the checkout
+# did not actually reach the fetched deployment target.
+current="$(git_cmd rev-parse HEAD)"
+if [[ "$current" != "$target" ]]; then
+  write_status "failed" "Post-restart verification failed: local HEAD $current does not match deployed origin/main target $target" "$previous" "$current"
+  exit 23
+fi
+write_status "succeeded" "Updated Supervisor to $current and restarted Supervisor, diagnostics, and Cloudflared" "$previous" "$current"
 trap - EXIT
