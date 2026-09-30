@@ -49,6 +49,19 @@ class DashboardUpdateTest(unittest.TestCase):
             with self.assertRaises(dashboard_update.UpdateError):
                 dashboard_update.trigger()
 
+    def test_host_waits_for_cloudflared_task_completion(self) -> None:
+        script = (ROOT / "scripts/dashboard-update-host.sh").read_text(encoding="utf-8")
+        self.assertIn("Get-ScheduledTaskInfo", script)
+        self.assertIn("LastRunTime -gt", script)
+        self.assertIn("LastTaskResult -ne 0", script)
+        self.assertIn("Timed out waiting for Cloudflared refresh task to complete", script)
+
+    def test_dashboard_requires_stable_public_recovery(self) -> None:
+        script = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
+        self.assertIn("stableSuccesses>=3", script)
+        self.assertIn("stableSuccesses=0", script)
+        self.assertIn("public dashboard did not remain stable", script)
+
 
 if __name__ == "__main__":
     unittest.main()
