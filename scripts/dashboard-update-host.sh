@@ -61,10 +61,11 @@ sudo -n /usr/bin/systemctl restart rpg-kingdom-diagnostics.service
 
 # Windows cloudflared can retain a stale WSL localhost route after the dashboard restarts.
 # A pre-created elevated Windows Scheduled Task is the deliberately narrow privilege bridge.
-if command -v powershell.exe >/dev/null 2>&1; then
-  powershell.exe -NoProfile -NonInteractive -Command "Start-ScheduledTask -TaskName '$CLOUDFLARE_TASK'" >/dev/null
+POWERSHELL_EXE="${RPGK_POWERSHELL_EXE:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
+if [[ -x "$POWERSHELL_EXE" ]]; then
+  "$POWERSHELL_EXE" -NoProfile -NonInteractive -Command "Start-ScheduledTask -TaskName '$CLOUDFLARE_TASK'" >/dev/null
 else
-  write_status "failed" "Supervisor restarted, but powershell.exe is unavailable so Cloudflared was not refreshed" "$previous" "$current"
+  write_status "failed" "Supervisor restarted, but Windows PowerShell was not found at $POWERSHELL_EXE so Cloudflared was not refreshed" "$previous" "$current"
   exit 22
 fi
 
