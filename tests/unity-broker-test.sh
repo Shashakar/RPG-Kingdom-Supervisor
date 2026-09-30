@@ -92,11 +92,11 @@ case "$filter" in
   client-exit-worker-live)
     write_progress 1 staging 0
     sleep 0.8
-    write_progress 2 tests_running "$"
+    write_progress 2 tests_running "$BASHPID"
     echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"client-exit-worker-live","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-worker-lease"}'
     ;;
   stall-owned|client-abandon-owned|worker-abandon-owned)
-    write_progress 1 unity_running "$"
+    write_progress 1 unity_running "$BASHPID"
     while [[ ! -f "$cancel" ]]; do sleep 0.05; done
     write_progress 2 recovery_cancelled "$$"
     echo 'fake request-owned Unity cancelled' >&2
