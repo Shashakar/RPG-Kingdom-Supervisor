@@ -309,7 +309,7 @@ MANAGEMENT_SCRIPT = r"""
     }catch(e){version.textContent='Deployment status unavailable: '+e;}
   }
   function recoverAfterUpdate(){
-    let attempts=0;
+    let attempts=0,stableSuccesses=0,terminal=null;
     const poll=async()=>{
       attempts++;
       try{
@@ -318,18 +318,26 @@ MANAGEMENT_SCRIPT = r"""
         if(h.ok&&contentType.includes('application/json')){
           const d=await h.json();
           if(d.lastUpdate&&['succeeded','failed'].includes(d.lastUpdate.state)){
-            window.__rpgkRestarting=false;
-            sessionStorage.setItem('rpgk-update-result',JSON.stringify(d.lastUpdate));
-            location.reload();
-            return;
+            const signature=[d.lastUpdate.state,d.lastUpdate.updatedAt,d.lastUpdate.currentHead].join('|');
+            if(terminal===signature)stableSuccesses++;else{terminal=signature;stableSuccesses=1;}
+            if(stableSuccesses>=3){
+              window.__rpgkRestarting=false;
+              sessionStorage.setItem('rpgk-update-result',JSON.stringify(d.lastUpdate));
+              location.reload();
+              return;
+            }
+          }else{
+            terminal=null;stableSuccesses=0;
           }
+        }else{
+          terminal=null;stableSuccesses=0;
         }
-      }catch(e){}
+      }catch(e){terminal=null;stableSuccesses=0;}
       if(attempts<60)setTimeout(poll,2000);
       else{
         window.__rpgkRestarting=false;
         const out=document.getElementById('management-result');
-        if(out)out.textContent='Update was started, but the dashboard did not recover within two minutes.';
+        if(out)out.textContent='Update was started, but the public dashboard did not remain stable within two minutes.';
       }
     };
     setTimeout(poll,2000);
