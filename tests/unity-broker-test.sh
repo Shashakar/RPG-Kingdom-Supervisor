@@ -218,7 +218,7 @@ for _ in $(seq 1 80); do
   fi
   sleep 0.05
 done
-jq -e '.activeRequest.workerRunId == "GH-321-implementation-worker-live" and .activeRequest.workerPid == '"$DURABLE_WORKER_PID" "$STATE/unity-broker/status.json" >/dev/null || {
+jq -e --argjson pid "$DURABLE_WORKER_PID" '.activeRequest.workerRunId == "GH-321-implementation-worker-live" and .activeRequest.workerPid == $pid' "$STATE/unity-broker/status.json" >/dev/null || {
   echo "unity-broker-test: broker did not bind request to durable worker lease" >&2
   exit 1
 }
