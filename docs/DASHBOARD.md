@@ -1,6 +1,6 @@
 # Supervisor Dashboard
 
-The Supervisor dashboard is a localhost-only, read-only operator console. It is served by `scripts/supervisor_dashboard.py` and renders `scripts/supervisor_dashboard.html` without a frontend framework or external runtime dependency.
+The Supervisor dashboard is a localhost-only, read-mostly operator console with narrowly typed operator actions. It is served by `scripts/supervisor_dashboard.py` and renders `scripts/supervisor_dashboard.html` without a frontend framework or external runtime dependency.
 
 ## Operator hierarchy
 
