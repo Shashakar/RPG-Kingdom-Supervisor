@@ -13,3 +13,7 @@ workspaces/
 Thumbs.db
 .vscode/
 .idea/
+
+# Python runtime caches
+__pycache__/
+*.py[cod]
