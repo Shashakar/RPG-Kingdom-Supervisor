@@ -27,7 +27,7 @@ ExecStart=/bin/bash $SUPERVISOR_ROOT/scripts/dashboard-update-host.sh
 EOF
 
 sudo tee "$SUDOERS" >/dev/null <<EOF
-$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl start rpg-kingdom-dashboard-update.service
+$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl start rpg-kingdom-dashboard-update.service, /usr/bin/systemctl restart rpg-kingdom-supervisor.service, /usr/bin/systemctl restart rpg-kingdom-diagnostics.service
 EOF
 sudo chmod 0440 "$SUDOERS"
 sudo visudo -cf "$SUDOERS" >/dev/null
