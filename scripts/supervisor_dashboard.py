@@ -285,6 +285,14 @@ MANAGEMENT_SCRIPT = r"""
     document.getElementById('management-check').addEventListener('click',loadManagement);
     document.getElementById('management-update').addEventListener('click',runManagementUpdate);
     loadManagement();
+    const saved=sessionStorage.getItem('rpgk-update-result');
+    if(saved){
+      try{
+        const result=JSON.parse(saved),out=document.getElementById('management-result');
+        out.textContent=result.state==='succeeded'?'Update complete'+(result.currentHead?' · '+result.currentHead.slice(0,12):''):(result.message||'Update failed');
+      }catch(e){}
+      sessionStorage.removeItem('rpgk-update-result');
+    }
   }
   async function loadManagement(){
     const version=document.getElementById('management-version'),last=document.getElementById('management-last');
@@ -300,26 +308,53 @@ MANAGEMENT_SCRIPT = r"""
       b.title=d.dirty?'Refusing update while local changes exist':d.branch!=='main'?'Updates require the main branch':'';
     }catch(e){version.textContent='Deployment status unavailable: '+e;}
   }
+  function recoverAfterUpdate(){
+    let attempts=0;
+    const poll=async()=>{
+      attempts++;
+      try{
+        const h=await fetch('/api/management/update',{cache:'no-store'});
+        const contentType=h.headers.get('content-type')||'';
+        if(h.ok&&contentType.includes('application/json')){
+          const d=await h.json();
+          if(d.lastUpdate&&['succeeded','failed'].includes(d.lastUpdate.state)){
+            window.__rpgkRestarting=false;
+            sessionStorage.setItem('rpgk-update-result',JSON.stringify(d.lastUpdate));
+            location.reload();
+            return;
+          }
+        }
+      }catch(e){}
+      if(attempts<60)setTimeout(poll,2000);
+      else{
+        window.__rpgkRestarting=false;
+        const out=document.getElementById('management-result');
+        if(out)out.textContent='Update was started, but the dashboard did not recover within two minutes.';
+      }
+    };
+    setTimeout(poll,2000);
+  }
   async function runManagementUpdate(){
     if(!confirm('Pull origin/main and restart Supervisor, diagnostics, and Cloudflared?'))return;
     const b=document.getElementById('management-update'),out=document.getElementById('management-result');
-    b.disabled=true;out.textContent='Starting update… the dashboard may briefly disconnect.';
+    window.__rpgkRestarting=true;
+    sessionStorage.removeItem('rpgk-update-result');
+    b.disabled=true;out.textContent='Restarting… temporary 502 responses are expected.';
     try{
       const r=await fetch('/api/operator/update',{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':'__RPGK_ACTION_TOKEN__'},body:'{}'});
-      let d={};
       const contentType=r.headers.get('content-type')||'';
-      if(contentType.includes('application/json')){
-        d=await r.json();
-      }else{
-        const body=await r.text();
-        if(!r.ok)throw new Error('HTTP '+r.status+(body?' (non-JSON response)':''));
+      if(!r.ok&&r.status!==502){
+        window.__rpgkRestarting=false;
+        let message='HTTP '+r.status;
+        if(contentType.includes('application/json')){
+          const d=await r.json();message=d.error||message;
+        }
+        throw new Error(message);
       }
-      if(!r.ok)throw new Error(d.error||('HTTP '+r.status));
-      out.textContent=d.message||'Update started. Waiting for dashboard to return…';
-      let attempts=0;
-      const poll=async()=>{attempts++;try{const h=await fetch('/api/management/update',{cache:'no-store'});if(h.ok){out.textContent='Dashboard is back. Refreshing deployment status…';await loadManagement();b.disabled=false;return;}}catch(e){}if(attempts<60)setTimeout(poll,2000);else out.textContent='Update was started, but the dashboard did not return within two minutes.';};
-      setTimeout(poll,2000);
-    }catch(e){out.textContent='Update failed to start: '+e;b.disabled=false;}
+    }catch(e){
+      if(!window.__rpgkRestarting){out.textContent='Update failed to start: '+e;b.disabled=false;return;}
+    }
+    recoverAfterUpdate();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installManagement);else installManagement();
 })();
