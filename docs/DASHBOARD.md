@@ -78,3 +78,30 @@ Project-owned prefab derivative authoring may declare exact `derivativeOutputs` 
 ### Trusted reverse-proxy dashboard origins
 
 The dashboard listener remains localhost-bound by default. When the browser reaches it through a reverse proxy that preserves the browser-facing `Host`, exact same-origin requests are accepted automatically. For a proxy where the browser Origin intentionally differs from Host, set `RPGK_DASHBOARD_ALLOWED_ORIGINS` to a comma-separated list of exact origins, including scheme and optional port (for example `https://server.shashakar.com`). Localhost/127.0.0.1 browser origins remain accepted automatically. Non-local operator-action origins must exactly match this allowlist and still present the per-process action token embedded in the served dashboard. Forwarded host/origin headers are not authorization inputs.
+
+
+## Supervisor deployment control
+
+The Overview includes a narrow **Supervisor deployment** control for the dedicated host. It is intentionally not a terminal or arbitrary command runner.
+
+- `GET /api/management/update` reports the deployed branch/SHA, local dirty state, the locally known `origin/main` relation, and the last dashboard-triggered update result.
+- `POST /api/operator/update` uses the same per-process operator action token and same-origin validation as merge/rearm.
+- Updates are accepted only from a clean `main` checkout.
+- The dashboard can only start the fixed `rpg-kingdom-dashboard-update.service`; it cannot choose a command, service name, repository, ref, or filesystem path.
+- The host update service fetches `origin/main`, fast-forwards only, restarts Supervisor and diagnostics, then triggers a pre-created elevated Windows Scheduled Task that restarts the `cloudflared` service.
+- The browser expects the diagnostics service to disappear briefly and polls until it returns.
+
+This requires one-time host installation after pulling the feature:
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/install-dashboard-update.sh
+```
+
+Then, from an **elevated Windows PowerShell**, install the deliberately narrow Cloudflared privilege bridge:
+
+```powershell
+& "\\\\wsl.localhost\\Ubuntu\\home\\dex\\src\\RPG-Kingdom-Supervisor\\scripts\\windows\\install-cloudflared-refresh-task.ps1"
+```
+
+The Windows task has no schedule; it exists only so the WSL host update service can request one elevated `Restart-Service cloudflared` operation. Routine dashboard updates do not grant arbitrary Windows administrator or Linux root command execution.
