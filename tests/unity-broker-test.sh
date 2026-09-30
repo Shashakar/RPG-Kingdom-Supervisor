@@ -5,10 +5,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 BROKER_PID=""
 ACTIVE_CLIENT_PID=""
+INHERITED_CHILD_PID=""
 cleanup() {
   if [[ -n "$ACTIVE_CLIENT_PID" ]]; then
     kill "$ACTIVE_CLIENT_PID" 2>/dev/null || true
     wait "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$INHERITED_CHILD_PID" ]]; then
+    kill "$INHERITED_CHILD_PID" 2>/dev/null || true
+    wait "$INHERITED_CHILD_PID" 2>/dev/null || true
   fi
   if [[ -n "$BROKER_PID" ]]; then
     kill "$BROKER_PID" 2>/dev/null || true
@@ -79,7 +84,7 @@ case "$filter" in
     done
     echo '{"unityVersion":"test","testPlatform":"EditMode","testFilter":"progressing","result":"Passed","total":1,"passed":1,"failed":0,"skipped":0,"unityExitCode":0,"runId":"fake-progress"}'
     ;;
-  stall-owned)
+  stall-owned|client-abandon-owned)
     write_progress 1 unity_running "$$"
     while [[ ! -f "$cancel" ]]; do sleep 0.05; done
     write_progress 2 recovery_cancelled "$$"
@@ -186,6 +191,45 @@ wait "$ACTIVE_CLIENT_PID"
 ACTIVE_CLIENT_PID=""
 grep -Fq '"total":1' "$TMP/progress-client.log" || { echo "unity-broker-test: progressing run did not finish successfully" >&2; exit 1; }
 
+# If the submitting worker/client disappears, a positively-owned Unity request is cancelled
+# without waiting for the much longer stall threshold. This reproduces the GH-182 failure shape.
+env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter client-abandon-owned \
+  >"$TMP/abandoned-client.log" 2>&1 &
+ACTIVE_CLIENT_PID=$!
+for _ in $(seq 1 80); do
+  if jq -e '.state == "running" and .activeRequest.testFilter == "client-abandon-owned" and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+jq -e '.state == "running" and .activeRequest.clientPid != null and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: broker did not expose live submitting client" >&2
+  exit 1
+}
+abandoned_request_id="$(jq -r '.activeRequest.requestId' "$STATE/unity-broker/status.json")"
+kill -KILL "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+wait "$ACTIVE_CLIENT_PID" 2>/dev/null || true
+ACTIVE_CLIENT_PID=""
+for _ in $(seq 1 80); do
+  response="$BROKER_DIR/responses/$abandoned_request_id.json"
+  [[ -f "$response" ]] && jq -e '.status == "ClientAbandoned" and .exitCode == 93 and .details.reason == "client_process_exited" and .details.recoveryAction == "request_owned_unity_cancel"' "$response" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.status == "ClientAbandoned" and .exitCode == 93 and .details.recoveryResult == "host_runner_exited"' "$BROKER_DIR/responses/$abandoned_request_id.json" >/dev/null || {
+  echo "unity-broker-test: abandoned client must cancel and terminalize its owned Unity request" >&2
+  exit 1
+}
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "ClientAbandoned"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "ready" and .lastResult.status == "ClientAbandoned"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: abandoned request did not release Unity slot" >&2
+  exit 1
+}
+post_abandon_output="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter one-test)"
+grep -Fq '"total":1' <<<"$post_abandon_output" || { echo "unity-broker-test: slot was not reusable after abandoned client recovery" >&2; exit 1; }
+
 # A positively-owned Unity stall is cancelled through the bounded request control path.
 set +e
 stall_output="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter stall-owned 2>&1)"
@@ -245,6 +289,43 @@ for _ in $(seq 1 80); do
 done
 jq -e '.state == "ready" and .lastResult.status == "StallRecoveryBlocked"' "$STATE/unity-broker/status.json" >/dev/null || {
   echo "unity-broker-test: broker did not reconcile after ambiguous process exited" >&2
+  exit 1
+}
+
+# Restart reconciliation: do not advertise ready while a previously recorded host child is alive.
+kill "$BROKER_PID"
+wait "$BROKER_PID" 2>/dev/null || true
+BROKER_PID=""
+
+sleep 30 &
+INHERITED_CHILD_PID=$!
+printf '{"protocolVersion":1,"state":"running","pid":999999,"activeRequest":{"requestId":"inherited-request","operation":"editmode","childPid":%s}}\n' "$INHERITED_CHILD_PID" > "$STATE/unity-broker/status.json"
+
+RPGK_FAKE_HEALTH_HANG_FILE="$HEALTH_HANG_FILE" python3 -u "$ROOT/scripts/unity-host-broker.py" \
+  --workspace-root "$WORKSPACES" --state-root "$STATE" --host-runner "$FAKE_HOST" \
+  --poll-ms 25 --command-timeout-seconds 3 --stall-seconds 1 \
+  --stall-recovery-grace-seconds 1 --kill-grace-seconds 0.2 \
+  >"$TMP/restarted-broker.log" 2>&1 &
+BROKER_PID=$!
+
+for _ in $(seq 1 80); do
+  jq -e '.state == "blocked" and .activeRequest.requestId == "inherited-request" and .activeRequest.recoveryReason == "previous_broker_child_still_alive"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "blocked" and .activeRequest.requestId == "inherited-request"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: restarted broker must retain a live inherited owner" >&2
+  exit 1
+}
+
+kill "$INHERITED_CHILD_PID"
+wait "$INHERITED_CHILD_PID" 2>/dev/null || true
+INHERITED_CHILD_PID=""
+for _ in $(seq 1 80); do
+  jq -e '.state == "ready" and .lastResult.status == "RecoveredStaleOwner"' "$STATE/unity-broker/status.json" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+jq -e '.state == "ready" and .lastResult.status == "RecoveredStaleOwner" and .lastResult.details.reason == "inherited_host_child_exited"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: restarted broker did not reconcile after inherited child exit" >&2
   exit 1
 }
 

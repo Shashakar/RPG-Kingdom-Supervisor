@@ -101,7 +101,8 @@ jq -cn \
   --arg operation "$command" \
   --arg testFilter "$test_filter" \
   --arg requestedAt "$requested_at" \
-  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,requestedAt:$requestedAt}' \
+  --argjson clientPid "$$" \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$temp_request"
@@ -150,6 +151,12 @@ case "$status" in
     ;;
   StallRecoveryBlocked)
     echo "RPG Kingdom Unity runner: StallRecoveryBlocked" >&2
+    ;;
+  ClientAbandoned)
+    echo "RPG Kingdom Unity runner: ClientAbandoned" >&2
+    ;;
+  ClientAbandonRecoveryBlocked)
+    echo "RPG Kingdom Unity runner: ClientAbandonRecoveryBlocked" >&2
     ;;
   TimedOut)
     echo "RPG Kingdom Unity runner: TimedOut" >&2

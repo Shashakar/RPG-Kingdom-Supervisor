@@ -42,6 +42,7 @@ class RequestSpec:
     operation: str
     test_filter: str
     workspace: Path
+    client_pid: int | None = None
 
 
 @dataclass
@@ -200,11 +201,17 @@ def prepare_request(
         request_id = str(request.get("requestId", request_id))
         operation = str(request.get("operation", ""))
         test_filter = str(request.get("testFilter", ""))
+        raw_client_pid = request.get("clientPid")
+        client_pid = None
+        if raw_client_pid is not None:
+            client_pid = int(raw_client_pid)
+            if client_pid <= 0:
+                raise ValueError("clientPid must be a positive integer")
         if request.get("protocolVersion") != PROTOCOL_VERSION:
             raise ValueError("unsupported broker protocol version")
         if operation not in ALLOWED_OPERATIONS:
             raise ValueError(f"unsupported Unity operation '{operation}'")
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         return response_for_error(
             request_id,
             operation,
@@ -254,6 +261,7 @@ def prepare_request(
         operation=operation,
         test_filter=test_filter,
         workspace=workspace,
+        client_pid=client_pid,
     )
 
 
@@ -428,6 +436,18 @@ def refresh_progress(active: ActiveOperation, now: float | None = None) -> bool:
     return True
 
 
+def process_is_alive(pid: int | None) -> bool:
+    if pid is None or pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[str, Any]:
     current = now if now is not None else time.monotonic()
     progress = active.last_progress or {}
@@ -438,6 +458,8 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "operation": active.spec.operation,
         "testFilter": active.spec.test_filter,
         "childPid": active.process.pid,
+        "clientPid": active.spec.client_pid,
+        "clientAlive": process_is_alive(active.spec.client_pid),
         "startedAt": active.started_at,
         "elapsedSeconds": int(max(0.0, current - active.started_monotonic)),
         "phase": progress.get("phase") or "host_startup",
@@ -479,13 +501,13 @@ def stall_details(
     }
 
 
-def request_cancel(active: ActiveOperation, *, stall_seconds: float) -> None:
+def request_cancel(active: ActiveOperation, *, stall_seconds: float, reason: str = "no_observed_progress") -> None:
     atomic_json(
         active.cancel_path,
         {
             "protocolVersion": PROTOCOL_VERSION,
             "requestId": active.spec.request_id,
-            "reason": "no_observed_progress",
+            "reason": reason,
             "stallThresholdSeconds": stall_seconds,
             "requestedAt": utc_now(),
         },
@@ -606,6 +628,112 @@ def recover_stalled_operation(
     )
 
 
+def recover_abandoned_operation(
+    active: ActiveOperation,
+    *,
+    recovery_grace_seconds: float,
+    kill_grace_seconds: float,
+) -> tuple[str, dict[str, Any]]:
+    """Recover an operation whose submitting client no longer exists.
+
+    The broker only performs destructive recovery when ownership is proven:
+    request-scoped Unity cancellation when a Unity PID was reported, or process
+    group termination while the host is still in a known pre-Unity phase.
+    """
+    progress = active.last_progress or {}
+    phase = str(progress.get("phase") or "host_startup")
+    try:
+        unity_pid = int(progress.get("unityPid") or 0)
+    except (TypeError, ValueError):
+        unity_pid = 0
+
+    details = {
+        "reason": "client_process_exited",
+        "clientPid": active.spec.client_pid,
+        "activeRequest": active_snapshot(active),
+    }
+
+    if unity_pid > 0:
+        request_cancel(active, stall_seconds=0, reason="client_process_exited")
+        deadline = time.monotonic() + max(0.1, recovery_grace_seconds)
+        while active.process.poll() is None and time.monotonic() < deadline:
+            refresh_progress(active)
+            time.sleep(0.05)
+        if active.process.poll() is not None:
+            details.update(
+                recoveryAction="request_owned_unity_cancel",
+                recoveryResult="host_runner_exited",
+            )
+            return (
+                "recovered",
+                complete_operation(
+                    active,
+                    status_override="ClientAbandoned",
+                    exit_code_override=93,
+                    extra_stderr=(
+                        "RPG Kingdom Unity broker: submitting client exited; "
+                        "the request-owned Unity operation was cancelled.\n"
+                    ),
+                    details_override=details,
+                ),
+            )
+        details.update(
+            recoveryAction="request_owned_unity_cancel",
+            recoveryResult="cancel_requested_but_host_runner_still_active",
+        )
+        return (
+            "blocked",
+            response_for_status(
+                active.spec.request_id,
+                active.spec.operation,
+                "ClientAbandonRecoveryBlocked",
+                94,
+                (
+                    "RPG Kingdom Unity broker: submitting client exited; cancellation was requested "
+                    "for the request-owned Unity process, but the host runner did not exit. "
+                    "The Unity slot remains blocked for safe operator recovery."
+                ),
+                details=details,
+            ),
+        )
+
+    if phase in SAFE_PRE_UNITY_PHASES or phase == "host_startup":
+        terminate_process_group(active.process, kill_grace_seconds)
+        details.update(
+            recoveryAction="terminate_pre_unity_host_process_group",
+            recoveryResult="host_runner_terminated",
+        )
+        return (
+            "recovered",
+            complete_operation(
+                active,
+                status_override="ClientAbandoned",
+                exit_code_override=93,
+                extra_stderr=(
+                    "RPG Kingdom Unity broker: submitting client exited before Unity ownership "
+                    "was established; the request-owned host process group was terminated.\n"
+                ),
+                details_override=details,
+            ),
+        )
+
+    details.update(recoveryAction="none", recoveryResult="ownership_ambiguous")
+    return (
+        "blocked",
+        response_for_status(
+            active.spec.request_id,
+            active.spec.operation,
+            "ClientAbandonRecoveryBlocked",
+            94,
+            (
+                "RPG Kingdom Unity broker: submitting client exited, but Unity ownership "
+                "could not be proven. No destructive recovery was attempted."
+            ),
+            details=details,
+        ),
+    )
+
+
 def fail_stale_requests(workspace_root: Path) -> int:
     count = 0
     for request_path in sorted(
@@ -677,8 +805,43 @@ def main() -> int:
     pid = os.getpid()
     (broker_root / "pid").write_text(f"{pid}\n", encoding="utf-8")
     status_path = broker_root / "status.json"
+    previous_status: dict[str, Any] | None = None
+    try:
+        candidate = json.loads(status_path.read_text(encoding="utf-8"))
+        if isinstance(candidate, dict):
+            previous_status = candidate
+    except (OSError, json.JSONDecodeError):
+        pass
+
     last_result: dict[str, Any] | None = None
     active: ActiveOperation | None = None
+    inherited_owner: dict[str, Any] | None = None
+    if previous_status is not None and previous_status.get("state") in {"running", "blocked"}:
+        candidate_owner = previous_status.get("activeRequest")
+        if isinstance(candidate_owner, dict):
+            try:
+                inherited_pid = int(candidate_owner.get("childPid") or 0)
+            except (TypeError, ValueError):
+                inherited_pid = 0
+            if inherited_pid > 0 and process_is_alive(inherited_pid):
+                inherited_owner = dict(candidate_owner)
+                inherited_owner["inheritedFromBrokerPid"] = previous_status.get("pid")
+                inherited_owner["recoveryBlocked"] = True
+                inherited_owner["recoveryReason"] = "previous_broker_child_still_alive"
+            else:
+                last_result = {
+                    "requestId": candidate_owner.get("requestId"),
+                    "operation": candidate_owner.get("operation"),
+                    "status": "RecoveredStaleOwner",
+                    "exitCode": 0,
+                    "summary": None,
+                    "details": {
+                        "reason": "previous_broker_child_not_alive",
+                        "previousBrokerPid": previous_status.get("pid"),
+                        "childPid": inherited_pid or None,
+                    },
+                    "completedAt": utc_now(),
+                }
     last_status_write = 0.0
 
     def write_status(state: str, active_request: dict[str, Any] | None = None) -> None:
@@ -728,7 +891,7 @@ def main() -> int:
         last_status_write = time.monotonic()
 
     stale_count = fail_stale_requests(workspace_root)
-    write_status("ready")
+    write_status("blocked" if inherited_owner is not None else "ready", inherited_owner)
     if stale_count:
         print(f"RPG Kingdom Unity broker: rejected {stale_count} stale request(s)", file=sys.stderr)
 
@@ -736,9 +899,43 @@ def main() -> int:
         while not STOP_REQUESTED:
             now = time.monotonic()
 
+            if inherited_owner is not None:
+                try:
+                    inherited_pid = int(inherited_owner.get("childPid") or 0)
+                except (TypeError, ValueError):
+                    inherited_pid = 0
+                if inherited_pid <= 0 or not process_is_alive(inherited_pid):
+                    last_result = {
+                        "requestId": inherited_owner.get("requestId"),
+                        "operation": inherited_owner.get("operation"),
+                        "status": "RecoveredStaleOwner",
+                        "exitCode": 0,
+                        "summary": None,
+                        "details": {
+                            "reason": "inherited_host_child_exited",
+                            "previousBrokerPid": inherited_owner.get("inheritedFromBrokerPid"),
+                            "childPid": inherited_pid or None,
+                        },
+                        "completedAt": utc_now(),
+                    }
+                    inherited_owner = None
+                    write_status("ready")
+                    last_status_write = now
+                elif now - last_status_write >= 1.0:
+                    write_status("blocked", inherited_owner)
+                    last_status_write = now
+
             if active is not None:
                 refresh_progress(active, now)
                 if reap_completed_active():
+                    now = time.monotonic()
+                elif active is not None and active.spec.client_pid is not None and not process_is_alive(active.spec.client_pid):
+                    disposition, response = recover_abandoned_operation(
+                        active,
+                        recovery_grace_seconds=max(args.stall_recovery_grace_seconds, 0.1),
+                        kill_grace_seconds=args.kill_grace_seconds,
+                    )
+                    make_terminal(response, keep_active=disposition == "blocked")
                     now = time.monotonic()
                 elif active is not None and active.recovery_blocked:
                     if now - last_status_write >= 1.0:
@@ -793,6 +990,21 @@ def main() -> int:
                 if active is not None:
                     refresh_progress(active)
                     reap_completed_active()
+
+                if inherited_owner is not None:
+                    busy = response_for_status(
+                        prepared.request_id,
+                        prepared.operation,
+                        "HostBusy",
+                        87,
+                        (
+                            "RPG Kingdom Unity broker: host is blocked by an inherited request "
+                            f"{inherited_owner.get('requestId') or 'unknown'} from the previous broker lifetime"
+                        ),
+                        details={"activeRequest": inherited_owner, "recoveryState": "inherited_owner_alive"},
+                    )
+                    write_response(request_path, busy)
+                    continue
 
                 if active is not None:
                     active_description = f"{active.spec.request_id} ({active.spec.operation})"
