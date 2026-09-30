@@ -6,6 +6,11 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-/home/dex/.local/state/rpg-kingdom-sup
 STATUS_FILE="$STATE_ROOT/dashboard-update.json"
 LOCK_FILE="$STATE_ROOT/dashboard-update.lock"
 CLOUDFLARE_TASK="${RPGK_CLOUDFLARE_REFRESH_TASK:-RPG Kingdom Supervisor - Refresh Cloudflare}"
+OPERATOR_USER="${RPGK_OPERATOR_USER:-dex}"
+
+git_cmd() {
+  runuser -u "$OPERATOR_USER" -- git -C "$SUPERVISOR_ROOT" "$@"
+}
 
 mkdir -p "$STATE_ROOT"
 exec 9>"$LOCK_FILE"
@@ -36,22 +41,21 @@ previous=""
 current=""
 trap 'rc=$?; if (( rc != 0 )); then write_status "failed" "Update failed with exit code $rc" "$previous" "$current"; fi' EXIT
 
-cd "$SUPERVISOR_ROOT"
-previous="$(git rev-parse HEAD)"
+previous="$(git_cmd rev-parse HEAD)"
 write_status "running" "Fetching origin/main" "$previous" "$previous"
 
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git_cmd status --porcelain)" ]]; then
   write_status "failed" "Update refused because the Supervisor checkout has local changes" "$previous" "$previous"
   exit 20
 fi
-if [[ "$(git branch --show-current)" != "main" ]]; then
+if [[ "$(git_cmd branch --show-current)" != "main" ]]; then
   write_status "failed" "Update refused because the Supervisor checkout is not on main" "$previous" "$previous"
   exit 21
 fi
 
-git fetch --prune origin main
-git merge --ff-only origin/main
-current="$(git rev-parse HEAD)"
+git_cmd fetch --prune origin main
+git_cmd merge --ff-only origin/main
+current="$(git_cmd rev-parse HEAD)"
 write_status "restarting" "Code updated; restarting Supervisor services" "$previous" "$current"
 
 systemctl restart rpg-kingdom-supervisor.service
