@@ -38,12 +38,37 @@ chmod +x "$TMP/bin/curl"
 cat > "$TMP/fake-unity-runner.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "${1:-}" == "health" ]] || { echo "unexpected fake runner command" >&2; exit 99; }
-if [[ "${FAKE_UNITY_HEALTH_STATUS:-0}" != "0" ]]; then
-  echo "fake Unity health failure" >&2
-  exit "$FAKE_UNITY_HEALTH_STATUS"
-fi
-printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
+command="${1:-}"
+shift || true
+case "$command" in
+  health)
+    if [[ "${FAKE_UNITY_HEALTH_STATUS:-0}" != "0" ]]; then
+      echo "fake Unity health failure" >&2
+      exit "$FAKE_UNITY_HEALTH_STATUS"
+    fi
+    printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
+    ;;
+  editmode)
+    filter=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --project) shift 2 ;;
+        --filter) filter="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '%s\n' "$filter" >> "${FAKE_UNITY_SMOKE_LOG:?}"
+    if [[ "${FAKE_UNITY_SMOKE_STATUS:-0}" != "0" ]]; then
+      echo "fake Unity smoke failure" >&2
+      exit "$FAKE_UNITY_SMOKE_STATUS"
+    fi
+    printf '{"result":"Passed","total":1,"passed":1,"failed":0,"skipped":0}\n'
+    ;;
+  *)
+    echo "unexpected fake runner command: $command" >&2
+    exit 99
+    ;;
+esac
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
 
@@ -52,6 +77,8 @@ export SYMPHONY_GITHUB_TOKEN="test-token"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export RPGK_UNITY_GUARD_DRY_RUN=1
 export RPGK_UNITY_RUNNER="$TMP/fake-unity-runner.sh"
+export FAKE_UNITY_SMOKE_LOG="$TMP/smoke.log"
+: > "$FAKE_UNITY_SMOKE_LOG"
 
 run_guard() {
   local workspace="${1:-GH-123}"
@@ -122,10 +149,25 @@ set -e
 
 export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]'
 clear_lock
+: > "$FAKE_UNITY_SMOKE_LOG"
 run_guard >/dev/null
 [[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-123" ]] || { echo "Unity lock owner was not recorded" >&2; exit 1; }
+grep -Fxq 'RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources' "$FAKE_UNITY_SMOKE_LOG" || {
+  echo "required Unity preflight did not execute the real EditMode readiness smoke" >&2
+  exit 1
+}
 (cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "Unity lock was not released" >&2; exit 1; }
+
+# A failed readiness smoke releases the just-acquired lock and blocks before Codex.
+clear_lock
+: > "$FAKE_UNITY_SMOKE_LOG"
+set +e
+FAKE_UNITY_SMOKE_STATUS=12 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 79 ]] || { echo "expected failed readiness smoke to exit 79, got $status" >&2; exit 1; }
+[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "failed readiness smoke must release Unity lock" >&2; exit 1; }
 
 # A live owner remains authoritative even while the broker is between Unity requests.
 write_broker_status ready null
