@@ -153,7 +153,7 @@ record_smoke_success() {
   broker_pid="$(jq -r '.pid // empty' "$BROKER_STATUS" 2>/dev/null || true)"
   [[ "$broker_pid" =~ ^[0-9]+$ ]] || return 0
   mkdir -p "$(dirname "$UNITY_SMOKE_STATUS")"
-  temp="$UNITY_SMOKE_STATUS.tmp.$"
+  temp="$UNITY_SMOKE_STATUS.tmp.${BASHPID}"
   jq -cn --argjson pid "$broker_pid" --arg filter "$UNITY_SMOKE_FILTER" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"     '{protocolVersion:1,status:"passed",brokerPid:$pid,testFilter:$filter,validatedAt:$at}' > "$temp"
   mv "$temp" "$UNITY_SMOKE_STATUS"
 }
