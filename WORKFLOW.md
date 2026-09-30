@@ -16,6 +16,7 @@ polling:
 workspace:
   root: ~/code/rpg-kingdom-symphony-workspaces
 hooks:
+  timeout_ms: 600000
   after_create: |
     git clone https://github.com/Shashakar/RPG-Kingdom.git .
   before_run: |
