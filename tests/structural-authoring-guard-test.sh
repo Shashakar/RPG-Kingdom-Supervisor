@@ -30,9 +30,20 @@ chmod +x "$TMP/bin/curl"
 cat > "$TMP/fake-unity-runner.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'called\n' >> "$FAKE_RUNNER_CALLS"
-[[ "${1:-}" == "health" ]] || { echo "unexpected fake runner command" >&2; exit 99; }
-printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
+command="${1:-}"
+printf '%s\n' "$command" >> "$FAKE_RUNNER_CALLS"
+case "$command" in
+  health)
+    printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
+    ;;
+  editmode)
+    printf '{"result":"Passed","total":1,"passed":1,"failed":0,"skipped":0}\n'
+    ;;
+  *)
+    echo "unexpected fake runner command: $command" >&2
+    exit 99
+    ;;
+esac
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
 
