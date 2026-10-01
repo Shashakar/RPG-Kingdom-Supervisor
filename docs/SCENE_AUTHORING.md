@@ -22,6 +22,8 @@ The four authoring labels are mutually exclusive. No authoring tier implicitly g
 
 Scene-authoring authority is never inferred from issue prose, model intent, or possession of the Unity resource. Authorization and project executor capability are separate gates: the issue label grants one exact request tier, while the RPG Kingdom capability contract determines whether the declared operations/types are actually supported.
 
+To prevent an explicit human authorization from being silently lost during dispatch, the Unity preflight also checks for the standard `## Production Scene Authoring Authority` issue section. If that section is present but no `authoring:scene-*` label exists, dispatch halts before Unity readiness work or Codex launch and names the missing authorization label when it can determine the tier. The prose still does not grant authority; it only makes the configuration mismatch fail early and visibly.
+
 ## Structural capability preflight
 
 RPG Kingdom owns the reviewed capability surface in:
