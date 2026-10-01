@@ -227,13 +227,28 @@ if (( authoring_count > 1 )); then
   exit 75
 fi
 
+# Issue prose can explain granted authority, but it is never itself the authorization
+# source. Detect an explicit authority section without the matching machine-readable
+# label before we spend a Unity smoke or Codex worker lifetime.
+issue_json="$(api GET "/issues/$issue_number")"
+issue_body="$(jq -r '.body // ""' <<<"$issue_json")"
+if (( authoring_count == 0 )) && grep -Fqi '## Production Scene Authoring Authority' <<<"$issue_body"; then
+  required_label="one matching authoring:scene-* label"
+  if grep -Eqi 'explicitly grants[^\n]*Tier 1|Tier 1[^\n]*mechanical production-scene' <<<"$issue_body"; then
+    required_label="authoring:scene-mechanical"
+  elif grep -Eqi 'explicitly grants[^\n]*Tier 2|Tier 2[^\n]*mechanical-structural' <<<"$issue_body"; then
+    required_label="authoring:scene-structural"
+  fi
+  halt_issue "issue text explicitly grants production scene-authoring authority, but no machine-readable scene-authoring label is present; add $required_label before rearming"
+  exit 75
+fi
+
 structural_deferred="false"
 mkdir -p "$PREFLIGHT_DIR"
 rm -f -- "$PREFLIGHT_EVIDENCE"
 if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" ]]; then
-  issue_json="$(api GET "/issues/$issue_number")"
   issue_body_file="$(mktemp)"
-  jq -r '.body // ""' <<<"$issue_json" > "$issue_body_file"
+  printf '%s\n' "$issue_body" > "$issue_body_file"
   revision="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 
   if grep -qi 'symphony-scene-authoring-requirements' "$issue_body_file"; then
