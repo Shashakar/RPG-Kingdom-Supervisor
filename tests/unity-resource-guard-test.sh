@@ -123,6 +123,24 @@ set -e
 export RPGK_UNITY_GUARD_DRY_RUN=0
 export FAKE_UNITY_HEALTH_STATUS=0
 
+# Explicit scene-authoring prose without the machine-readable authorization label
+# must fail before Unity health/smoke or a Codex lifetime is consumed.
+clear_lock
+: > "$FAKE_UNITY_SMOKE_LOG"
+export FAKE_OTHER_ISSUE_JSON='{"state":"open","body":"## Production Scene Authoring Authority\n\nThis issue explicitly grants **Tier 1 — mechanical production-scene configuration** authority.","labels":[{"name":"symphony:ready"}]}'
+set +e
+output="$(FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' run_guard 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || { echo "expected unlabeled explicit scene authority to exit 75, got $status" >&2; exit 1; }
+grep -Fq 'add authoring:scene-mechanical before rearming' <<<"$output" || {
+  echo "unlabeled scene-authority diagnosis did not name the Tier-1 label" >&2
+  exit 1
+}
+[[ ! -s "$FAKE_UNITY_SMOKE_LOG" ]] || { echo "unlabeled scene authority must halt before Unity smoke" >&2; exit 1; }
+[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "unlabeled scene authority must not acquire Unity" >&2; exit 1; }
+export FAKE_OTHER_ISSUE_JSON=''
+
 # Tier-1 and Tier-2 labels produce distinct exact-match authorization receipts.
 clear_lock
 export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"authoring:scene-mechanical"}]'
