@@ -353,6 +353,21 @@ def main() -> int:
         assert "symphony:rearm" not in fake.issue_labels[123]
         assert "symphony:rework" not in fake.issue_labels[123]
 
+    # Comment-triggered requests are one-shot and completion receipts prevent replay.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        configure(Path(raw), fake, verdict("approved"))
+        fake.comments[123].append({
+            "id": 9001,
+            "body": review.VISUAL_REVIEW_REQUEST_MARKER + "\nRun the retrospective visual review.",
+        })
+        assert review.pending_visual_review_comment(123) == 9001
+        fake.comments[123].append({
+            "id": 9002,
+            "body": f"done\n\n{review.VISUAL_REVIEW_COMPLETE_PREFIX}9001 -->",
+        })
+        assert review.pending_visual_review_comment(123) is None
+
     # Label-triggered visual review derives the exact authorized scene and invokes only the
     # one-shot host visual-review command, then consumes the request label.
     with tempfile.TemporaryDirectory() as raw:
