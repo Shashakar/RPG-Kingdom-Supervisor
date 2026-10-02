@@ -41,9 +41,11 @@ The helper:
 
 1. opens the exact requested scene;
 2. resolves the exact requested camera when supplied, otherwise prefers `Camera.main` and then the first active enabled scene camera;
-3. renders through a temporary `RenderTexture`;
-4. writes a PNG and manifest;
-5. exits Unity.
+3. renders through a temporary `RenderTexture`; when an SRP is active it prefers Unity's native `RenderPipeline.StandardRequest` path and falls back to `Camera.Render()` only when that request is unsupported;
+4. records capture-environment diagnostics for scene renderers/materials/shaders, including camera-frustum membership, material/shader asset paths, `Shader.isSupported`, render pipeline, graphics device, and the render method used;
+5. extracts matching shader/compiler errors from `Editor.log`;
+6. writes the PNG, manifest, diagnostics, and shader log;
+7. exits Unity.
 
 The helper exists only in the staged project. The next source mirror removes it.
 
@@ -53,17 +55,27 @@ Artifacts return to:
 Logs/SymphonyUnity/<run-id>/
 ├── scene.png
 ├── manifest.json
+├── visual-diagnostics.json
+├── shader-log.txt
 ├── summary.json
 └── Editor.log
 ```
 
 `Logs/` remains ignored by RPG Kingdom.
 
+## Capture fidelity and render anomalies
+
+Rendered pixels are evidence about the capture environment, not automatically proof about the shipped scene. In particular, magenta/pink output must be corroborated before the reviewer can classify it as a PR material defect.
+
+For an attached capture the reviewer must inspect the sibling diagnostics. A material/shader failure can become `changes_required` when an in-camera-frustum renderer has a missing shader, reports `shaderSupported=false`, or the shader log contains a matching compile/unsupported-subshader failure. If the image is visibly corrupted but the relevant shaders report supported and the shader log is clean, the reviewer treats the capture as unreliable evidence and returns `blocked_or_ambiguous` with `reason=insufficient_evidence` instead of dispatching a material repair.
+
+This distinction exists because batch/staged rendering can differ from the normal Editor/player render context. The visual-review system must not turn a tooling discrepancy into a production-art repair without corroborating evidence.
+
 ## Automated review integration
 
 The normal independent review worker now accepts image evidence. Before each review, the review orchestrator scans Unity artifacts for successful capture summaries and attaches up to the four newest images whose modification time is not older than the checked-out PR head commit.
 
-This freshness requirement prevents a screenshot from an older implementation from silently influencing review of a newer head.
+This freshness requirement prevents a screenshot from an older implementation from silently influencing review of a newer head. Once at least one diagnostics-capable capture exists for the current head, legacy captures from the pre-diagnostics harness are excluded from that review so known-unreliable pixels are not mixed with corrected evidence.
 
 When visual evidence is attached, the reviewer is instructed to evaluate:
 

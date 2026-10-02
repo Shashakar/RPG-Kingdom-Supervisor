@@ -102,6 +102,8 @@ New-Item -ItemType Directory -Force -Path $StageOutput | Out-Null
 New-Item -ItemType Directory -Force -Path $SourceOutput | Out-Null
 $PngPath = Join-Path $StageOutput "scene.png"
 $ManifestPath = Join-Path $StageOutput "manifest.json"
+$DiagnosticsPath = Join-Path $StageOutput "visual-diagnostics.json"
+$ShaderLogPath = Join-Path $StageOutput "shader-log.txt"
 $LogPath = Join-Path $StageOutput "Editor.log"
 $SourceLogPath = Join-Path $SourceOutput "Editor.log"
 
@@ -113,9 +115,11 @@ $helperSource = @'
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 public static class SupervisorVisualCapture
@@ -128,8 +132,57 @@ public static class SupervisorVisualCapture
         public int width;
         public int height;
         public string image;
+        public string diagnostics;
+        public string shaderLog;
         public string capturedAtUtc;
         public string renderPipeline;
+        public string renderMethod;
+    }
+
+    [Serializable]
+    private sealed class MaterialDiagnostic
+    {
+        public string materialName;
+        public string materialAssetPath;
+        public string shaderName;
+        public string shaderAssetPath;
+        public bool shaderMissing;
+        public bool shaderSupported;
+    }
+
+    [Serializable]
+    private sealed class RendererDiagnostic
+    {
+        public string hierarchyPath;
+        public string rendererType;
+        public bool enabled;
+        public bool activeInHierarchy;
+        public bool inCameraFrustum;
+        public string prefabSource;
+        public MaterialDiagnostic[] materials;
+    }
+
+    [Serializable]
+    private sealed class CaptureDiagnostics
+    {
+        public string scene;
+        public string cameraPath;
+        public string renderPipeline;
+        public string renderMethod;
+        public string graphicsDeviceType;
+        public string graphicsDeviceName;
+        public string graphicsDeviceVersion;
+        public int graphicsMemorySizeMb;
+        public bool batchMode;
+        public int rendererCount;
+        public int frustumRendererCount;
+        public int materialCount;
+        public int missingShaderCount;
+        public int unsupportedShaderCount;
+        public int frustumMaterialCount;
+        public int frustumMissingShaderCount;
+        public int frustumUnsupportedShaderCount;
+        public RendererDiagnostic[] renderers;
     }
 
     public static void Capture()
@@ -140,6 +193,7 @@ public static class SupervisorVisualCapture
             string scenePath = GetArg(args, "-rpgkScene");
             string outputPath = GetArg(args, "-rpgkOutput");
             string manifestPath = GetArg(args, "-rpgkManifest");
+            string diagnosticsPath = GetArg(args, "-rpgkDiagnostics");
             string requestedCameraPath = GetArg(args, "-rpgkCamera", "");
             int width = int.Parse(GetArg(args, "-rpgkWidth"));
             int height = int.Parse(GetArg(args, "-rpgkHeight"));
@@ -150,16 +204,39 @@ public static class SupervisorVisualCapture
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
             Directory.CreateDirectory(Path.GetDirectoryName(manifestPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(diagnosticsPath));
 
             var previousTarget = camera.targetTexture;
             var previousActive = RenderTexture.active;
             var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
             var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            string renderMethod = "Camera.Render";
+
             try
             {
                 rt.Create();
-                camera.targetTexture = rt;
-                camera.Render();
+                var pipeline = GraphicsSettings.currentRenderPipeline;
+                if (pipeline != null)
+                {
+                    var request = new RenderPipeline.StandardRequest { destination = rt };
+                    if (RenderPipeline.SupportsRenderRequest(camera, request))
+                    {
+                        RenderPipeline.SubmitRenderRequest(camera, request);
+                        renderMethod = "RenderPipeline.StandardRequest";
+                    }
+                    else
+                    {
+                        camera.targetTexture = rt;
+                        camera.Render();
+                        renderMethod = "Camera.Render fallback (SRP render request unsupported)";
+                    }
+                }
+                else
+                {
+                    camera.targetTexture = rt;
+                    camera.Render();
+                }
+
                 RenderTexture.active = rt;
                 texture.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
                 texture.Apply(false, false);
@@ -174,6 +251,9 @@ public static class SupervisorVisualCapture
                 UnityEngine.Object.DestroyImmediate(rt);
             }
 
+            var diagnostics = BuildDiagnostics(scene, camera, renderMethod);
+            File.WriteAllText(diagnosticsPath, JsonUtility.ToJson(diagnostics, true));
+
             var manifest = new CaptureManifest
             {
                 scene = scenePath,
@@ -181,13 +261,22 @@ public static class SupervisorVisualCapture
                 width = width,
                 height = height,
                 image = Path.GetFileName(outputPath),
+                diagnostics = Path.GetFileName(diagnosticsPath),
+                shaderLog = "shader-log.txt",
                 capturedAtUtc = DateTime.UtcNow.ToString("o"),
-                renderPipeline = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null
-                    ? UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline.GetType().FullName
-                    : "BuiltIn"
+                renderPipeline = CurrentPipelineName(),
+                renderMethod = renderMethod
             };
             File.WriteAllText(manifestPath, JsonUtility.ToJson(manifest, true));
-            Debug.Log("Supervisor visual capture wrote " + outputPath);
+            Debug.Log("Supervisor visual capture wrote " + outputPath + " using " + renderMethod);
+            Debug.Log(
+                "Supervisor visual diagnostics: renderers=" + diagnostics.rendererCount +
+                " frustum=" + diagnostics.frustumRendererCount +
+                " materials=" + diagnostics.materialCount +
+                " missingShaders=" + diagnostics.missingShaderCount +
+                " unsupportedShaders=" + diagnostics.unsupportedShaderCount +
+                " frustumMissingShaders=" + diagnostics.frustumMissingShaderCount +
+                " frustumUnsupportedShaders=" + diagnostics.frustumUnsupportedShaderCount);
             EditorApplication.Exit(0);
         }
         catch (Exception ex)
@@ -195,6 +284,97 @@ public static class SupervisorVisualCapture
             Debug.LogError("Supervisor visual capture failed: " + ex);
             EditorApplication.Exit(1);
         }
+    }
+
+    private static CaptureDiagnostics BuildDiagnostics(Scene scene, Camera camera, string renderMethod)
+    {
+        var planes = GeometryUtility.CalculateFrustumPlanes(camera);
+        var rendererItems = new List<RendererDiagnostic>();
+        int materialCount = 0;
+        int missingShaderCount = 0;
+        int unsupportedShaderCount = 0;
+        int frustumRendererCount = 0;
+        int frustumMaterialCount = 0;
+        int frustumMissingShaderCount = 0;
+        int frustumUnsupportedShaderCount = 0;
+
+        foreach (var renderer in Resources.FindObjectsOfTypeAll<Renderer>()
+                     .Where(value => value != null && value.gameObject.scene == scene)
+                     .OrderBy(value => HierarchyPath(value.gameObject), StringComparer.Ordinal))
+        {
+            bool inFrustum = renderer.enabled &&
+                             renderer.gameObject.activeInHierarchy &&
+                             GeometryUtility.TestPlanesAABB(planes, renderer.bounds);
+            if (inFrustum) frustumRendererCount++;
+
+            var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+            var materialItems = new List<MaterialDiagnostic>();
+            foreach (var material in materials)
+            {
+                materialCount++;
+                Shader shader = material != null ? material.shader : null;
+                bool missing = shader == null;
+                bool supported = shader != null && shader.isSupported;
+                if (missing) missingShaderCount++;
+                else if (!supported) unsupportedShaderCount++;
+                if (inFrustum)
+                {
+                    frustumMaterialCount++;
+                    if (missing) frustumMissingShaderCount++;
+                    else if (!supported) frustumUnsupportedShaderCount++;
+                }
+
+                materialItems.Add(new MaterialDiagnostic
+                {
+                    materialName = material != null ? material.name : "<missing material>",
+                    materialAssetPath = material != null ? AssetDatabase.GetAssetPath(material) : "",
+                    shaderName = shader != null ? shader.name : "<missing shader>",
+                    shaderAssetPath = shader != null ? AssetDatabase.GetAssetPath(shader) : "",
+                    shaderMissing = missing,
+                    shaderSupported = supported
+                });
+            }
+
+            rendererItems.Add(new RendererDiagnostic
+            {
+                hierarchyPath = HierarchyPath(renderer.gameObject),
+                rendererType = renderer.GetType().FullName,
+                enabled = renderer.enabled,
+                activeInHierarchy = renderer.gameObject.activeInHierarchy,
+                inCameraFrustum = inFrustum,
+                prefabSource = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(renderer.gameObject) ?? "",
+                materials = materialItems.ToArray()
+            });
+        }
+
+        return new CaptureDiagnostics
+        {
+            scene = scene.path,
+            cameraPath = HierarchyPath(camera.gameObject),
+            renderPipeline = CurrentPipelineName(),
+            renderMethod = renderMethod,
+            graphicsDeviceType = SystemInfo.graphicsDeviceType.ToString(),
+            graphicsDeviceName = SystemInfo.graphicsDeviceName,
+            graphicsDeviceVersion = SystemInfo.graphicsDeviceVersion,
+            graphicsMemorySizeMb = SystemInfo.graphicsMemorySize,
+            batchMode = Application.isBatchMode,
+            rendererCount = rendererItems.Count,
+            frustumRendererCount = frustumRendererCount,
+            materialCount = materialCount,
+            missingShaderCount = missingShaderCount,
+            unsupportedShaderCount = unsupportedShaderCount,
+            frustumMaterialCount = frustumMaterialCount,
+            frustumMissingShaderCount = frustumMissingShaderCount,
+            frustumUnsupportedShaderCount = frustumUnsupportedShaderCount,
+            renderers = rendererItems.ToArray()
+        };
+    }
+
+    private static string CurrentPipelineName()
+    {
+        return GraphicsSettings.currentRenderPipeline != null
+            ? GraphicsSettings.currentRenderPipeline.GetType().FullName
+            : "BuiltIn";
     }
 
     private static Camera ResolveCamera(Scene scene, string requestedPath)
@@ -281,6 +461,7 @@ $unityArgs = @(
     "-rpgkScene", $ScenePath,
     "-rpgkOutput", $PngPath,
     "-rpgkManifest", $ManifestPath,
+    "-rpgkDiagnostics", $DiagnosticsPath,
     "-rpgkWidth", $Width,
     "-rpgkHeight", $Height
 )
@@ -328,11 +509,23 @@ if ($cancelled) { Fail-Runner "request-owned Unity process was cancelled" 91 }
 if ($unityExitCode -ne 0) { Fail-Runner "Unity exited with code $unityExitCode during scene capture. Inspect '$SourceLogPath'." 87 }
 if (-not (Test-Path -LiteralPath $PngPath -PathType Leaf)) { Fail-Runner "Unity completed without producing scene.png" 87 }
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { Fail-Runner "Unity completed without producing manifest.json" 87 }
+if (-not (Test-Path -LiteralPath $DiagnosticsPath -PathType Leaf)) { Fail-Runner "Unity completed without producing visual-diagnostics.json" 87 }
+
+$shaderLines = @()
+if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+    $shaderLines = @(Select-String -LiteralPath $LogPath -Pattern '(?i)(shader error|failed to compile shader|no supported subshader|shader.*not supported|shader.*unsupported)' |
+        Select-Object -First 200 |
+        ForEach-Object { $_.Line })
+}
+[System.IO.File]::WriteAllLines($ShaderLogPath, [string[]]$shaderLines, $utf8NoBom)
 
 Copy-Item -LiteralPath $PngPath -Destination (Join-Path $SourceOutput "scene.png") -Force
 Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $SourceOutput "manifest.json") -Force
+Copy-Item -LiteralPath $DiagnosticsPath -Destination (Join-Path $SourceOutput "visual-diagnostics.json") -Force
+Copy-Item -LiteralPath $ShaderLogPath -Destination (Join-Path $SourceOutput "shader-log.txt") -Force
 
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$diagnostics = Get-Content -LiteralPath $DiagnosticsPath -Raw | ConvertFrom-Json
 $summary = [ordered]@{
     result = "Captured"
     runId = $RunId
@@ -341,6 +534,16 @@ $summary = [ordered]@{
     width = [int]$manifest.width
     height = [int]$manifest.height
     image = "scene.png"
+    diagnostics = "visual-diagnostics.json"
+    shaderLog = "shader-log.txt"
+    renderMethod = [string]$manifest.renderMethod
+    renderPipeline = [string]$manifest.renderPipeline
+    graphicsDeviceType = [string]$diagnostics.graphicsDeviceType
+    missingShaderCount = [int]$diagnostics.missingShaderCount
+    unsupportedShaderCount = [int]$diagnostics.unsupportedShaderCount
+    frustumMissingShaderCount = [int]$diagnostics.frustumMissingShaderCount
+    frustumUnsupportedShaderCount = [int]$diagnostics.frustumUnsupportedShaderCount
+    shaderLogMatchCount = @($shaderLines).Count
     artifactPath = $SourceOutput
     unityVersion = $UnityVersion
 }
