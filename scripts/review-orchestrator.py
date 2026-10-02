@@ -241,7 +241,7 @@ def fresh_visual_capture_images(workspace: Path) -> list[Path]:
     except (RuntimeError, ValueError):
         return []
 
-    candidates: list[tuple[float, Path]] = []
+    candidates: list[tuple[float, Path, bool]] = []
     unity_root = workspace / "Logs" / "SymphonyUnity"
     if not unity_root.is_dir():
         return []
@@ -255,6 +255,8 @@ def fresh_visual_capture_images(workspace: Path) -> list[Path]:
             continue
         image_name = str(summary.get("image") or "scene.png")
         image_path = summary_path.parent / image_name
+        diagnostics_name = str(summary.get("diagnostics") or "visual-diagnostics.json")
+        diagnostics_path = summary_path.parent / diagnostics_name
         try:
             modified = image_path.stat().st_mtime
         except OSError:
@@ -263,10 +265,16 @@ def fresh_visual_capture_images(workspace: Path) -> list[Path]:
             continue
         if image_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
             continue
-        candidates.append((modified, image_path))
+        candidates.append((modified, image_path, diagnostics_path.is_file()))
+
+    # Once a diagnostics-capable capture exists for this PR head, do not mix it with legacy
+    # captures produced by the pre-fidelity harness. Mixing old known-bad pixels into a new review
+    # would reintroduce exactly the false-positive path the diagnostics contract is meant to close.
+    if any(has_diagnostics for _, _, has_diagnostics in candidates):
+        candidates = [item for item in candidates if item[2]]
 
     candidates.sort(key=lambda item: item[0])
-    return [path for _, path in candidates[-4:]]
+    return [path for _, path, _ in candidates[-4:]]
 
 
 def run_reviewer(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
