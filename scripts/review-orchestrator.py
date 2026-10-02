@@ -675,11 +675,23 @@ def once() -> None:
         try:
             process_visual_review_request(issue)
         except Exception as exc:
+            number = int(issue.get("number", 0) or 0)
+            message = f"{type(exc).__name__}: {exc}"
             print(
-                f"review-orchestrator: GH-{issue.get('number')} visual review failed: {exc}",
+                f"review-orchestrator: GH-{number} visual review failed: {message}",
                 file=sys.stderr,
                 flush=True,
             )
+            if number > 0:
+                request_id = pending_visual_review_comment(number)
+                complete_visual_review_request(
+                    number,
+                    request_id,
+                    "Retrospective Unity visual review failed before producing a verdict. "
+                    f"Failure: `{message[:700]}`. "
+                    "No implementation worker, repair, or merge was started. "
+                    "After resolving the reported condition, submit a new visual-review request.",
+                )
 
     for issue in reviewable_issues():
         try:
