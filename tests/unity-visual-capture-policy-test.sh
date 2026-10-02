@@ -117,6 +117,12 @@ fi
 grep -Fq 'run-unity-capture.ps1' "$ROOT/scripts/unity-runner-host.sh"
 grep -Fq 'SupervisorVisualCapture.Capture' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'RenderTexture' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'RenderPipeline.StandardRequest' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'RenderPipeline.SupportsRenderRequest' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'visual-diagnostics.json' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'shader-log.txt' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'shaderSupported' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'frustumUnsupportedShaderCount' "$ROOT/scripts/windows/run-unity-capture.ps1"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
   exit 1
