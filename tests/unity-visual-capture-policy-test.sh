@@ -31,6 +31,11 @@ operation="$1"
 shift
 scene=""
 camera=""
+view_name=""
+position=""
+rotation=""
+look_at=""
+fov=""
 width=""
 height=""
 project=""
@@ -39,6 +44,11 @@ while [[ $# -gt 0 ]]; do
     --project) project="$2"; shift 2 ;;
     --scene) scene="$2"; shift 2 ;;
     --camera) camera="$2"; shift 2 ;;
+    --view-name) view_name="$2"; shift 2 ;;
+    --position) position="$2"; shift 2 ;;
+    --rotation) rotation="$2"; shift 2 ;;
+    --look-at) look_at="$2"; shift 2 ;;
+    --fov) fov="$2"; shift 2 ;;
     --width) width="$2"; shift 2 ;;
     --height) height="$2"; shift 2 ;;
     --filter) shift 2 ;;
@@ -52,6 +62,11 @@ fi
 [[ "$operation" == "capture" ]] || exit 64
 [[ "$scene" == "Assets/RPGKingdom/Scenes/PlaytestScene.unity" ]] || exit 65
 [[ "$camera" == "World/Cameras/Review Camera" ]] || exit 66
+[[ "$view_name" == "exit-approach" ]] || exit 68
+[[ "$position" == "1,2,3" ]] || exit 69
+[[ "$look_at" == "World/BlockedExit" ]] || exit 70
+[[ -z "$rotation" ]] || exit 71
+[[ "$fov" == "55" || "$fov" == "55.0" ]] || exit 72
 [[ "$width" == "1600" && "$height" == "900" ]] || exit 67
 printf '{"result":"Captured","scene":"%s","cameraPath":"%s","width":%s,"height":%s,"image":"scene.png","artifactPath":"%s/Logs/SymphonyUnity/fake"}\n' \
   "$scene" "$camera" "$width" "$height" "$project"
@@ -86,13 +101,17 @@ output="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" capture \
   --project "$WORKSPACE" \
   --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity \
   --camera 'World/Cameras/Review Camera' \
+  --view-name 'exit-approach' \
+  --position '1,2,3' \
+  --look-at 'World/BlockedExit' \
+  --fov 55 \
   --width 1600 \
   --height 900)"
 grep -Fq '"result":"Captured"' <<<"$output"
 grep -Fq '"width":1600' <<<"$output"
 
 request="$(find "$BROKER_DIR/history/requests" -type f -name '*.json' | head -n 1)"
-jq -e '.operation == "capture" and .scenePath == "Assets/RPGKingdom/Scenes/PlaytestScene.unity" and .cameraPath == "World/Cameras/Review Camera" and .captureWidth == 1600 and .captureHeight == 900' "$request" >/dev/null
+jq -e '.operation == "capture" and .scenePath == "Assets/RPGKingdom/Scenes/PlaytestScene.unity" and .cameraPath == "World/Cameras/Review Camera" and .viewName == "exit-approach" and .cameraPosition == "1,2,3" and .lookAtPath == "World/BlockedExit" and .fieldOfView == 55 and .captureWidth == 1600 and .captureHeight == 900' "$request" >/dev/null
 
 set +e
 missing_scene="$(env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" capture --project "$WORKSPACE" 2>&1)"
@@ -123,6 +142,10 @@ grep -Fq 'visual-diagnostics.json' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'shader-log.txt' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'shaderSupported' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'frustumUnsupportedShaderCount' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'ForceSynchronousImport' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'Shader.WarmupAllShaders' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'Remove-Item -LiteralPath $stageLibrary -Recurse -Force' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'ApplyRequestedCameraPose' "$ROOT/scripts/windows/run-unity-capture.ps1"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
   exit 1
