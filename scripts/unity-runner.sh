@@ -12,7 +12,7 @@ Usage:
   unity-runner.sh health [--project PATH]
   unity-runner.sh editmode [--project PATH] [--filter FILTER]
   unity-runner.sh playmode [--project PATH] [--filter FILTER]
-  unity-runner.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--width PX] [--height PX]
+  unity-runner.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--reuse-stage-library] [--width PX] [--height PX]
 
 Environment overrides:
   RPGK_SYMPHONY_WORKSPACE_ROOT
@@ -37,6 +37,7 @@ camera_position=""
 camera_rotation=""
 look_at_path=""
 field_of_view="60"
+reuse_stage_library="false"
 capture_width="1920"
 capture_height="1080"
 
@@ -67,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --rotation) camera_rotation="$2"; shift 2 ;;
     --look-at) look_at_path="$2"; shift 2 ;;
     --fov) field_of_view="$2"; shift 2 ;;
+    --reuse-stage-library) reuse_stage_library="true"; shift ;;
     --width)
       [[ $# -ge 2 ]] || { echo "Missing value for --width" >&2; exit 64; }
       capture_width="$2"
@@ -157,11 +159,12 @@ jq -cn \
   --arg cameraRotation "$camera_rotation" \
   --arg lookAtPath "$look_at_path" \
   --arg fieldOfView "$field_of_view" \
+  --argjson reuseStageLibrary "$reuse_stage_library" \
   --argjson captureWidth "$capture_width" \
   --argjson captureHeight "$capture_height" \
   --arg requestedAt "$requested_at" \
   --argjson clientPid "$$" \
-  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,scenePath:$scenePath,cameraPath:$cameraPath,viewName:$viewName,cameraPosition:$cameraPosition,cameraRotation:$cameraRotation,lookAtPath:$lookAtPath,fieldOfView:($fieldOfView|tonumber),captureWidth:$captureWidth,captureHeight:$captureHeight,requestedAt:$requestedAt,clientPid:$clientPid}' \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,scenePath:$scenePath,cameraPath:$cameraPath,viewName:$viewName,cameraPosition:$cameraPosition,cameraRotation:$cameraRotation,lookAtPath:$lookAtPath,fieldOfView:($fieldOfView|tonumber),reuseStageLibrary:$reuseStageLibrary,captureWidth:$captureWidth,captureHeight:$captureHeight,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$temp_request"
