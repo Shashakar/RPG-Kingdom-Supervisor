@@ -28,6 +28,7 @@ ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
+    "cleaning_capture_library",
     "staging",
     "staging_assets",
     "staging_packages",
