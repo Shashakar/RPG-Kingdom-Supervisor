@@ -179,6 +179,7 @@ grep -Fxq 'RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.Ow
 
 # Dry-run host review may intentionally skip the readiness smoke so a clean visual capture can
 # rebuild the staged Library after acquiring the exclusive Unity lock.
+export RPGK_UNITY_GUARD_DRY_RUN=1
 clear_lock
 : > "$FAKE_UNITY_SMOKE_LOG"
 RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE=1 run_guard >/dev/null
