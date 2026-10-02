@@ -55,6 +55,7 @@ Phase 4 turns that scheduling contract into real Unity validation:
 - PowerShell/robocopy mirrors `Assets`, `Packages`, and `ProjectSettings` into a persistent Windows-local staging project;
 - the staged `Library/` cache survives across issues;
 - Unity Test Framework runs EditMode or PlayMode tests with optional narrow filters;
+- typed scene capture renders exact scene/camera views into ignored PNG/manifest artifacts, and fresh captures are attached to independent automated review so visual findings can be grounded in rendered pixels;
 - `results.xml`, `Editor.log`, and `summary.json` return to the ignored `Logs/SymphonyUnity/` directory;
 - active validation records phase/artifact progress so a long-running test can be distinguished from a request that has stopped moving;
 - active Symphony worker telemetry provides the durable Unity request lease; transient runner-shell exits no longer cancel live worker validation, while genuinely ended workers are still reclaimed safely;
@@ -167,6 +168,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) — Phase 2 policy and benchmark.
 - [`docs/PHASE3_UNITY_SCHEDULING.md`](docs/PHASE3_UNITY_SCHEDULING.md) — Phase 3 Unity resource/validation scheduling contract.
 - [`docs/PHASE4_UNITY_RUNNER.md`](docs/PHASE4_UNITY_RUNNER.md) — Phase 4 host broker, Windows staging, and Unity Test Framework execution contract.
+- [`docs/UNITY_VISUAL_REVIEW.md`](docs/UNITY_VISUAL_REVIEW.md) — bounded scene capture, rendered evidence, freshness, and automated visual-review integration.
 - [`docs/UNITY_STALL_RECOVERY.md`](docs/UNITY_STALL_RECOVERY.md) — progress-aware Unity stall classification and ownership-safe recovery contract.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md) — model-turn execution diagnostics and localhost dashboard usage.
 
