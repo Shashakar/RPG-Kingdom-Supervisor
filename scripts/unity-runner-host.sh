@@ -173,7 +173,7 @@ if [[ "$lock_owner" != "$issue_identifier" ]]; then
   exit 83
 fi
 
-run_id="$(date -u +%Y%m%dT%H%M%SZ)-${command}-$"
+run_id="$(date -u +%Y%m%dT%H%M%SZ)-${command}-$$"
 
 if [[ "$command" == "capture" ]]; then
   [[ -n "$scene_path" && "$scene_path" == Assets/*.unity ]] || {
