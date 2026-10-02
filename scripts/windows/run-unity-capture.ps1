@@ -179,6 +179,9 @@ public static class SupervisorVisualCapture
         public int materialCount;
         public int missingShaderCount;
         public int unsupportedShaderCount;
+        public int frustumMaterialCount;
+        public int frustumMissingShaderCount;
+        public int frustumUnsupportedShaderCount;
         public RendererDiagnostic[] renderers;
     }
 
@@ -271,7 +274,9 @@ public static class SupervisorVisualCapture
                 " frustum=" + diagnostics.frustumRendererCount +
                 " materials=" + diagnostics.materialCount +
                 " missingShaders=" + diagnostics.missingShaderCount +
-                " unsupportedShaders=" + diagnostics.unsupportedShaderCount);
+                " unsupportedShaders=" + diagnostics.unsupportedShaderCount +
+                " frustumMissingShaders=" + diagnostics.frustumMissingShaderCount +
+                " frustumUnsupportedShaders=" + diagnostics.frustumUnsupportedShaderCount);
             EditorApplication.Exit(0);
         }
         catch (Exception ex)
@@ -289,6 +294,9 @@ public static class SupervisorVisualCapture
         int missingShaderCount = 0;
         int unsupportedShaderCount = 0;
         int frustumRendererCount = 0;
+        int frustumMaterialCount = 0;
+        int frustumMissingShaderCount = 0;
+        int frustumUnsupportedShaderCount = 0;
 
         foreach (var renderer in Resources.FindObjectsOfTypeAll<Renderer>()
                      .Where(value => value != null && value.gameObject.scene == scene)
@@ -309,6 +317,12 @@ public static class SupervisorVisualCapture
                 bool supported = shader != null && shader.isSupported;
                 if (missing) missingShaderCount++;
                 else if (!supported) unsupportedShaderCount++;
+                if (inFrustum)
+                {
+                    frustumMaterialCount++;
+                    if (missing) frustumMissingShaderCount++;
+                    else if (!supported) frustumUnsupportedShaderCount++;
+                }
 
                 materialItems.Add(new MaterialDiagnostic
                 {
@@ -349,6 +363,9 @@ public static class SupervisorVisualCapture
             materialCount = materialCount,
             missingShaderCount = missingShaderCount,
             unsupportedShaderCount = unsupportedShaderCount,
+            frustumMaterialCount = frustumMaterialCount,
+            frustumMissingShaderCount = frustumMissingShaderCount,
+            frustumUnsupportedShaderCount = frustumUnsupportedShaderCount,
             renderers = rendererItems.ToArray()
         };
     }
@@ -524,6 +541,8 @@ $summary = [ordered]@{
     graphicsDeviceType = [string]$diagnostics.graphicsDeviceType
     missingShaderCount = [int]$diagnostics.missingShaderCount
     unsupportedShaderCount = [int]$diagnostics.unsupportedShaderCount
+    frustumMissingShaderCount = [int]$diagnostics.frustumMissingShaderCount
+    frustumUnsupportedShaderCount = [int]$diagnostics.frustumUnsupportedShaderCount
     shaderLogMatchCount = @($shaderLines).Count
     artifactPath = $SourceOutput
     unityVersion = $UnityVersion
