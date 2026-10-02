@@ -621,6 +621,27 @@ def _telemetry_activity(events: list[dict[str, Any]], runs: list[dict[str, Any]]
     result: list[dict[str, Any]] = []
     for event in events:
         event_type = str(event.get("eventType") or "")
+        if event_type == "visual_review":
+            stage = str(event.get("stage") or "unknown").replace("_", " ")
+            title_map = {
+                "detected": "Visual review request detected",
+                "capture_starting": "Visual review capture starting",
+                "completed": "Visual review completed",
+                "failed": "Visual review failed",
+            }
+            result.append({
+                "id": f"telemetry:visual_review:{event.get('issue')}:{event.get('observedAt')}",
+                "observedAt": event.get("observedAt"),
+                "category": "review",
+                "kind": "visual_review",
+                "issue": event.get("issue"),
+                "identifier": event.get("identifier"),
+                "prNumber": event.get("prNumber"),
+                "title": title_map.get(str(event.get("stage") or ""), f"Visual review — {stage}"),
+                "summary": event.get("summary"),
+                "stage": event.get("stage"),
+            })
+            continue
         if event_type not in {"worker_started", "worker_completed"}:
             continue
         role = str(event.get("role") or "worker")

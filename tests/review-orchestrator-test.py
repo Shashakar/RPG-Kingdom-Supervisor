@@ -401,8 +401,9 @@ def main() -> int:
             review.subprocess.run = original_run
         assert review.visual_review_scene(visual_issue) == "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
         assert len(calls) == 1
-        assert calls[0][0].endswith("scripts/visual-review-pr.sh")
-        assert calls[0][1:] == [
+        assert calls[0][0] == "bash"
+        assert calls[0][1].endswith("scripts/visual-review-pr.sh")
+        assert calls[0][2:] == [
             "--issue", "123", "--pr", "77",
             "--scene", "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
         ]

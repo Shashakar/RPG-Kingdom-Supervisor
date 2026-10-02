@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import fcntl
 import subprocess
 import sys
 import time
@@ -64,6 +65,32 @@ def remove_label(number: int, name: str) -> None:
 
 def post_comment(number: int, text: str) -> None:
     api("POST", f"/issues/{number}/comments", {"body": text})
+
+
+def record_visual_review_event(issue_number: int, stage: str, *, pr_number: int | None = None, summary: str | None = None) -> None:
+    """Append a local cross-system activity event without making telemetry availability a control dependency."""
+    path = STATE_ROOT / "telemetry" / "events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "protocolVersion": 1,
+        "eventType": "visual_review",
+        "observedAt": datetime.now(timezone.utc).isoformat(),
+        "issue": issue_number,
+        "identifier": f"GH-{issue_number}",
+        "stage": stage,
+        "prNumber": pr_number,
+        "summary": summary,
+    }
+    try:
+        lock_path = Path(str(path) + ".lock")
+        with lock_path.open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+    except OSError:
+        pass
 
 
 def latest_state(number: int) -> dict[str, Any]:
@@ -598,6 +625,7 @@ def complete_visual_review_request(issue_number: int, comment_request_id: int | 
 def process_visual_review_request(issue: dict[str, Any]) -> None:
     number = int(issue["number"])
     comment_request_id = pending_visual_review_comment(number)
+    record_visual_review_event(number, "detected", summary="One-shot retrospective visual-review request detected.")
     if "symphony:human-review" not in labels(issue):
         post_comment(
             number,
@@ -629,15 +657,28 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
     if pr_number <= 0:
         raise RuntimeError("durable human-review state does not identify a PR")
     scene = visual_review_scene(issue)
+    record_visual_review_event(
+        number,
+        "capture_starting",
+        pr_number=pr_number,
+        summary=f"Acquiring Unity and capturing {scene} for retrospective review.",
+    )
 
     subprocess.run(
         [
+            "bash",
             str(SUPERVISOR_ROOT / "scripts/visual-review-pr.sh"),
             "--issue", str(number),
             "--pr", str(pr_number),
             "--scene", scene,
         ],
         check=True,
+    )
+    record_visual_review_event(
+        number,
+        "completed",
+        pr_number=pr_number,
+        summary="Retrospective Unity visual review completed.",
     )
     complete_visual_review_request(
         number,
@@ -683,6 +724,11 @@ def once() -> None:
                 flush=True,
             )
             if number > 0:
+                record_visual_review_event(
+                    number,
+                    "failed",
+                    summary=f"Retrospective visual review failed: {message[:500]}",
+                )
                 request_id = pending_visual_review_comment(number)
                 complete_visual_review_request(
                     number,
