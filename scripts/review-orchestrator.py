@@ -666,6 +666,7 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
 
     subprocess.run(
         [
+            "bash",
             str(SUPERVISOR_ROOT / "scripts/visual-review-pr.sh"),
             "--issue", str(number),
             "--pr", str(pr_number),
