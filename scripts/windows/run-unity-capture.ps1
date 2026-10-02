@@ -73,6 +73,48 @@ function Invoke-ProjectMirror {
     if ($LASTEXITCODE -ge 8) { Fail-Runner "robocopy failed for '$Source' -> '$Destination' with exit code $LASTEXITCODE" 84 }
 }
 
+function Remove-DirectoryTreeRobust {
+    param([string]$Path, [int]$Attempts = 3)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return
+    }
+
+    $parent = Split-Path -Parent $Path
+    $empty = Join-Path $parent (".symphony-empty-" + $PID + "-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $empty | Out-Null
+
+    try {
+        for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+            # robocopy handles deep/long Unity PackageCache trees more reliably than
+            # PowerShell's recursive Remove-Item. Mirroring an empty directory deletes
+            # the contents without racing PowerShell's directory enumeration.
+            & robocopy.exe $empty $Path /MIR /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+            $mirrorExitCode = $LASTEXITCODE
+
+            # Robocopy exit codes below 8 are success/non-fatal states.
+            if ($mirrorExitCode -ge 8) {
+                Start-Sleep -Milliseconds (250 * $attempt)
+                continue
+            }
+
+            & cmd.exe /d /c "rmdir /s /q `"$Path`"" | Out-Null
+            if (-not (Test-Path -LiteralPath $Path)) {
+                return
+            }
+
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $empty -PathType Container) {
+            & cmd.exe /d /c "rmdir /s /q `"$empty`"" | Out-Null
+        }
+    }
+
+    Fail-Runner "could not clean staged Unity Library after $Attempts attempts: '$Path'" 85
+}
+
 if ([string]::IsNullOrWhiteSpace($UnityPath)) {
     $UnityPath = Join-Path ${env:ProgramFiles} "Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe"
 }
@@ -99,7 +141,7 @@ New-Item -ItemType Directory -Force -Path $StageProject | Out-Null
 $stageLibrary = Join-Path $StageProject "Library"
 if (-not $ReuseStageLibrary -and (Test-Path -LiteralPath $stageLibrary -PathType Container)) {
     Write-ProgressState -Phase "cleaning_capture_library"
-    Remove-Item -LiteralPath $stageLibrary -Recurse -Force
+    Remove-DirectoryTreeRobust -Path $stageLibrary
 }
 Write-ProgressState -Phase "staging"
 foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
