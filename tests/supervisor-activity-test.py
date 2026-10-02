@@ -213,6 +213,11 @@ with tempfile.TemporaryDirectory() as temp_dir:
             "effort": "medium", "startedAt": iso(-60), "endedAt": iso(-10), "outcome": "agent-review",
             "tokenUsage": {"status": "available", "totalTokens": 1234},
         },
+        {
+            "eventType": "visual_review", "observedAt": iso(-5), "issue": 107, "identifier": "GH-107",
+            "stage": "capture_starting", "prNumber": 108,
+            "summary": "Acquiring Unity and capturing PlaytestScene for retrospective review.",
+        },
     ]
 
     original_active = activity.supervisor_telemetry.active_workers
@@ -244,6 +249,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
     assert completed["unityRequestIds"] == ["unity-1"]
     handoff = next(item for item in combined["activity"] if item.get("id") == "git:GH-106:git-1")
     assert handoff["prNumber"] == 107 and handoff["headSha"] == "feedfacecafebeef"
+    visual = next(item for item in combined["activity"] if item.get("kind") == "visual_review")
+    assert visual["category"] == "review"
+    assert visual["title"] == "Visual review capture starting"
+    assert visual["issue"] == 107 and visual["prNumber"] == 108
 
 
 # Cached lifecycle reads must never wait for GitHub. The first read warms asynchronously,
