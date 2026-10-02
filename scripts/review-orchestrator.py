@@ -586,6 +586,15 @@ def visual_review_scene(issue: dict[str, Any]) -> str:
     return scene
 
 
+def complete_visual_review_request(issue_number: int, comment_request_id: int | None, message: str) -> None:
+    remove_label(issue_number, "symphony:visual-review")
+    if comment_request_id is not None:
+        post_comment(
+            issue_number,
+            message + "\n\n" + f"{VISUAL_REVIEW_COMPLETE_PREFIX}{comment_request_id} -->",
+        )
+
+
 def process_visual_review_request(issue: dict[str, Any]) -> None:
     number = int(issue["number"])
     comment_request_id = pending_visual_review_comment(number)
@@ -595,7 +604,11 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
             "Retrospective visual review request was rejected because the issue is not at "
             "\`symphony:human-review\`. No implementation or review worker was started.",
         )
-        remove_label(number, "symphony:visual-review")
+        complete_visual_review_request(
+            number,
+            comment_request_id,
+            "Retrospective Unity visual review request was consumed without running.",
+        )
         return
 
     prior = latest_state(number)
@@ -605,7 +618,11 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
             "Retrospective visual review request was rejected because durable review state is "
             "not at \`human_review\`. No implementation or review worker was started.",
         )
-        remove_label(number, "symphony:visual-review")
+        complete_visual_review_request(
+            number,
+            comment_request_id,
+            "Retrospective Unity visual review request was consumed without running.",
+        )
         return
 
     pr_number = int(prior.get("prNumber", 0))
@@ -622,13 +639,11 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         ],
         check=True,
     )
-    remove_label(number, "symphony:visual-review")
-    if comment_request_id is not None:
-        post_comment(
-            number,
-            "Retrospective Unity visual review request completed.\n\n"
-            f"{VISUAL_REVIEW_COMPLETE_PREFIX}{comment_request_id} -->",
-        )
+    complete_visual_review_request(
+        number,
+        comment_request_id,
+        "Retrospective Unity visual review request completed.",
+    )
 
 
 def lifecycle_issues(label: str) -> list[dict[str, Any]]:
