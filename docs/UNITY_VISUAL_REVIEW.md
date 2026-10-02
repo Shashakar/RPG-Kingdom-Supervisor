@@ -91,7 +91,12 @@ bash ~/src/RPG-Kingdom-Supervisor/scripts/visual-review-pr.sh \
 
 An exact camera path and dimensions may be supplied with the same `--camera`, `--width`, and `--height` options as the normal capture command.
 
-The same path can be requested remotely by adding `symphony:visual-review` to an issue already at `symphony:human-review`. The host review-orchestrator consumes that one-shot label, derives the exact scene from the issue's `symphony-scene-authoring-requirements` block, runs the capture/review command, and removes the request label after successful completion. No implementation dispatch label is added.
+The same path can be requested remotely in either of two one-shot forms while the issue is already at `symphony:human-review`:
+
+- add `symphony:visual-review`; or
+- add an issue comment containing `<!-- rpgk-visual-review-request -->`.
+
+The host review-orchestrator consumes the request, derives the exact scene from the issue's `symphony-scene-authoring-requirements` block, and runs the capture/review command. Label requests remove the request label after successful completion. Comment requests receive a completion receipt tied to the request comment ID, so restart/polling cannot replay the same request. No implementation dispatch label is added.
 
 This path:
 
