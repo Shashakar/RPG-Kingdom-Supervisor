@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "editmode", "playmode"}
+ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
@@ -41,7 +41,11 @@ class RequestSpec:
     request_id: str
     operation: str
     test_filter: str
-    workspace: Path
+    scene_path: str = ""
+    camera_path: str = ""
+    capture_width: int = 1920
+    capture_height: int = 1080
+    workspace: Path = Path(".")
     client_pid: int | None = None
     worker_run_id: str | None = None
     worker_pid: int | None = None
@@ -203,6 +207,17 @@ def prepare_request(
         request_id = str(request.get("requestId", request_id))
         operation = str(request.get("operation", ""))
         test_filter = str(request.get("testFilter", ""))
+        scene_path = str(request.get("scenePath", ""))
+        camera_path = str(request.get("cameraPath", ""))
+        capture_width = int(request.get("captureWidth", 1920))
+        capture_height = int(request.get("captureHeight", 1080))
+        if operation == "capture":
+            if not scene_path.startswith("Assets/") or not scene_path.endswith(".unity"):
+                raise ValueError("capture requires scenePath under Assets ending in .unity")
+            if capture_width < 320 or capture_width > 4096 or capture_height < 180 or capture_height > 4096:
+                raise ValueError("capture dimensions are outside supported bounds")
+        elif scene_path or camera_path:
+            raise ValueError("scenePath/cameraPath are valid only for capture")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -262,6 +277,10 @@ def prepare_request(
         request_id=request_id,
         operation=operation,
         test_filter=test_filter,
+        scene_path=scene_path,
+        camera_path=camera_path,
+        capture_width=capture_width,
+        capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
     )
@@ -275,6 +294,14 @@ def start_operation(
     command = ["bash", str(host_runner), spec.operation, "--project", str(spec.workspace)]
     if spec.test_filter:
         command.extend(["--filter", spec.test_filter])
+    if spec.operation == "capture":
+        command.extend([
+            "--scene", spec.scene_path,
+            "--width", str(spec.capture_width),
+            "--height", str(spec.capture_height),
+        ])
+        if spec.camera_path:
+            command.extend(["--camera", spec.camera_path])
 
     progress_path, cancel_path = operation_paths(spec)
     progress_path.parent.mkdir(parents=True, exist_ok=True)
@@ -498,6 +525,10 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "issue": active.spec.workspace.name,
         "operation": active.spec.operation,
         "testFilter": active.spec.test_filter,
+        "scenePath": active.spec.scene_path or None,
+        "cameraPath": active.spec.camera_path or None,
+        "captureWidth": active.spec.capture_width if active.spec.operation == "capture" else None,
+        "captureHeight": active.spec.capture_height if active.spec.operation == "capture" else None,
         "childPid": active.process.pid,
         "clientPid": active.spec.client_pid,
         "clientAlive": process_is_alive(active.spec.client_pid),
