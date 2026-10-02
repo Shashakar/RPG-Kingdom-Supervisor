@@ -602,7 +602,7 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         post_comment(
             number,
             "Retrospective visual review request was rejected because the issue is not at "
-            "\`symphony:human-review\`. No implementation or review worker was started.",
+            "`symphony:human-review`. No implementation or review worker was started.",
         )
         complete_visual_review_request(
             number,
@@ -616,7 +616,7 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         post_comment(
             number,
             "Retrospective visual review request was rejected because durable review state is "
-            "not at \`human_review\`. No implementation or review worker was started.",
+            "not at `human_review`. No implementation or review worker was started.",
         )
         complete_visual_review_request(
             number,
