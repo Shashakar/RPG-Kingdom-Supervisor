@@ -24,6 +24,7 @@ POLL_SECONDS = float(os.environ.get("RPGK_REVIEW_POLL_SECONDS", "15"))
 MARKER = "<!-- rpgk-review-state\n"
 VISUAL_REVIEW_REQUEST_MARKER = "<!-- rpgk-visual-review-request -->"
 VISUAL_REVIEW_COMPLETE_PREFIX = "<!-- rpgk-visual-review-complete:"
+VISUAL_REVIEW_REQUIREMENTS_MARKER = "<!-- symphony-visual-review-requirements"
 
 
 def api(method: str, path: str, body: Any | None = None) -> Any:
@@ -611,6 +612,55 @@ def pending_visual_review_comment(issue_number: int) -> int | None:
     return None
 
 
+def visual_review_profile(issue: dict[str, Any]) -> dict[str, Any] | None:
+    body = str(issue.get("body") or "")
+    start = body.find(VISUAL_REVIEW_REQUIREMENTS_MARKER)
+    if start < 0:
+        return None
+    payload_start = body.find("{", start + len(VISUAL_REVIEW_REQUIREMENTS_MARKER))
+    end = body.find("-->", payload_start)
+    if payload_start < 0 or end < 0:
+        raise RuntimeError("visual-review requirements block is malformed")
+    try:
+        profile = json.loads(body[payload_start:end].strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"visual-review requirements JSON is invalid: {exc}") from exc
+    if not isinstance(profile, dict):
+        raise RuntimeError("visual-review requirements must be a JSON object")
+    views = profile.get("views")
+    if not isinstance(views, list) or not (1 <= len(views) <= 4):
+        raise RuntimeError("visual-review requirements must define 1 to 4 views")
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(views):
+        if not isinstance(raw, dict):
+            raise RuntimeError(f"visual-review view {index + 1} must be an object")
+        name = str(raw.get("name") or f"view-{index + 1}").strip()
+        camera = str(raw.get("camera") or "").strip()
+        look_at = str(raw.get("lookAt") or "").strip()
+        position = raw.get("position")
+        rotation = raw.get("rotation")
+        fov = float(raw.get("fov", 60.0))
+        if not (1.0 < fov < 179.0):
+            raise RuntimeError(f"visual-review view {name!r} has invalid fov")
+        if position is not None:
+            if not isinstance(position, list) or len(position) != 3 or not all(isinstance(v, (int, float)) for v in position):
+                raise RuntimeError(f"visual-review view {name!r} position must be [x,y,z]")
+        if rotation is not None:
+            if not isinstance(rotation, list) or len(rotation) != 3 or not all(isinstance(v, (int, float)) for v in rotation):
+                raise RuntimeError(f"visual-review view {name!r} rotation must be [x,y,z]")
+        if rotation is not None and look_at:
+            raise RuntimeError(f"visual-review view {name!r} may specify rotation or lookAt, not both")
+        normalized.append({
+            "name": name,
+            "camera": camera,
+            "position": position,
+            "rotation": rotation,
+            "lookAt": look_at,
+            "fov": fov,
+        })
+    return {"views": normalized}
+
+
 def visual_review_scene(issue: dict[str, Any]) -> str:
     body = str(issue.get("body") or "")
     marker = "<!-- symphony-scene-authoring-requirements"
@@ -678,23 +728,32 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
     if pr_number <= 0:
         raise RuntimeError("durable human-review state does not identify a PR")
     scene = visual_review_scene(issue)
+    profile = visual_review_profile(issue)
     record_visual_review_event(
         number,
         "capture_starting",
         pr_number=pr_number,
-        summary=f"Acquiring Unity and capturing {scene} for retrospective review.",
+        summary=(
+            f"Acquiring Unity and capturing {scene} for retrospective review"
+            + (f" across {len(profile['views'])} configured views." if profile else ".")
+        ),
     )
 
-    subprocess.run(
-        [
-            "bash",
-            str(SUPERVISOR_ROOT / "scripts/visual-review-pr.sh"),
-            "--issue", str(number),
-            "--pr", str(pr_number),
-            "--scene", scene,
-        ],
-        check=True,
-    )
+    command = [
+        "bash",
+        str(SUPERVISOR_ROOT / "scripts/visual-review-pr.sh"),
+        "--issue", str(number),
+        "--pr", str(pr_number),
+        "--scene", scene,
+    ]
+    if profile is not None:
+        profile_dir = STATE_ROOT / "visual-review-profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_path = profile_dir / f"GH-{number}.json"
+        profile_path.write_text(json.dumps(profile, separators=(",", ":")), encoding="utf-8")
+        command.extend(["--profile", str(profile_path)])
+
+    subprocess.run(command, check=True)
     record_visual_review_event(
         number,
         "completed",
