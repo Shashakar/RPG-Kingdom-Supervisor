@@ -144,7 +144,9 @@ grep -Fq 'shaderSupported' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'frustumUnsupportedShaderCount' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'ForceSynchronousImport' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'Shader.WarmupAllShaders' "$ROOT/scripts/windows/run-unity-capture.ps1"
-grep -Fq 'Remove-Item -LiteralPath $stageLibrary -Recurse -Force' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'Remove-DirectoryTreeRobust -Path $stageLibrary' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'robocopy.exe $empty $Path /MIR' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'rmdir /s /q' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'ApplyRequestedCameraPose' "$ROOT/scripts/windows/run-unity-capture.ps1"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
