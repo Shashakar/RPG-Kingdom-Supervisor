@@ -9,6 +9,7 @@ mkdir -p "$TMP/bin" "$TMP/GH-321" "$TMP/state"
 cat > "$TMP/bin/codex" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$@" >> "$RPGK_MOCK_CODEX_ARGS"
 echo 'usage_limit_exceeded: You have hit your usage limit. try again at tomorrow.' >&2
 exit 1
 MOCK
@@ -17,19 +18,22 @@ chmod +x "$TMP/bin/codex"
 cat > "$TMP/prompt.txt" <<'EOF'
 Review this fixture.
 EOF
+printf 'fake-png' > "$TMP/scene.png"
 
 export PATH="$TMP/bin:$PATH"
 export RPGK_SUPERVISOR_ROOT="$ROOT"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export CODEX_HOME="$TMP/codex-home"
 export RPGK_USAGE_SNAPSHOT_TIMEOUT_SECONDS=1
+export RPGK_MOCK_CODEX_ARGS="$TMP/codex-args.log"
 
 bash "$ROOT/scripts/review-worker.sh" \
   "$TMP/GH-321" \
   "$TMP/prompt.txt" \
   "$TMP/verdict.json" \
   gpt-6-sol \
-  medium
+  medium \
+  "$TMP/scene.png"
 
 python3 - "$TMP/verdict.json" "$TMP/state" <<'PY'
 import json, sys
@@ -48,5 +52,7 @@ assert not (state / "workers" / "active" / "review.json").exists()
 PY
 
 grep -Fq 'usage_limit_exceeded' "$TMP/verdict.json.codex.log"
+grep -Fxq -- '-i' "$TMP/codex-args.log"
+grep -Fxq -- "$TMP/scene.png" "$TMP/codex-args.log"
 
 echo "review-worker-test: PASS"
