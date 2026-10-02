@@ -16,6 +16,7 @@ UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
 UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources}"
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
+SKIP_READINESS_SMOKE="${RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE:-0}"
 STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
 CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
 
@@ -369,7 +370,14 @@ fi
 
 echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"
 
-if [[ "$validation_mode" == "required" ]]; then
+if [[ "$validation_mode" == "required" && "$SKIP_READINESS_SMOKE" == "1" ]]; then
+  if [[ "$DRY_RUN" != "1" ]]; then
+    release_current_lock
+    halt_issue "readiness-smoke bypass is only permitted for dry-run host review workflows"
+    exit 75
+  fi
+  echo "RPG Kingdom Unity guard: skipping pre-capture readiness smoke for dry-run host review; the bounded capture will provide Unity validation"
+elif [[ "$validation_mode" == "required" ]]; then
   set +e
   run_readiness_smoke
   smoke_status=$?
