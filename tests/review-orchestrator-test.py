@@ -410,6 +410,35 @@ def main() -> int:
         assert "symphony:human-review" in fake.issue_labels[123]
         assert "symphony:ready" not in fake.issue_labels[123]
 
+    # A visual-review execution failure writes a durable failure receipt instead of vanishing
+    # into the local service log, and the same comment request cannot replay.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-review"}
+        configure(Path(raw), fake, verdict("approved"))
+        visual_issue = issue(fake)
+        fake.comments[123].append({
+            "id": 9101,
+            "body": review.VISUAL_REVIEW_REQUEST_MARKER + "\nRun visual review.",
+        })
+        original_visual_requests = review.visual_review_requests
+        original_process_visual = review.process_visual_review_request
+        original_reviewable = review.reviewable_issues
+        review.visual_review_requests = lambda: [visual_issue]
+        review.process_visual_review_request = lambda _: (_ for _ in ()).throw(RuntimeError("capture exploded"))
+        review.reviewable_issues = lambda: []
+        try:
+            review.once()
+        finally:
+            review.visual_review_requests = original_visual_requests
+            review.process_visual_review_request = original_process_visual
+            review.reviewable_issues = original_reviewable
+        assert review.pending_visual_review_comment(123) is None
+        assert any("capture exploded" in item["body"] for item in fake.comments[123])
+        assert any(f"{review.VISUAL_REVIEW_COMPLETE_PREFIX}9101 -->" in item["body"] for item in fake.comments[123])
+        assert "symphony:ready" not in fake.issue_labels[123]
+        assert "symphony:rearm" not in fake.issue_labels[123]
+
     # Polling only agent-review avoids racing active rework lifetimes after handoff removes ready.
     seen: list[str] = []
     original_lifecycle_issues = review.lifecycle_issues
