@@ -83,6 +83,7 @@ echo "visual-review-pr: acquiring Unity resource for GH-$issue"
   RPGK_UNITY_GUARD_DRY_RUN=1 bash "$ROOT/scripts/unity-resource-guard.sh"
 )
 
+capture_index=0
 capture_one() {
   local name="$1"
   local camera_path="$2"
@@ -106,9 +107,13 @@ capture_one() {
   [[ -n "$position" ]] && args+=( --position "$position" )
   [[ -n "$rotation" ]] && args+=( --rotation "$rotation" )
   [[ -n "$look_at" ]] && args+=( --look-at "$look_at" )
+  if (( capture_index > 0 )); then
+    args+=( --reuse-stage-library )
+  fi
 
   echo "visual-review-pr: capturing $scene view '$name'"
   bash "$ROOT/scripts/unity-runner.sh" "${args[@]}"
+  capture_index=$((capture_index + 1))
 }
 
 if [[ -n "$profile" ]]; then
