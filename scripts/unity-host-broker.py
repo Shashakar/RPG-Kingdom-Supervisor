@@ -49,6 +49,7 @@ class RequestSpec:
     camera_rotation: str = ""
     look_at_path: str = ""
     field_of_view: float = 60.0
+    reuse_stage_library: bool = False
     capture_width: int = 1920
     capture_height: int = 1080
     workspace: Path = Path(".")
@@ -220,6 +221,7 @@ def prepare_request(
         camera_rotation = str(request.get("cameraRotation", ""))
         look_at_path = str(request.get("lookAtPath", ""))
         field_of_view = float(request.get("fieldOfView", 60.0))
+        reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
         if operation == "capture":
@@ -299,6 +301,7 @@ def prepare_request(
         camera_rotation=camera_rotation,
         look_at_path=look_at_path,
         field_of_view=field_of_view,
+        reuse_stage_library=reuse_stage_library,
         capture_width=capture_width,
         capture_height=capture_height,
         workspace=workspace,
@@ -331,6 +334,8 @@ def start_operation(
         if spec.look_at_path:
             command.extend(["--look-at", spec.look_at_path])
         command.extend(["--fov", str(spec.field_of_view)])
+        if spec.reuse_stage_library:
+            command.append("--reuse-stage-library")
 
     progress_path, cancel_path = operation_paths(spec)
     progress_path.parent.mkdir(parents=True, exist_ok=True)
@@ -561,6 +566,7 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "cameraRotation": active.spec.camera_rotation or None,
         "lookAtPath": active.spec.look_at_path or None,
         "fieldOfView": active.spec.field_of_view if active.spec.operation == "capture" else None,
+        "reuseStageLibrary": active.spec.reuse_stage_library if active.spec.operation == "capture" else None,
         "captureWidth": active.spec.capture_width if active.spec.operation == "capture" else None,
         "captureHeight": active.spec.capture_height if active.spec.operation == "capture" else None,
         "childPid": active.process.pid,
