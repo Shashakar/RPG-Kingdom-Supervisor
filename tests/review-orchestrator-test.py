@@ -451,6 +451,12 @@ def main() -> int:
     assert seen == ["symphony:agent-review"]
 
     source = (ROOT / "scripts/review-orchestrator.py").read_text(encoding="utf-8")
+    prompt = review.build_prompt(issue(FakeGitHub()), pr(), {
+        "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2
+    }, "sol")
+    assert "Magenta/pink pixels alone do not prove" in prompt
+    assert "visual-diagnostics.json" in prompt
+    assert "reason=insufficient_evidence" in prompt
     assert "/merge" not in source
     assert "symphony:human-review" in source
     assert "symphony:human-attention" in source
