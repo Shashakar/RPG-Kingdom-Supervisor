@@ -284,6 +284,43 @@ def main() -> int:
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:human-attention" in fake.issue_labels[123]
 
+    # A prior retrospective visual false-positive may leave the issue at human attention.
+    # A new visual request can recheck the same PR head without rearming implementation.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-attention"}
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        capture = workspace / "Logs" / "SymphonyUnity" / "capture" / "scene.png"
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        capture.write_bytes(b"png")
+        prior = {
+            "state": "human_attention", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "sol",
+            "history": [
+                {"cycle": 1, "head": "a" * 40, "verdict": "approved", "summary": "technical approval",
+                 "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"},
+                {"cycle": 2, "head": "a" * 40, "verdict": "changes_required", "summary": "bad capture",
+                 "findings": [], "routingRecommendation": "sol", "reviewerRoute": "sol", "reason": "none"},
+            ],
+            "updatedAt": "2026-10-02T16:54:14+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        original_fresh = review.fresh_visual_capture_images
+        review.fresh_visual_capture_images = lambda _: [capture]
+        try:
+            review.retrospective_visual_review(123, 77)
+        finally:
+            review.fresh_visual_capture_images = original_fresh
+        state = latest_state_from(fake)
+        assert state["state"] == "human_review"
+        assert state["reviewCycle"] == 3
+        assert state["repairAttempts"] == 0
+        assert "symphony:human-review" in fake.issue_labels[123]
+        assert "symphony:human-attention" not in fake.issue_labels[123]
+        assert "symphony:ready" not in fake.issue_labels[123]
+        assert "symphony:rearm" not in fake.issue_labels[123]
+
     # Retrospective visual approval adds a review cycle but remains at the human gate and never
     # consumes repair budget or dispatches implementation.
     with tempfile.TemporaryDirectory() as raw:
