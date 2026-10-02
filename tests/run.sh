@@ -111,6 +111,7 @@ bash -n "$ROOT/scripts/run-symphony.sh"
 bash -n "$ROOT/scripts/unity-author.sh"
 bash -n "$ROOT/scripts/unity-author-host.sh"
 bash -n "$ROOT/scripts/unity-resource-guard.sh"
+bash -n "$ROOT/scripts/visual-review-pr.sh"
 python3 -m json.tool "$ROOT/schemas/review-verdict.schema.json" >/dev/null
 
 echo "supervisor-tests: PASS"
