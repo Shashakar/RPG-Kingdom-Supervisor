@@ -6,6 +6,7 @@ Phase 4 turns the Phase 3 `unity-editor` scheduling contract into real, observab
 
 - run the Unity version declared by RPG Kingdom's `ProjectSettings/ProjectVersion.txt`;
 - execute EditMode and PlayMode tests from a Symphony worker;
+- capture a bounded rendered scene/camera view for visual review without granting generic Editor control;
 - support narrow Unity Test Framework filters;
 - keep Unity's active project on Windows NTFS rather than `\\wsl.localhost`;
 - preserve the staged `Library/` cache across issues and branches;
@@ -105,6 +106,8 @@ From a Symphony `GH-<number>` workspace:
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh health
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh editmode
 bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh capture \
+  --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
 ```
 
 Prefer filtered runs:
@@ -117,7 +120,7 @@ bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh playmode \
   --filter 'RPGKingdom.Tests.PlayMode.Inventory'
 ```
 
-`--filter` is passed unchanged to Unity Test Framework. Workers must not bypass this interface by launching PowerShell, Windows commands, or `Unity.exe` directly.
+`--filter` is passed unchanged to Unity Test Framework. The `capture` operation instead accepts an exact `Assets/*.unity` scene path, optional exact camera hierarchy path, and bounded output dimensions. It returns `scene.png`, `manifest.json`, `summary.json`, and `Editor.log` under the same ignored `Logs/SymphonyUnity/<run-id>/` artifact root. See [UNITY_VISUAL_REVIEW.md](UNITY_VISUAL_REVIEW.md). Workers must not bypass this interface by launching PowerShell, Windows commands, or `Unity.exe` directly.
 
 Broker lifecycle outcomes are explicit at the runner boundary:
 
