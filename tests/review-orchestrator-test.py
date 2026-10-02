@@ -508,6 +508,37 @@ def main() -> int:
             review.run_git = original_run_git
         assert selected == [diagnostic_dir / "scene.png"]
 
+    # Visual review requirements support up to four named temporary camera poses.
+    profile_issue = {
+        "body": """Fixture.
+<!-- symphony-visual-review-requirements
+{
+  "views": [
+    {
+      "name": "settlement-overview",
+      "camera": "ThirdPersonCamera",
+      "position": [10, 7, -4],
+      "lookAt": "Environment/BlockedExit",
+      "fov": 55
+    },
+    {
+      "name": "exit-approach",
+      "camera": "ThirdPersonCamera",
+      "position": [4, 2, 3],
+      "rotation": [8, 125, 0]
+    }
+  ]
+}
+-->
+"""
+    }
+    profile = review.visual_review_profile(profile_issue)
+    assert profile is not None
+    assert len(profile["views"]) == 2
+    assert profile["views"][0]["name"] == "settlement-overview"
+    assert profile["views"][0]["lookAt"] == "Environment/BlockedExit"
+    assert profile["views"][1]["rotation"] == [8, 125, 0]
+
     # Polling only agent-review avoids racing active rework lifetimes after handoff removes ready.
     seen: list[str] = []
     original_lifecycle_issues = review.lifecycle_issues
