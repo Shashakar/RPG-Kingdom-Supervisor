@@ -29,6 +29,7 @@ create_label "symphony:rearm" "BFDADC" "One-shot approval for a reviewed continu
 create_label "symphony:agent-review" "1D76DB" "Implementation handoff complete; independent automated review pending"
 create_label "symphony:rework" "FBCA04" "Automated review requested bounded repair on the existing PR"
 create_label "symphony:human-review" "0E8A16" "Automated review passed; human integration decision required"
+create_label "symphony:visual-review" "006B75" "One-shot host request for retrospective Unity visual review at the human gate"
 create_label "symphony:human-attention" "B60205" "Automation halted for ambiguity, scope change, or exhausted repair budget"
 create_label "symphony:report-complete" "5319E7" "Host-verified report-only work completed; human review/closure remains"
 create_label "completion:report-only" "C5DEF5" "Explicitly permits host-verified completion without a source diff or PR"

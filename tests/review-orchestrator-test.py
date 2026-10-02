@@ -20,6 +20,10 @@ class FakeGitHub:
         self.operations: list[tuple[str, int, str]] = []
 
     def api(self, method: str, path: str, body=None):
+        if path == "/issues/123" and method == "GET":
+            return issue(self)
+        if path == "/pulls/77" and method == "GET":
+            return pr()
         if path.startswith("/issues/123/comments") and method == "GET":
             return self.comments[123]
         if path == "/pulls/77/files?per_page=100" and method == "GET":
@@ -57,6 +61,8 @@ def pr() -> dict:
         "number": 77,
         "title": "Fixture PR",
         "body": "Validation: fixture tests pass.",
+        "state": "open",
+        "draft": False,
         "head": {"ref": "codex/fixture", "sha": "a" * 40},
     }
 
@@ -277,6 +283,132 @@ def main() -> int:
         assert state["reviewCycle"] == 3
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:human-attention" in fake.issue_labels[123]
+
+    # Retrospective visual approval adds a review cycle but remains at the human gate and never
+    # consumes repair budget or dispatches implementation.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-review"}
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        capture = workspace / "Logs" / "SymphonyUnity" / "capture" / "scene.png"
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        capture.write_bytes(b"png")
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "approved", "routingRecommendation": "unchanged",
+            "history": [{
+                "cycle": 1, "head": "a" * 40, "verdict": "approved", "summary": "technical approval",
+                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"
+            }],
+            "updatedAt": "2026-10-02T07:24:46+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        original_fresh = review.fresh_visual_capture_images
+        review.fresh_visual_capture_images = lambda _: [capture]
+        try:
+            review.retrospective_visual_review(123, 77)
+        finally:
+            review.fresh_visual_capture_images = original_fresh
+        state = latest_state_from(fake)
+        assert state["state"] == "human_review"
+        assert state["reviewCycle"] == 2
+        assert state["repairAttempts"] == 0
+        assert len(state["history"]) == 2
+        assert "symphony:human-review" in fake.issue_labels[123]
+        assert "symphony:ready" not in fake.issue_labels[123]
+        assert "symphony:rearm" not in fake.issue_labels[123]
+        assert any("Retrospective Unity visual review" in item["body"] for item in fake.comments[77])
+
+    # A retrospective visual concern stops at human attention; it never silently starts a repair.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-review"}
+        workspace = configure(Path(raw), fake, verdict("changes_required", route="sol"))
+        capture = workspace / "Logs" / "SymphonyUnity" / "capture" / "scene.png"
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        capture.write_bytes(b"png")
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "approved", "routingRecommendation": "unchanged",
+            "history": [{
+                "cycle": 1, "head": "a" * 40, "verdict": "approved", "summary": "technical approval",
+                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"
+            }],
+            "updatedAt": "2026-10-02T07:24:46+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        original_fresh = review.fresh_visual_capture_images
+        review.fresh_visual_capture_images = lambda _: [capture]
+        try:
+            review.retrospective_visual_review(123, 77)
+        finally:
+            review.fresh_visual_capture_images = original_fresh
+        state = latest_state_from(fake)
+        assert state["state"] == "human_attention"
+        assert state["repairAttempts"] == 0
+        assert "symphony:human-attention" in fake.issue_labels[123]
+        assert "symphony:ready" not in fake.issue_labels[123]
+        assert "symphony:rearm" not in fake.issue_labels[123]
+        assert "symphony:rework" not in fake.issue_labels[123]
+
+    # Comment-triggered requests are one-shot and completion receipts prevent replay.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        configure(Path(raw), fake, verdict("approved"))
+        fake.comments[123].append({
+            "id": 9001,
+            "body": review.VISUAL_REVIEW_REQUEST_MARKER + "\nRun the retrospective visual review.",
+        })
+        assert review.pending_visual_review_comment(123) == 9001
+        fake.comments[123].append({
+            "id": 9002,
+            "body": f"done\n\n{review.VISUAL_REVIEW_COMPLETE_PREFIX}9001 -->",
+        })
+        assert review.pending_visual_review_comment(123) is None
+
+    # Label-triggered visual review derives the exact authorized scene and invokes only the
+    # one-shot host visual-review command, then consumes the request label.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-review", "symphony:visual-review"}
+        configure(Path(raw), fake, verdict("approved"))
+        visual_issue = issue(fake)
+        visual_issue["body"] = """Fixture.
+
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "existing-scene-composition",
+  "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+  "operations": ["set-transform"]
+}
+-->
+"""
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "history": [], "updatedAt": "2026-10-02T07:24:46+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        calls: list[list[str]] = []
+        original_run = review.subprocess.run
+        review.subprocess.run = lambda args, check=True, **kwargs: calls.append([str(value) for value in args])
+        try:
+            review.process_visual_review_request(visual_issue)
+        finally:
+            review.subprocess.run = original_run
+        assert review.visual_review_scene(visual_issue) == "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
+        assert len(calls) == 1
+        assert calls[0][0].endswith("scripts/visual-review-pr.sh")
+        assert calls[0][1:] == [
+            "--issue", "123", "--pr", "77",
+            "--scene", "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+        ]
+        assert "symphony:visual-review" not in fake.issue_labels[123]
+        assert "symphony:human-review" in fake.issue_labels[123]
+        assert "symphony:ready" not in fake.issue_labels[123]
 
     # Polling only agent-review avoids racing active rework lifetimes after handoff removes ready.
     seen: list[str] = []

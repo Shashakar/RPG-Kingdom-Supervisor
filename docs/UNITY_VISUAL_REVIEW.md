@@ -78,6 +78,37 @@ Visual findings must be grounded in the attached frame. Anything outside the cap
 
 The image is supplemental evidence. A visually acceptable frame does not replace code, architecture, persistence, test, or Unity-validation review, and automated approval never authorizes merge.
 
+## Retrospective review at the human gate
+
+An issue that reached `symphony:human-review` before visual capture existed, or one that needs another visual inspection without another implementation lifetime, can use the host-owned one-shot command:
+
+```bash
+bash ~/src/RPG-Kingdom-Supervisor/scripts/visual-review-pr.sh \
+  --issue 222 \
+  --pr 225 \
+  --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
+```
+
+An exact camera path and dimensions may be supplied with the same `--camera`, `--width`, and `--height` options as the normal capture command.
+
+The same path can be requested remotely in either of two one-shot forms while the issue is already at `symphony:human-review`:
+
+- add `symphony:visual-review`; or
+- add an issue comment containing `<!-- rpgk-visual-review-request -->`.
+
+The host review-orchestrator consumes the request, derives the exact scene from the issue's `symphony-scene-authoring-requirements` block, and runs the capture/review command. Label requests remove the request label after successful completion. Comment requests receive a completion receipt tied to the request comment ID, so restart/polling cannot replay the same request. No implementation dispatch label is added.
+
+This path:
+
+1. requires the issue to already be at the durable `symphony:human-review` gate;
+2. reuses the existing GH workspace and verifies it still matches the reviewed PR head;
+3. acquires the normal exclusive Unity resource without starting an implementation worker;
+4. creates a fresh scene capture;
+5. runs a new independent review cycle with that image attached;
+6. releases the Unity resource even when capture or review fails.
+
+A passing visual review leaves the issue at `symphony:human-review`. A concern or ambiguity moves it to `symphony:human-attention`. Retrospective review is intentionally observational: it never adds `symphony:ready`, `symphony:rearm`, dispatches a repair, consumes a repair attempt, or merges the PR.
+
 ## Current limits
 
 This first implementation renders an Editor-time camera view. It does not yet provide:
