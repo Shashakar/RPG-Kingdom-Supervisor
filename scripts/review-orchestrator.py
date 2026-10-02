@@ -449,6 +449,91 @@ def process(issue: dict[str, Any]) -> None:
     dispatch_rework(number, state)
 
 
+def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
+    issue = api("GET", f"/issues/{issue_number}")
+    pr = api("GET", f"/pulls/{pr_number}")
+    if not isinstance(issue, dict) or int(issue.get("number", 0)) != issue_number:
+        raise RuntimeError(f"issue GH-{issue_number} could not be loaded")
+    if not isinstance(pr, dict) or int(pr.get("number", 0)) != pr_number:
+        raise RuntimeError(f"PR #{pr_number} could not be loaded")
+    if pr.get("state") != "open" or pr.get("draft"):
+        raise RuntimeError(f"PR #{pr_number} must be an open non-draft PR")
+    if "symphony:human-review" not in labels(issue):
+        raise RuntimeError(f"GH-{issue_number} is not at the symphony:human-review gate")
+
+    prior = latest_state(issue_number)
+    if not prior or prior.get("state") != "human_review":
+        raise RuntimeError(f"GH-{issue_number} has no durable human-review state")
+    if int(prior.get("prNumber", 0)) != pr_number:
+        raise RuntimeError(
+            f"GH-{issue_number} durable review state points to PR #{prior.get('prNumber')}, not #{pr_number}"
+        )
+    if prior.get("prHeadSha") != pr.get("head", {}).get("sha"):
+        raise RuntimeError("PR head moved after the durable human-review state was recorded")
+
+    workspace = WORKSPACE_ROOT / f"GH-{issue_number}"
+    if not workspace.is_dir():
+        raise RuntimeError(f"cannot visually review GH-{issue_number}: workspace missing")
+    branch = run_git(workspace, "branch", "--show-current")
+    if branch != pr["head"]["ref"]:
+        raise RuntimeError(f"workspace branch {branch!r} does not match PR head {pr['head']['ref']!r}")
+    local_head = run_git(workspace, "rev-parse", "HEAD")
+    if local_head != pr["head"]["sha"]:
+        raise RuntimeError(f"workspace HEAD {local_head} does not match PR head {pr['head']['sha']}")
+
+    visual_images = fresh_visual_capture_images(workspace)
+    if not visual_images:
+        raise RuntimeError(
+            "no fresh Unity visual capture exists for the current PR head; run the bounded capture command first"
+        )
+
+    prior_history = prior.get("history") if isinstance(prior.get("history"), list) else []
+    state = dict(prior)
+    state["reviewCycle"] = len(prior_history) + 1
+    state["history"] = list(prior_history)
+    state["prHeadSha"] = pr["head"]["sha"]
+    state["prNumber"] = pr_number
+
+    verdict = run_reviewer(issue, pr, state)
+    state["lastVerdict"] = verdict["verdict"]
+    state["lastSummary"] = verdict["summary"]
+    state["routingRecommendation"] = verdict["routing_recommendation"]
+    state["reason"] = verdict.get("reason", "none")
+    state["history"].append(history_entry(state, verdict))
+
+    review_text = state_comment(state, verdict)
+    prefixed = "### Retrospective Unity visual review\n\n" + review_text
+    post_comment(pr_number, prefixed)
+
+    if verdict["verdict"] == "approved" and not verdict.get("requires_human"):
+        state["state"] = "human_review"
+        persist_state(
+            issue_number,
+            state,
+            prefixed
+            + "\n\nVisual review passed. The issue remains at the human integration gate; no merge was authorized.",
+        )
+        add_labels(issue_number, "symphony:human-review")
+        set_repair_route(issue_number, "unchanged")
+        remove_lifecycle_except(issue_number, {"symphony:human-review"})
+        post_comment(pr_number, human_review_packet(issue, pr, state))
+        return
+
+    # This path is intentionally observational. A retrospective visual finding never
+    # auto-rearms implementation or spends a repair attempt.
+    state["state"] = "human_attention"
+    state["reason"] = verdict.get("reason", "visual_review_finding") or "visual_review_finding"
+    persist_state(
+        issue_number,
+        state,
+        prefixed
+        + "\n\nVisual review found a concern or ambiguity. Automation stopped for human attention; no repair was dispatched.",
+    )
+    add_labels(issue_number, "symphony:human-attention")
+    set_repair_route(issue_number, "unchanged")
+    remove_lifecycle_except(issue_number, {"symphony:human-attention"})
+
+
 def lifecycle_issues(label: str) -> list[dict[str, Any]]:
     q = parse.urlencode({"state":"open", "labels":label, "per_page":50})
     values = api("GET", f"/issues?{q}") or []
@@ -474,6 +559,16 @@ def main() -> int:
     if not TOKEN:
         print("review-orchestrator: SYMPHONY_GITHUB_TOKEN is required", file=sys.stderr)
         return 64
+    if "--visual-review" in sys.argv:
+        index = sys.argv.index("--visual-review")
+        try:
+            issue_number = int(sys.argv[index + 1])
+            pr_number = int(sys.argv[index + 2])
+        except (IndexError, ValueError):
+            print("usage: review-orchestrator.py --visual-review <issue> <pr>", file=sys.stderr)
+            return 64
+        retrospective_visual_review(issue_number, pr_number)
+        return 0
     if "--once" in sys.argv:
         once()
         return 0
