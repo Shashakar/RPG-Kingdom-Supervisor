@@ -219,9 +219,9 @@ public static class SupervisorVisualCapture
             int height = int.Parse(GetArg(args, "-rpgkHeight"));
 
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
-            Shader.WarmupAllShaders();
 
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            Shader.WarmupAllShaders();
             Camera camera = ResolveCamera(scene, requestedCameraPath);
             if (camera == null) throw new InvalidOperationException("No eligible camera was found in the requested scene.");
             ApplyRequestedCameraPose(scene, camera, requestedPosition, requestedRotation, lookAtPath, fieldOfView);
