@@ -1,0 +1,351 @@
+param(
+    [Parameter(Mandatory = $true)][string]$SourceProjectPath,
+    [Parameter(Mandatory = $true)][string]$UnityVersion,
+    [string]$UnityPath = "",
+    [string]$StageRoot = "",
+    [Parameter(Mandatory = $true)][string]$RunId,
+    [Parameter(Mandatory = $true)][string]$ScenePath,
+    [string]$CameraPath = "",
+    [ValidateRange(320, 4096)][int]$Width = 1920,
+    [ValidateRange(180, 4096)][int]$Height = 1080,
+    [string]$RequestId = "",
+    [string]$ProgressPath = "",
+    [string]$CancelPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+$script:ProgressSequence = 0
+
+function Fail-Runner {
+    param([string]$Message, [int]$Code)
+    [Console]::Error.WriteLine("RPG Kingdom Unity capture: $Message")
+    exit $Code
+}
+
+function Write-ProgressState {
+    param([string]$Phase, [int]$UnityPid = 0, [long]$EditorLogBytes = -1, [bool]$SummaryPresent = $false)
+    if ([string]::IsNullOrWhiteSpace($ProgressPath)) { return }
+    if ([string]::IsNullOrWhiteSpace($RequestId)) { Fail-Runner "ProgressPath requires RequestId" 86 }
+
+    $script:ProgressSequence += 1
+    $directory = Split-Path -Parent $ProgressPath
+    if (-not [string]::IsNullOrWhiteSpace($directory)) { New-Item -ItemType Directory -Force -Path $directory | Out-Null }
+    $payload = [ordered]@{
+        protocolVersion = 1
+        requestId = $RequestId
+        sequence = $script:ProgressSequence
+        phase = $Phase
+        observedAt = (Get-Date).ToUniversalTime().ToString("o")
+        unityPid = if ($UnityPid -gt 0) { $UnityPid } else { $null }
+        editorLogBytes = if ($EditorLogBytes -ge 0) { $EditorLogBytes } else { $null }
+        resultsBytes = $null
+        summaryPresent = $SummaryPresent
+    }
+    $json = $payload | ConvertTo-Json -Compress
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $temp = "$ProgressPath.tmp.$PID"
+    [System.IO.File]::WriteAllText($temp, $json, $utf8)
+    Move-Item -LiteralPath $temp -Destination $ProgressPath -Force
+}
+
+function Read-CancelRequest {
+    if ([string]::IsNullOrWhiteSpace($CancelPath) -or -not (Test-Path -LiteralPath $CancelPath -PathType Leaf)) { return $null }
+    try { return Get-Content -LiteralPath $CancelPath -Raw | ConvertFrom-Json } catch { return $null }
+}
+
+function Assert-UnityHostIdle {
+    $processes = @(Get-Process -Name "Unity" -ErrorAction SilentlyContinue)
+    if ($processes.Count -eq 0) { return }
+    $ids = ($processes | Sort-Object Id | ForEach-Object { $_.Id }) -join ", "
+    Fail-Runner "Unity Editor host is busy (Unity.exe PID(s): $ids)." 89
+}
+
+function Invoke-ProjectMirror {
+    param([string]$Source, [string]$Destination)
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    & robocopy.exe $Source $Destination /MIR /FFT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Fail-Runner "robocopy failed for '$Source' -> '$Destination' with exit code $LASTEXITCODE" 84 }
+}
+
+if ([string]::IsNullOrWhiteSpace($UnityPath)) {
+    $UnityPath = Join-Path ${env:ProgramFiles} "Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe"
+}
+if ([string]::IsNullOrWhiteSpace($StageRoot)) {
+    if ([string]::IsNullOrWhiteSpace(${env:LOCALAPPDATA})) { Fail-Runner "LOCALAPPDATA is unavailable" 80 }
+    $StageRoot = Join-Path ${env:LOCALAPPDATA} "RPGKingdomSupervisor\UnityStages"
+}
+if ($ScenePath -notmatch '^Assets/.+\.unity$' -or $ScenePath.Contains("..")) { Fail-Runner "ScenePath must be a normalized Assets/*.unity path" 64 }
+
+$sourceScene = Join-Path $SourceProjectPath ($ScenePath -replace '/', '\')
+if (-not (Test-Path -LiteralPath $sourceScene -PathType Leaf)) { Fail-Runner "scene '$ScenePath' does not exist in the source workspace" 82 }
+
+$StageProject = Join-Path (Join-Path $StageRoot $UnityVersion) "RPG-Kingdom"
+if (-not (Test-Path -LiteralPath $UnityPath -PathType Leaf)) { Fail-Runner "Unity $UnityVersion was not found at '$UnityPath'" 81 }
+if (-not (Get-Command robocopy.exe -ErrorAction SilentlyContinue)) { Fail-Runner "robocopy.exe is unavailable" 83 }
+
+foreach ($required in @("Assets", "Packages", "ProjectSettings")) {
+    $path = Join-Path $SourceProjectPath $required
+    if (-not (Test-Path -LiteralPath $path -PathType Container)) { Fail-Runner "source project is missing '$required' at '$path'" 82 }
+}
+
+Assert-UnityHostIdle
+New-Item -ItemType Directory -Force -Path $StageProject | Out-Null
+Write-ProgressState -Phase "staging"
+foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
+    Invoke-ProjectMirror -Source (Join-Path $SourceProjectPath $directory) -Destination (Join-Path $StageProject $directory)
+    Write-ProgressState -Phase ("staging_" + $directory.ToLowerInvariant())
+}
+
+$StageOutput = Join-Path (Join-Path $StageProject ".symphony-results") $RunId
+$SourceOutput = Join-Path (Join-Path $SourceProjectPath "Logs\SymphonyUnity") $RunId
+New-Item -ItemType Directory -Force -Path $StageOutput | Out-Null
+New-Item -ItemType Directory -Force -Path $SourceOutput | Out-Null
+$PngPath = Join-Path $StageOutput "scene.png"
+$ManifestPath = Join-Path $StageOutput "manifest.json"
+$LogPath = Join-Path $StageOutput "Editor.log"
+$SourceLogPath = Join-Path $SourceOutput "Editor.log"
+
+$HelperEditor = Join-Path $StageProject "Assets\__SupervisorVisualCapture\Editor"
+$HelperScript = Join-Path $HelperEditor "SupervisorVisualCapture.cs"
+New-Item -ItemType Directory -Force -Path $HelperEditor | Out-Null
+
+$helperSource = @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public static class SupervisorVisualCapture
+{
+    [Serializable]
+    private sealed class CaptureManifest
+    {
+        public string scene;
+        public string cameraPath;
+        public int width;
+        public int height;
+        public string image;
+        public string capturedAtUtc;
+        public string renderPipeline;
+    }
+
+    public static void Capture()
+    {
+        try
+        {
+            var args = Environment.GetCommandLineArgs();
+            string scenePath = GetArg(args, "-rpgkScene");
+            string outputPath = GetArg(args, "-rpgkOutput");
+            string manifestPath = GetArg(args, "-rpgkManifest");
+            string requestedCameraPath = GetArg(args, "-rpgkCamera", "");
+            int width = int.Parse(GetArg(args, "-rpgkWidth"));
+            int height = int.Parse(GetArg(args, "-rpgkHeight"));
+
+            var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            Camera camera = ResolveCamera(scene, requestedCameraPath);
+            if (camera == null) throw new InvalidOperationException("No eligible camera was found in the requested scene.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(manifestPath));
+
+            var previousTarget = camera.targetTexture;
+            var previousActive = RenderTexture.active;
+            var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+            var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            try
+            {
+                rt.Create();
+                camera.targetTexture = rt;
+                camera.Render();
+                RenderTexture.active = rt;
+                texture.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
+                texture.Apply(false, false);
+                File.WriteAllBytes(outputPath, texture.EncodeToPNG());
+            }
+            finally
+            {
+                camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                UnityEngine.Object.DestroyImmediate(texture);
+                rt.Release();
+                UnityEngine.Object.DestroyImmediate(rt);
+            }
+
+            var manifest = new CaptureManifest
+            {
+                scene = scenePath,
+                cameraPath = HierarchyPath(camera.gameObject),
+                width = width,
+                height = height,
+                image = Path.GetFileName(outputPath),
+                capturedAtUtc = DateTime.UtcNow.ToString("o"),
+                renderPipeline = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null
+                    ? UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline.GetType().FullName
+                    : "BuiltIn"
+            };
+            File.WriteAllText(manifestPath, JsonUtility.ToJson(manifest, true));
+            Debug.Log("Supervisor visual capture wrote " + outputPath);
+            EditorApplication.Exit(0);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("Supervisor visual capture failed: " + ex);
+            EditorApplication.Exit(1);
+        }
+    }
+
+    private static Camera ResolveCamera(Scene scene, string requestedPath)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPath))
+        {
+            GameObject target = FindByHierarchyPath(scene, requestedPath);
+            if (target == null) throw new InvalidOperationException("Camera path was not found: " + requestedPath);
+            var exact = target.GetComponent<Camera>();
+            if (exact == null) throw new InvalidOperationException("Requested object does not contain a Camera: " + requestedPath);
+            return exact;
+        }
+
+        var main = Camera.main;
+        if (main != null && main.gameObject.scene == scene) return main;
+
+        foreach (var camera in Resources.FindObjectsOfTypeAll<Camera>())
+            if (camera.gameObject.scene == scene && camera.enabled && camera.gameObject.activeInHierarchy) return camera;
+        return null;
+    }
+
+    private static GameObject FindByHierarchyPath(Scene scene, string path)
+    {
+        string[] parts = path.Split(new[] {'/'}, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return null;
+        Transform current = null;
+        foreach (var root in scene.GetRootGameObjects())
+        {
+            if (root.name == parts[0])
+            {
+                if (current != null) throw new InvalidOperationException("Root hierarchy path is ambiguous: " + path);
+                current = root.transform;
+            }
+        }
+
+        for (int i = 1; current != null && i < parts.Length; i++)
+        {
+            Transform next = null;
+            for (int childIndex = 0; childIndex < current.childCount; childIndex++)
+            {
+                Transform child = current.GetChild(childIndex);
+                if (child.name == parts[i])
+                {
+                    if (next != null) throw new InvalidOperationException("Hierarchy path is ambiguous: " + path);
+                    next = child;
+                }
+            }
+            current = next;
+        }
+        return current != null ? current.gameObject : null;
+    }
+
+    private static string HierarchyPath(GameObject gameObject)
+    {
+        var names = new List<string>();
+        Transform current = gameObject.transform;
+        while (current != null)
+        {
+            names.Add(current.name);
+            current = current.parent;
+        }
+        names.Reverse();
+        return string.Join("/", names);
+    }
+
+    private static string GetArg(string[] args, string name, string fallback = null)
+    {
+        for (int i = 0; i < args.Length - 1; i++)
+            if (string.Equals(args[i], name, StringComparison.Ordinal)) return args[i + 1];
+        if (fallback != null) return fallback;
+        throw new InvalidOperationException("Missing command-line argument: " + name);
+    }
+}
+'@
+
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($HelperScript, $helperSource, $utf8NoBom)
+
+$unityArgs = @(
+    "-batchmode", "-accept-apiupdate",
+    "-projectPath", $StageProject,
+    "-executeMethod", "SupervisorVisualCapture.Capture",
+    "-logFile", $LogPath,
+    "-rpgkScene", $ScenePath,
+    "-rpgkOutput", $PngPath,
+    "-rpgkManifest", $ManifestPath,
+    "-rpgkWidth", $Width,
+    "-rpgkHeight", $Height
+)
+if (-not [string]::IsNullOrWhiteSpace($CameraPath)) { $unityArgs += @("-rpgkCamera", $CameraPath) }
+
+Write-ProgressState -Phase "unity_startup"
+$unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -PassThru
+Write-ProgressState -Phase "capture_running" -UnityPid $unityProcess.Id
+
+$cancelled = $false
+$lastLogLength = -1L
+while (-not $unityProcess.HasExited) {
+    $cancel = Read-CancelRequest
+    if ($null -ne $cancel -and [string]$cancel.requestId -eq $RequestId) {
+        try {
+            Stop-Process -Id $unityProcess.Id -Force -ErrorAction Stop
+            $unityProcess.WaitForExit()
+            $cancelled = $true
+            Write-ProgressState -Phase "recovery_cancelled" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength
+            break
+        } catch {
+            Write-ProgressState -Phase "recovery_cancel_failed" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength
+        }
+    }
+
+    if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+        try {
+            $length = [long](Get-Item -LiteralPath $LogPath).Length
+            if ($length -ne $lastLogLength) {
+                $lastLogLength = $length
+                Write-ProgressState -Phase "capture_running" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength
+            }
+        } catch {}
+    }
+
+    Start-Sleep -Seconds 2
+    $unityProcess.Refresh()
+}
+
+if (-not $cancelled) { $unityProcess.WaitForExit() }
+$unityExitCode = $unityProcess.ExitCode
+if (Test-Path -LiteralPath $LogPath -PathType Leaf) { Copy-Item -LiteralPath $LogPath -Destination $SourceLogPath -Force }
+
+if ($cancelled) { Fail-Runner "request-owned Unity process was cancelled" 91 }
+if ($unityExitCode -ne 0) { Fail-Runner "Unity exited with code $unityExitCode during scene capture. Inspect '$SourceLogPath'." 87 }
+if (-not (Test-Path -LiteralPath $PngPath -PathType Leaf)) { Fail-Runner "Unity completed without producing scene.png" 87 }
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { Fail-Runner "Unity completed without producing manifest.json" 87 }
+
+Copy-Item -LiteralPath $PngPath -Destination (Join-Path $SourceOutput "scene.png") -Force
+Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $SourceOutput "manifest.json") -Force
+
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$summary = [ordered]@{
+    result = "Captured"
+    runId = $RunId
+    scene = [string]$manifest.scene
+    cameraPath = [string]$manifest.cameraPath
+    width = [int]$manifest.width
+    height = [int]$manifest.height
+    image = "scene.png"
+    artifactPath = $SourceOutput
+    unityVersion = $UnityVersion
+}
+$summaryJson = $summary | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText((Join-Path $SourceOutput "summary.json"), $summaryJson, $utf8NoBom)
+Write-ProgressState -Phase "completed" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -SummaryPresent $true
+$summaryJson | Write-Output
+exit 0

@@ -20,6 +20,7 @@ Usage:
   unity-runner-host.sh health [--project PATH]
   unity-runner-host.sh editmode [--project PATH] [--filter FILTER]
   unity-runner-host.sh playmode [--project PATH] [--filter FILTER]
+  unity-runner-host.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--width PX] [--height PX]
 
 Environment overrides:
   RPGK_POWERSHELL_EXE
@@ -43,6 +44,10 @@ command="$1"
 shift
 project="$PWD"
 test_filter=""
+scene_path=""
+camera_path=""
+capture_width="1920"
+capture_height="1080"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +59,26 @@ while [[ $# -gt 0 ]]; do
     --filter)
       [[ $# -ge 2 ]] || { echo "Missing value for --filter" >&2; exit 64; }
       test_filter="$2"
+      shift 2
+      ;;
+    --scene)
+      [[ $# -ge 2 ]] || { echo "Missing value for --scene" >&2; exit 64; }
+      scene_path="$2"
+      shift 2
+      ;;
+    --camera)
+      [[ $# -ge 2 ]] || { echo "Missing value for --camera" >&2; exit 64; }
+      camera_path="$2"
+      shift 2
+      ;;
+    --width)
+      [[ $# -ge 2 ]] || { echo "Missing value for --width" >&2; exit 64; }
+      capture_width="$2"
+      shift 2
+      ;;
+    --height)
+      [[ $# -ge 2 ]] || { echo "Missing value for --height" >&2; exit 64; }
+      capture_height="$2"
       shift 2
       ;;
     -h|--help)
@@ -69,7 +94,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$command" in
-  health|editmode|playmode) ;;
+  health|editmode|playmode|capture) ;;
   *)
     echo "Unknown Unity runner command: $command" >&2
     usage
@@ -91,7 +116,11 @@ project="$(cd "$project" && pwd)"
 unity_version="$(rpgk_project_unity_version "$project")"
 unity_editor_windows="${RPGK_UNITY_EDITOR_WINDOWS:-$(rpgk_default_unity_editor_windows "$unity_version")}" 
 source_project_windows="$(wslpath -w "$project")"
-runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-tests.ps1")"
+if [[ "$command" == "capture" ]]; then
+  runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-capture.ps1")"
+else
+  runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-tests.ps1")"
+fi
 
 powershell_args=(
   -NoProfile
@@ -144,15 +173,31 @@ if [[ "$lock_owner" != "$issue_identifier" ]]; then
   exit 83
 fi
 
-platform="$(rpgk_normalize_test_platform "$command")"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${command}-$$"
 
-powershell_args+=(
-  -TestPlatform "$platform"
-  -RunId "$run_id"
-)
-if [[ -n "$test_filter" ]]; then
-  powershell_args+=( -TestFilter "$test_filter" )
+if [[ "$command" == "capture" ]]; then
+  [[ -n "$scene_path" && "$scene_path" == Assets/*.unity ]] || {
+    echo "RPG Kingdom Unity runner: capture requires an Assets/*.unity --scene path" >&2
+    exit 64
+  }
+  powershell_args+=(
+    -RunId "$run_id"
+    -ScenePath "$scene_path"
+    -Width "$capture_width"
+    -Height "$capture_height"
+  )
+  if [[ -n "$camera_path" ]]; then
+    powershell_args+=( -CameraPath "$camera_path" )
+  fi
+else
+  platform="$(rpgk_normalize_test_platform "$command")"
+  powershell_args+=(
+    -TestPlatform "$platform"
+    -RunId "$run_id"
+  )
+  if [[ -n "$test_filter" ]]; then
+    powershell_args+=( -TestFilter "$test_filter" )
+  fi
 fi
 
 set +e

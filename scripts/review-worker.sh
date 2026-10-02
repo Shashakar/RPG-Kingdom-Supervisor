@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-  echo "Usage: $0 <workspace> <prompt-file> <output-file> <model> <effort>" >&2
+if [[ $# -lt 5 ]]; then
+  echo "Usage: $0 <workspace> <prompt-file> <output-file> <model> <effort> [image ...]" >&2
   exit 64
 fi
 
@@ -11,6 +11,8 @@ prompt_file="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 output_file="$3"
 model="$4"
 effort="$5"
+shift 5
+visual_images=("$@")
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 SCHEMA="$SUPERVISOR_ROOT/schemas/review-verdict.schema.json"
@@ -31,6 +33,15 @@ issue_lock="$(rpgk_codex_issue_lock_path "$STATE_ROOT" "$identifier")"
 
 [[ -f "$prompt_file" ]] || { echo "Review prompt missing: $prompt_file" >&2; exit 64; }
 [[ -f "$SCHEMA" ]] || { echo "Review schema missing: $SCHEMA" >&2; exit 64; }
+image_args=()
+for image in "${visual_images[@]}"; do
+  [[ -f "$image" ]] || { echo "Review image missing: $image" >&2; exit 64; }
+  case "$image" in
+    *.png|*.jpg|*.jpeg|*.webp) ;;
+    *) echo "Unsupported review image type: $image" >&2; exit 64 ;;
+  esac
+  image_args+=( -i "$image" )
+done
 mkdir -p "$(dirname "$output_file")" "$(dirname "$slot_lock")" "$(dirname "$issue_lock")"
 
 finish_telemetry() {
@@ -82,7 +93,8 @@ codex exec \
   --config 'web_search="disabled"' \
   --config "model=\"$model\"" \
   --config "model_reasoning_effort=$effort" \
-  "$(cat "$prompt_file")" >"$RUN_LOG" 2>&1
+  "$(cat "$prompt_file")" \
+  "${image_args[@]}" >"$RUN_LOG" 2>&1
 status=$?
 set -e
 
