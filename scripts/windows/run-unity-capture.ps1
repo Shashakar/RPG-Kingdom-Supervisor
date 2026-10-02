@@ -11,6 +11,7 @@ param(
     [string]$CameraRotation = "",
     [string]$LookAtPath = "",
     [ValidateRange(1.0, 179.0)][double]$FieldOfView = 60.0,
+    [switch]$ReuseStageLibrary,
     [ValidateRange(320, 4096)][int]$Width = 1920,
     [ValidateRange(180, 4096)][int]$Height = 1080,
     [string]$RequestId = "",
@@ -96,7 +97,7 @@ foreach ($required in @("Assets", "Packages", "ProjectSettings")) {
 Assert-UnityHostIdle
 New-Item -ItemType Directory -Force -Path $StageProject | Out-Null
 $stageLibrary = Join-Path $StageProject "Library"
-if (Test-Path -LiteralPath $stageLibrary -PathType Container) {
+if (-not $ReuseStageLibrary -and (Test-Path -LiteralPath $stageLibrary -PathType Container)) {
     Write-ProgressState -Phase "cleaning_capture_library"
     Remove-Item -LiteralPath $stageLibrary -Recurse -Force
 }
