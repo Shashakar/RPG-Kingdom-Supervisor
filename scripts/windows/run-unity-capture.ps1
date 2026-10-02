@@ -68,11 +68,11 @@ function Invoke-ProjectMirror {
 }
 
 if ([string]::IsNullOrWhiteSpace($UnityPath)) {
-    $UnityPath = Join-Path \${env:ProgramFiles} "Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe"
+    $UnityPath = Join-Path ${env:ProgramFiles} "Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe"
 }
 if ([string]::IsNullOrWhiteSpace($StageRoot)) {
-    if ([string]::IsNullOrWhiteSpace(\${env:LOCALAPPDATA})) { Fail-Runner "LOCALAPPDATA is unavailable" 80 }
-    $StageRoot = Join-Path \${env:LOCALAPPDATA} "RPGKingdomSupervisor\UnityStages"
+    if ([string]::IsNullOrWhiteSpace(${env:LOCALAPPDATA})) { Fail-Runner "LOCALAPPDATA is unavailable" 80 }
+    $StageRoot = Join-Path ${env:LOCALAPPDATA} "RPGKingdomSupervisor\UnityStages"
 }
 if ($ScenePath -notmatch '^Assets/.+\.unity$' -or $ScenePath.Contains("..")) { Fail-Runner "ScenePath must be a normalized Assets/*.unity path" 64 }
 
