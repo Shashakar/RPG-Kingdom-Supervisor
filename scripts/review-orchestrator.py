@@ -499,12 +499,18 @@ def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
         raise RuntimeError(f"PR #{pr_number} could not be loaded")
     if pr.get("state") != "open" or pr.get("draft"):
         raise RuntimeError(f"PR #{pr_number} must be an open non-draft PR")
-    if "symphony:human-review" not in labels(issue):
-        raise RuntimeError(f"GH-{issue_number} is not at the symphony:human-review gate")
+    issue_labels = labels(issue)
+    if not ({"symphony:human-review", "symphony:human-attention"} & issue_labels):
+        raise RuntimeError(
+            f"GH-{issue_number} is not at a retrospective visual-review gate "
+            "(expected symphony:human-review or symphony:human-attention)"
+        )
 
     prior = latest_state(issue_number)
-    if not prior or prior.get("state") != "human_review":
-        raise RuntimeError(f"GH-{issue_number} has no durable human-review state")
+    if not prior or prior.get("state") not in {"human_review", "human_attention"}:
+        raise RuntimeError(
+            f"GH-{issue_number} has no durable human-review/human-attention state"
+        )
     if int(prior.get("prNumber", 0)) != pr_number:
         raise RuntimeError(
             f"GH-{issue_number} durable review state points to PR #{prior.get('prNumber')}, not #{pr_number}"
@@ -638,11 +644,13 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
     number = int(issue["number"])
     comment_request_id = pending_visual_review_comment(number)
     record_visual_review_event(number, "detected", summary="One-shot retrospective visual-review request detected.")
-    if "symphony:human-review" not in labels(issue):
+    issue_labels = labels(issue)
+    if not ({"symphony:human-review", "symphony:human-attention"} & issue_labels):
         post_comment(
             number,
             "Retrospective visual review request was rejected because the issue is not at "
-            "`symphony:human-review`. No implementation or review worker was started.",
+            "`symphony:human-review` or `symphony:human-attention`. "
+            "No implementation or review worker was started.",
         )
         complete_visual_review_request(
             number,
@@ -652,11 +660,12 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         return
 
     prior = latest_state(number)
-    if not prior or prior.get("state") != "human_review":
+    if not prior or prior.get("state") not in {"human_review", "human_attention"}:
         post_comment(
             number,
             "Retrospective visual review request was rejected because durable review state is "
-            "not at `human_review`. No implementation or review worker was started.",
+            "not at `human_review` or `human_attention`. "
+            "No implementation or review worker was started.",
         )
         complete_visual_review_request(
             number,
@@ -709,10 +718,11 @@ def visual_review_requests() -> list[dict[str, Any]]:
     requested: dict[int, dict[str, Any]] = {
         int(issue["number"]): issue for issue in lifecycle_issues("symphony:visual-review")
     }
-    for issue in lifecycle_issues("symphony:human-review"):
-        number = int(issue["number"])
-        if number not in requested and pending_visual_review_comment(number) is not None:
-            requested[number] = issue
+    for label in ("symphony:human-review", "symphony:human-attention"):
+        for issue in lifecycle_issues(label):
+            number = int(issue["number"])
+            if number not in requested and pending_visual_review_comment(number) is not None:
+                requested[number] = issue
     return list(requested.values())
 
 
