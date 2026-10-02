@@ -440,6 +440,37 @@ def main() -> int:
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:rearm" not in fake.issue_labels[123]
 
+    # Once a diagnostics-capable capture exists for the current head, legacy pre-diagnostics
+    # captures are excluded so known-bad harness output cannot contaminate the new review.
+    with tempfile.TemporaryDirectory() as raw:
+        workspace = Path(raw) / "GH-123"
+        unity_root = workspace / "Logs" / "SymphonyUnity"
+        legacy_dir = unity_root / "legacy"
+        diagnostic_dir = unity_root / "diagnostic"
+        legacy_dir.mkdir(parents=True)
+        diagnostic_dir.mkdir(parents=True)
+        (legacy_dir / "scene.png").write_bytes(b"legacy")
+        (legacy_dir / "summary.json").write_text(
+            json.dumps({"result": "Captured", "image": "scene.png"}), encoding="utf-8"
+        )
+        (diagnostic_dir / "scene.png").write_bytes(b"diagnostic")
+        (diagnostic_dir / "visual-diagnostics.json").write_text("{}", encoding="utf-8")
+        (diagnostic_dir / "summary.json").write_text(
+            json.dumps({
+                "result": "Captured",
+                "image": "scene.png",
+                "diagnostics": "visual-diagnostics.json",
+            }),
+            encoding="utf-8",
+        )
+        original_run_git = review.run_git
+        review.run_git = lambda *_: "0"
+        try:
+            selected = review.fresh_visual_capture_images(workspace)
+        finally:
+            review.run_git = original_run_git
+        assert selected == [diagnostic_dir / "scene.png"]
+
     # Polling only agent-review avoids racing active rework lifetimes after handoff removes ready.
     seen: list[str] = []
     original_lifecycle_issues = review.lifecycle_issues
