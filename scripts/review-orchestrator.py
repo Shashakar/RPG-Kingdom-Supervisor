@@ -21,6 +21,8 @@ STATE_ROOT = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", str(Path.home() /
 MAX_REPAIRS = int(os.environ.get("RPGK_MAX_AUTOMATIC_REPAIRS", "2"))
 POLL_SECONDS = float(os.environ.get("RPGK_REVIEW_POLL_SECONDS", "15"))
 MARKER = "<!-- rpgk-review-state\n"
+VISUAL_REVIEW_REQUEST_MARKER = "<!-- rpgk-visual-review-request -->"
+VISUAL_REVIEW_COMPLETE_PREFIX = "<!-- rpgk-visual-review-complete:"
 
 
 def api(method: str, path: str, body: Any | None = None) -> Any:
@@ -534,6 +536,36 @@ def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
     remove_lifecycle_except(issue_number, {"symphony:human-attention"})
 
 
+def pending_visual_review_comment(issue_number: int) -> int | None:
+    comments = api("GET", f"/issues/{issue_number}/comments?per_page=100") or []
+    completed: set[int] = set()
+    requests: list[int] = []
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        body = str(comment.get("body") or "")
+        raw_id = comment.get("id")
+        try:
+            comment_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if VISUAL_REVIEW_REQUEST_MARKER in body:
+            requests.append(comment_id)
+        start = body.find(VISUAL_REVIEW_COMPLETE_PREFIX)
+        if start >= 0:
+            value_start = start + len(VISUAL_REVIEW_COMPLETE_PREFIX)
+            value_end = body.find(" -->", value_start)
+            if value_end > value_start:
+                try:
+                    completed.add(int(body[value_start:value_end]))
+                except ValueError:
+                    pass
+    for comment_id in reversed(requests):
+        if comment_id not in completed:
+            return comment_id
+    return None
+
+
 def visual_review_scene(issue: dict[str, Any]) -> str:
     body = str(issue.get("body") or "")
     marker = "<!-- symphony-scene-authoring-requirements"
@@ -556,6 +588,7 @@ def visual_review_scene(issue: dict[str, Any]) -> str:
 
 def process_visual_review_request(issue: dict[str, Any]) -> None:
     number = int(issue["number"])
+    comment_request_id = pending_visual_review_comment(number)
     if "symphony:human-review" not in labels(issue):
         post_comment(
             number,
@@ -590,6 +623,12 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         check=True,
     )
     remove_label(number, "symphony:visual-review")
+    if comment_request_id is not None:
+        post_comment(
+            number,
+            "Retrospective Unity visual review request completed.\n\n"
+            f"{VISUAL_REVIEW_COMPLETE_PREFIX}{comment_request_id} -->",
+        )
 
 
 def lifecycle_issues(label: str) -> list[dict[str, Any]]:
@@ -599,7 +638,14 @@ def lifecycle_issues(label: str) -> list[dict[str, Any]]:
 
 
 def visual_review_requests() -> list[dict[str, Any]]:
-    return lifecycle_issues("symphony:visual-review")
+    requested: dict[int, dict[str, Any]] = {
+        int(issue["number"]): issue for issue in lifecycle_issues("symphony:visual-review")
+    }
+    for issue in lifecycle_issues("symphony:human-review"):
+        number = int(issue["number"])
+        if number not in requested and pending_visual_review_comment(number) is not None:
+            requested[number] = issue
+    return list(requested.values())
 
 
 def reviewable_issues() -> list[dict[str, Any]]:
