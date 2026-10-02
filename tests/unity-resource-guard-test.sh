@@ -177,6 +177,27 @@ grep -Fxq 'RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.Ow
 (cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "Unity lock was not released" >&2; exit 1; }
 
+# Dry-run host review may intentionally skip the readiness smoke so a clean visual capture can
+# rebuild the staged Library after acquiring the exclusive Unity lock.
+export RPGK_UNITY_GUARD_DRY_RUN=1
+clear_lock
+: > "$FAKE_UNITY_SMOKE_LOG"
+RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE=1 run_guard >/dev/null
+[[ -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "smoke-skipping dry-run review must retain the Unity lock" >&2; exit 1; }
+[[ ! -s "$FAKE_UNITY_SMOKE_LOG" ]] || { echo "smoke-skipping dry-run review unexpectedly ran the readiness smoke" >&2; exit 1; }
+(cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
+
+# The same bypass is forbidden for normal non-dry-run dispatch.
+clear_lock
+export RPGK_UNITY_GUARD_DRY_RUN=0
+set +e
+RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE=1 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || { echo "expected non-dry-run smoke bypass to fail closed with 75, got $status" >&2; exit 1; }
+[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "forbidden smoke bypass must release the Unity lock" >&2; exit 1; }
+export RPGK_UNITY_GUARD_DRY_RUN=1
+
 # A failed readiness smoke releases the just-acquired lock and blocks before Codex.
 clear_lock
 : > "$FAKE_UNITY_SMOKE_LOG"

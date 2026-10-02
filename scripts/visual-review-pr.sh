@@ -80,7 +80,9 @@ trap release_unity EXIT
 echo "visual-review-pr: acquiring Unity resource for GH-$issue"
 (
   cd "$workspace"
-  RPGK_UNITY_GUARD_DRY_RUN=1 bash "$ROOT/scripts/unity-resource-guard.sh"
+  RPGK_UNITY_GUARD_DRY_RUN=1 \
+    RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE=1 \
+    bash "$ROOT/scripts/unity-resource-guard.sh"
 )
 
 capture_index=0

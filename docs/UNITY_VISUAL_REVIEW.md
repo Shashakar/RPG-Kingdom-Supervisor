@@ -39,6 +39,8 @@ The Windows runner injects a temporary Editor-only helper into the staged Unity 
 
 The Windows capture path rebuilds the staged Unity `Library/` before the first visual capture in a review, then reuses that freshly imported Library for subsequent views in the same review. This prevents stale shader/import cache state from becoming visual evidence while avoiding a full reimport for every viewpoint.
 
+Because the clean capture is itself the authoritative Unity execution for this host-only review path, `visual-review-pr.sh` acquires the normal exclusive Unity resource through the guard but skips the ordinary pre-capture EditMode readiness smoke. That bypass is only permitted while `RPGK_UNITY_GUARD_DRY_RUN=1`; normal implementation dispatches remain fail-closed and continue to require the readiness smoke.
+
 The helper:
 
 1. forces a synchronous asset refresh, opens the exact requested scene, and warms the scene's loaded shaders;
