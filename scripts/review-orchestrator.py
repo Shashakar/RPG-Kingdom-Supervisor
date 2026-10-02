@@ -544,13 +544,6 @@ def pending_visual_review_comment(issue_number: int) -> int | None:
         if not isinstance(comment, dict):
             continue
         body = str(comment.get("body") or "")
-        raw_id = comment.get("id")
-        try:
-            comment_id = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        if VISUAL_REVIEW_REQUEST_MARKER in body:
-            requests.append(comment_id)
         start = body.find(VISUAL_REVIEW_COMPLETE_PREFIX)
         if start >= 0:
             value_start = start + len(VISUAL_REVIEW_COMPLETE_PREFIX)
@@ -560,6 +553,13 @@ def pending_visual_review_comment(issue_number: int) -> int | None:
                     completed.add(int(body[value_start:value_end]))
                 except ValueError:
                     pass
+
+        if VISUAL_REVIEW_REQUEST_MARKER in body:
+            raw_id = comment.get("id")
+            try:
+                requests.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
     for comment_id in reversed(requests):
         if comment_id not in completed:
             return comment_id
@@ -675,11 +675,23 @@ def once() -> None:
         try:
             process_visual_review_request(issue)
         except Exception as exc:
+            number = int(issue.get("number", 0) or 0)
+            message = f"{type(exc).__name__}: {exc}"
             print(
-                f"review-orchestrator: GH-{issue.get('number')} visual review failed: {exc}",
+                f"review-orchestrator: GH-{number} visual review failed: {message}",
                 file=sys.stderr,
                 flush=True,
             )
+            if number > 0:
+                request_id = pending_visual_review_comment(number)
+                complete_visual_review_request(
+                    number,
+                    request_id,
+                    "Retrospective Unity visual review failed before producing a verdict. "
+                    f"Failure: `{message[:700]}`. "
+                    "No implementation worker, repair, or merge was started. "
+                    "After resolving the reported condition, submit a new visual-review request.",
+                )
 
     for issue in reviewable_issues():
         try:
