@@ -75,7 +75,7 @@ This distinction exists because batch/staged rendering can differ from the norma
 
 The normal independent review worker now accepts image evidence. Before each review, the review orchestrator scans Unity artifacts for successful capture summaries and attaches up to the four newest images whose modification time is not older than the checked-out PR head commit.
 
-This freshness requirement prevents a screenshot from an older implementation from silently influencing review of a newer head.
+This freshness requirement prevents a screenshot from an older implementation from silently influencing review of a newer head. Once at least one diagnostics-capable capture exists for the current head, legacy captures from the pre-diagnostics harness are excluded from that review so known-unreliable pixels are not mixed with corrected evidence.
 
 When visual evidence is attached, the reviewer is instructed to evaluate:
 
