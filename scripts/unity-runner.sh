@@ -12,6 +12,7 @@ Usage:
   unity-runner.sh health [--project PATH]
   unity-runner.sh editmode [--project PATH] [--filter FILTER]
   unity-runner.sh playmode [--project PATH] [--filter FILTER]
+  unity-runner.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--width PX] [--height PX]
 
 Environment overrides:
   RPGK_SYMPHONY_WORKSPACE_ROOT
@@ -29,6 +30,10 @@ command="$1"
 shift
 project="$PWD"
 test_filter=""
+scene_path=""
+camera_path=""
+capture_width="1920"
+capture_height="1080"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +45,26 @@ while [[ $# -gt 0 ]]; do
     --filter)
       [[ $# -ge 2 ]] || { echo "Missing value for --filter" >&2; exit 64; }
       test_filter="$2"
+      shift 2
+      ;;
+    --scene)
+      [[ $# -ge 2 ]] || { echo "Missing value for --scene" >&2; exit 64; }
+      scene_path="$2"
+      shift 2
+      ;;
+    --camera)
+      [[ $# -ge 2 ]] || { echo "Missing value for --camera" >&2; exit 64; }
+      camera_path="$2"
+      shift 2
+      ;;
+    --width)
+      [[ $# -ge 2 ]] || { echo "Missing value for --width" >&2; exit 64; }
+      capture_width="$2"
+      shift 2
+      ;;
+    --height)
+      [[ $# -ge 2 ]] || { echo "Missing value for --height" >&2; exit 64; }
+      capture_height="$2"
       shift 2
       ;;
     -h|--help)
@@ -55,13 +80,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$command" in
-  health|editmode|playmode) ;;
+  health|editmode|playmode|capture) ;;
   *)
     echo "Unknown Unity runner command: $command" >&2
     usage
     exit 64
     ;;
 esac
+
+if [[ "$command" == "capture" ]]; then
+  [[ -n "$scene_path" ]] || { echo "RPG Kingdom Unity runner: capture requires --scene" >&2; exit 64; }
+  [[ "$scene_path" == Assets/*.unity ]] || { echo "RPG Kingdom Unity runner: --scene must be an Assets/*.unity path" >&2; exit 64; }
+  [[ "$capture_width" =~ ^[0-9]+$ && "$capture_height" =~ ^[0-9]+$ ]] || { echo "RPG Kingdom Unity runner: capture dimensions must be integers" >&2; exit 64; }
+  (( capture_width >= 320 && capture_width <= 4096 && capture_height >= 180 && capture_height <= 4096 )) || {
+    echo "RPG Kingdom Unity runner: capture dimensions are outside the supported bounds" >&2
+    exit 64
+  }
+elif [[ -n "$scene_path" || -n "$camera_path" ]]; then
+  echo "RPG Kingdom Unity runner: --scene/--camera are valid only for capture" >&2
+  exit 64
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "RPG Kingdom Unity runner: jq is required for broker requests" >&2
@@ -100,9 +138,13 @@ jq -cn \
   --arg requestId "$request_id" \
   --arg operation "$command" \
   --arg testFilter "$test_filter" \
+  --arg scenePath "$scene_path" \
+  --arg cameraPath "$camera_path" \
+  --argjson captureWidth "$capture_width" \
+  --argjson captureHeight "$capture_height" \
   --arg requestedAt "$requested_at" \
-  --argjson clientPid "$$" \
-  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,requestedAt:$requestedAt,clientPid:$clientPid}' \
+  --argjson clientPid "$" \
+  '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,scenePath:$scenePath,cameraPath:$cameraPath,captureWidth:$captureWidth,captureHeight:$captureHeight,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$temp_request"
