@@ -190,9 +190,50 @@ Review requirements:
 8. `routing_recommendation` is advisory for a repair task. Recommend the cheapest route likely to resolve the actual findings; use `unchanged` when no repair is required.
 9. Approval means the current PR/head is technically ready for a human integration decision; it never authorizes merge.
 10. Do not weaken or reinterpret the issue acceptance criteria merely to approve the current implementation.
+11. When one or more fresh Unity visual captures are attached, inspect the pixels themselves. Evaluate environment/world coherence, spatial readability, visual hierarchy, asset integration and obvious repetition, actor/target readability, and whether the viewed space reads as an authored game environment rather than a test arena. Make only claims supported by the attached view; mark anything outside the frame as unassessed rather than inferring it from hierarchy or transforms.
 
 Return only the structured verdict required by the provided output schema.
 """
+
+
+def fresh_visual_capture_images(workspace: Path) -> list[Path]:
+    """Return captures produced after the current checked-out HEAD commit.
+
+    Capture artifacts are ignored workspace evidence rather than Git state. Requiring
+    their mtime to be at least the HEAD commit time prevents an older scene image from
+    being silently attached to review of a newer PR head.
+    """
+    try:
+        head_epoch = int(run_git(workspace, "show", "-s", "--format=%ct", "HEAD"))
+    except (RuntimeError, ValueError):
+        return []
+
+    candidates: list[tuple[float, Path]] = []
+    unity_root = workspace / "Logs" / "SymphonyUnity"
+    if not unity_root.is_dir():
+        return []
+
+    for summary_path in unity_root.glob("*/summary.json"):
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(summary, dict) or summary.get("result") != "Captured":
+            continue
+        image_name = str(summary.get("image") or "scene.png")
+        image_path = summary_path.parent / image_name
+        try:
+            modified = image_path.stat().st_mtime
+        except OSError:
+            continue
+        if modified < head_epoch:
+            continue
+        if image_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            continue
+        candidates.append((modified, image_path))
+
+    candidates.sort(key=lambda item: item[0])
+    return [path for _, path in candidates[-4:]]
 
 
 def run_reviewer(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -212,8 +253,17 @@ def run_reviewer(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any
     prompt_path = run_dir / "prompt.txt"
     output_path = run_dir / "verdict.json"
     prompt_path.write_text(build_prompt(issue, pr, state, route), encoding="utf-8")
+    visual_images = fresh_visual_capture_images(workspace)
     subprocess.run(
-        [str(SUPERVISOR_ROOT / "scripts/review-worker.sh"), str(workspace), str(prompt_path), str(output_path), model, effort],
+        [
+            str(SUPERVISOR_ROOT / "scripts/review-worker.sh"),
+            str(workspace),
+            str(prompt_path),
+            str(output_path),
+            model,
+            effort,
+            *[str(path) for path in visual_images],
+        ],
         check=True,
     )
     verdict = json.loads(output_path.read_text(encoding="utf-8"))
