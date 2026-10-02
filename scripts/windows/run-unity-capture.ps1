@@ -6,6 +6,12 @@ param(
     [Parameter(Mandatory = $true)][string]$RunId,
     [Parameter(Mandatory = $true)][string]$ScenePath,
     [string]$CameraPath = "",
+    [string]$ViewName = "",
+    [string]$CameraPosition = "",
+    [string]$CameraRotation = "",
+    [string]$LookAtPath = "",
+    [ValidateRange(1.0, 179.0)][double]$FieldOfView = 60.0,
+    [switch]$ReuseStageLibrary,
     [ValidateRange(320, 4096)][int]$Width = 1920,
     [ValidateRange(180, 4096)][int]$Height = 1080,
     [string]$RequestId = "",
@@ -90,6 +96,11 @@ foreach ($required in @("Assets", "Packages", "ProjectSettings")) {
 
 Assert-UnityHostIdle
 New-Item -ItemType Directory -Force -Path $StageProject | Out-Null
+$stageLibrary = Join-Path $StageProject "Library"
+if (-not $ReuseStageLibrary -and (Test-Path -LiteralPath $stageLibrary -PathType Container)) {
+    Write-ProgressState -Phase "cleaning_capture_library"
+    Remove-Item -LiteralPath $stageLibrary -Recurse -Force
+}
 Write-ProgressState -Phase "staging"
 foreach ($directory in @("Assets", "Packages", "ProjectSettings")) {
     Invoke-ProjectMirror -Source (Join-Path $SourceProjectPath $directory) -Destination (Join-Path $StageProject $directory)
@@ -129,6 +140,10 @@ public static class SupervisorVisualCapture
     {
         public string scene;
         public string cameraPath;
+        public string viewName;
+        public Vector3 cameraPosition;
+        public Vector3 cameraEulerAngles;
+        public float fieldOfView;
         public int width;
         public int height;
         public string image;
@@ -195,12 +210,21 @@ public static class SupervisorVisualCapture
             string manifestPath = GetArg(args, "-rpgkManifest");
             string diagnosticsPath = GetArg(args, "-rpgkDiagnostics");
             string requestedCameraPath = GetArg(args, "-rpgkCamera", "");
+            string viewName = GetArg(args, "-rpgkViewName", "");
+            string requestedPosition = GetArg(args, "-rpgkCameraPosition", "");
+            string requestedRotation = GetArg(args, "-rpgkCameraRotation", "");
+            string lookAtPath = GetArg(args, "-rpgkLookAt", "");
+            float fieldOfView = float.Parse(GetArg(args, "-rpgkFieldOfView", "60"), System.Globalization.CultureInfo.InvariantCulture);
             int width = int.Parse(GetArg(args, "-rpgkWidth"));
             int height = int.Parse(GetArg(args, "-rpgkHeight"));
 
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            Shader.WarmupAllShaders();
             Camera camera = ResolveCamera(scene, requestedCameraPath);
             if (camera == null) throw new InvalidOperationException("No eligible camera was found in the requested scene.");
+            ApplyRequestedCameraPose(scene, camera, requestedPosition, requestedRotation, lookAtPath, fieldOfView);
 
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
             Directory.CreateDirectory(Path.GetDirectoryName(manifestPath));
@@ -258,6 +282,10 @@ public static class SupervisorVisualCapture
             {
                 scene = scenePath,
                 cameraPath = HierarchyPath(camera.gameObject),
+                viewName = viewName,
+                cameraPosition = camera.transform.position,
+                cameraEulerAngles = camera.transform.eulerAngles,
+                fieldOfView = camera.fieldOfView,
                 width = width,
                 height = height,
                 image = Path.GetFileName(outputPath),
@@ -377,6 +405,47 @@ public static class SupervisorVisualCapture
             : "BuiltIn";
     }
 
+    private static void ApplyRequestedCameraPose(
+        Scene scene,
+        Camera camera,
+        string requestedPosition,
+        string requestedRotation,
+        string lookAtPath,
+        float fieldOfView)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPosition))
+            camera.transform.position = ParseVector3(requestedPosition, "camera position");
+
+        if (!string.IsNullOrWhiteSpace(requestedRotation) && !string.IsNullOrWhiteSpace(lookAtPath))
+            throw new InvalidOperationException("Specify camera rotation or look-at path, not both.");
+
+        if (!string.IsNullOrWhiteSpace(requestedRotation))
+            camera.transform.eulerAngles = ParseVector3(requestedRotation, "camera rotation");
+
+        if (!string.IsNullOrWhiteSpace(lookAtPath))
+        {
+            GameObject target = FindByHierarchyPath(scene, lookAtPath);
+            if (target == null)
+                throw new InvalidOperationException("Look-at path was not found: " + lookAtPath);
+            camera.transform.LookAt(target.transform.position);
+        }
+
+        if (fieldOfView <= 1f || fieldOfView >= 179f)
+            throw new InvalidOperationException("Field of view must be between 1 and 179 degrees.");
+        camera.fieldOfView = fieldOfView;
+    }
+
+    private static Vector3 ParseVector3(string value, string label)
+    {
+        string[] parts = value.Split(',');
+        if (parts.Length != 3)
+            throw new InvalidOperationException("Invalid " + label + ": expected x,y,z.");
+        return new Vector3(
+            float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture),
+            float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture),
+            float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     private static Camera ResolveCamera(Scene scene, string requestedPath)
     {
         if (!string.IsNullOrWhiteSpace(requestedPath))
@@ -462,6 +531,11 @@ $unityArgs = @(
     "-rpgkOutput", $PngPath,
     "-rpgkManifest", $ManifestPath,
     "-rpgkDiagnostics", $DiagnosticsPath,
+    "-rpgkViewName", $ViewName,
+    "-rpgkCameraPosition", $CameraPosition,
+    "-rpgkCameraRotation", $CameraRotation,
+    "-rpgkLookAt", $LookAtPath,
+    "-rpgkFieldOfView", $FieldOfView.ToString([System.Globalization.CultureInfo]::InvariantCulture),
     "-rpgkWidth", $Width,
     "-rpgkHeight", $Height
 )
@@ -531,6 +605,10 @@ $summary = [ordered]@{
     runId = $RunId
     scene = [string]$manifest.scene
     cameraPath = [string]$manifest.cameraPath
+    viewName = [string]$manifest.viewName
+    cameraPosition = $manifest.cameraPosition
+    cameraEulerAngles = $manifest.cameraEulerAngles
+    fieldOfView = [double]$manifest.fieldOfView
     width = [int]$manifest.width
     height = [int]$manifest.height
     image = "scene.png"

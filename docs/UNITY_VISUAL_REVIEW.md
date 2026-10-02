@@ -37,11 +37,14 @@ The worker-facing client never invokes PowerShell or Unity directly. It submits 
 
 The Windows runner injects a temporary Editor-only helper into the staged Unity project. It does not add capture code to RPG Kingdom.
 
+The Windows capture path rebuilds the staged Unity `Library/` before the first visual capture in a review, then reuses that freshly imported Library for subsequent views in the same review. This prevents stale shader/import cache state from becoming visual evidence while avoiding a full reimport for every viewpoint.
+
 The helper:
 
-1. opens the exact requested scene;
+1. forces a synchronous asset refresh, opens the exact requested scene, and warms the scene's loaded shaders;
 2. resolves the exact requested camera when supplied, otherwise prefers `Camera.main` and then the first active enabled scene camera;
-3. renders through a temporary `RenderTexture`; when an SRP is active it prefers Unity's native `RenderPipeline.StandardRequest` path and falls back to `Camera.Render()` only when that request is unsupported;
+3. optionally applies a temporary capture-only camera position plus either Euler rotation or a hierarchy-path look-at target; the production scene is never saved;
+4. renders through a temporary `RenderTexture`; when an SRP is active it prefers Unity's native `RenderPipeline.StandardRequest` path and falls back to `Camera.Render()` only when that request is unsupported;
 4. records capture-environment diagnostics for scene renderers/materials/shaders, including camera-frustum membership, material/shader asset paths, `Shader.isSupported`, render pipeline, graphics device, and the render method used;
 5. extracts matching shader/compiler errors from `Editor.log`;
 6. writes the PNG, manifest, diagnostics, and shader log;
@@ -70,6 +73,37 @@ Rendered pixels are evidence about the capture environment, not automatically pr
 For an attached capture the reviewer must inspect the sibling diagnostics. A material/shader failure can become `changes_required` when an in-camera-frustum renderer has a missing shader, reports `shaderSupported=false`, or the shader log contains a matching compile/unsupported-subshader failure. If the image is visibly corrupted but the relevant shaders report supported and the shader log is clean, the reviewer treats the capture as unreliable evidence and returns `blocked_or_ambiguous` with `reason=insufficient_evidence` instead of dispatching a material repair.
 
 This distinction exists because batch/staged rendering can differ from the normal Editor/player render context. The visual-review system must not turn a tooling discrepancy into a production-art repair without corroborating evidence.
+
+## Multi-view review profiles
+
+Issues that require subjective spatial/readability review may declare up to four capture viewpoints in an issue-body metadata block:
+
+```text
+<!-- symphony-visual-review-requirements
+{
+  "views": [
+    {
+      "name": "settlement-overview",
+      "camera": "ThirdPersonCamera",
+      "position": [10, 7, -4],
+      "lookAt": "Environment/BlockedExit",
+      "fov": 55
+    },
+    {
+      "name": "exit-approach",
+      "camera": "ThirdPersonCamera",
+      "position": [4, 2, 3],
+      "rotation": [8, 125, 0],
+      "fov": 60
+    }
+  ]
+}
+-->
+```
+
+Each view uses an existing scene camera as the rendering template. `position`, `rotation`, `lookAt`, and `fov` are temporary capture-time overrides only. A view may use either `rotation` or `lookAt`, never both. The profile is host-owned review configuration; it does not modify or save the production scene.
+
+The first view performs a clean staged import. Later views reuse that freshly rebuilt stage Library, so a three- or four-view review does not repeatedly reimport the entire project.
 
 ## Automated review integration
 

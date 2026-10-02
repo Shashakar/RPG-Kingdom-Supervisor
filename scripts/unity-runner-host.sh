@@ -20,7 +20,7 @@ Usage:
   unity-runner-host.sh health [--project PATH]
   unity-runner-host.sh editmode [--project PATH] [--filter FILTER]
   unity-runner-host.sh playmode [--project PATH] [--filter FILTER]
-  unity-runner-host.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--width PX] [--height PX]
+  unity-runner-host.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--reuse-stage-library] [--width PX] [--height PX]
 
 Environment overrides:
   RPGK_POWERSHELL_EXE
@@ -46,6 +46,12 @@ project="$PWD"
 test_filter=""
 scene_path=""
 camera_path=""
+view_name=""
+camera_position=""
+camera_rotation=""
+look_at_path=""
+field_of_view="60"
+reuse_stage_library="false"
 capture_width="1920"
 capture_height="1080"
 
@@ -71,6 +77,12 @@ while [[ $# -gt 0 ]]; do
       camera_path="$2"
       shift 2
       ;;
+    --view-name) view_name="$2"; shift 2 ;;
+    --position) camera_position="$2"; shift 2 ;;
+    --rotation) camera_rotation="$2"; shift 2 ;;
+    --look-at) look_at_path="$2"; shift 2 ;;
+    --fov) field_of_view="$2"; shift 2 ;;
+    --reuse-stage-library) reuse_stage_library="true"; shift ;;
     --width)
       [[ $# -ge 2 ]] || { echo "Missing value for --width" >&2; exit 64; }
       capture_width="$2"
@@ -185,9 +197,17 @@ if [[ "$command" == "capture" ]]; then
     -ScenePath "$scene_path"
     -Width "$capture_width"
     -Height "$capture_height"
+    -ViewName "$view_name"
+    -CameraPosition "$camera_position"
+    -CameraRotation "$camera_rotation"
+    -LookAtPath "$look_at_path"
+    -FieldOfView "$field_of_view"
   )
   if [[ -n "$camera_path" ]]; then
     powershell_args+=( -CameraPath "$camera_path" )
+  fi
+  if [[ "$reuse_stage_library" == "true" ]]; then
+    powershell_args+=( -ReuseStageLibrary )
   fi
 else
   platform="$(rpgk_normalize_test_platform "$command")"

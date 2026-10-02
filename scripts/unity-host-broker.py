@@ -28,6 +28,7 @@ ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
+    "cleaning_capture_library",
     "staging",
     "staging_assets",
     "staging_packages",
@@ -43,6 +44,12 @@ class RequestSpec:
     test_filter: str
     scene_path: str = ""
     camera_path: str = ""
+    view_name: str = ""
+    camera_position: str = ""
+    camera_rotation: str = ""
+    look_at_path: str = ""
+    field_of_view: float = 60.0
+    reuse_stage_library: bool = False
     capture_width: int = 1920
     capture_height: int = 1080
     workspace: Path = Path(".")
@@ -209,6 +216,12 @@ def prepare_request(
         test_filter = str(request.get("testFilter", ""))
         scene_path = str(request.get("scenePath", ""))
         camera_path = str(request.get("cameraPath", ""))
+        view_name = str(request.get("viewName", ""))
+        camera_position = str(request.get("cameraPosition", ""))
+        camera_rotation = str(request.get("cameraRotation", ""))
+        look_at_path = str(request.get("lookAtPath", ""))
+        field_of_view = float(request.get("fieldOfView", 60.0))
+        reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
         if operation == "capture":
@@ -216,8 +229,12 @@ def prepare_request(
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
             if capture_width < 320 or capture_width > 4096 or capture_height < 180 or capture_height > 4096:
                 raise ValueError("capture dimensions are outside supported bounds")
-        elif scene_path or camera_path:
-            raise ValueError("scenePath/cameraPath are valid only for capture")
+            if field_of_view <= 1.0 or field_of_view >= 179.0:
+                raise ValueError("capture fieldOfView is outside supported bounds")
+            if camera_rotation and look_at_path:
+                raise ValueError("capture may specify cameraRotation or lookAtPath, not both")
+        elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
+            raise ValueError("capture pose fields are valid only for capture")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -279,6 +296,12 @@ def prepare_request(
         test_filter=test_filter,
         scene_path=scene_path,
         camera_path=camera_path,
+        view_name=view_name,
+        camera_position=camera_position,
+        camera_rotation=camera_rotation,
+        look_at_path=look_at_path,
+        field_of_view=field_of_view,
+        reuse_stage_library=reuse_stage_library,
         capture_width=capture_width,
         capture_height=capture_height,
         workspace=workspace,
@@ -302,6 +325,17 @@ def start_operation(
         ])
         if spec.camera_path:
             command.extend(["--camera", spec.camera_path])
+        if spec.view_name:
+            command.extend(["--view-name", spec.view_name])
+        if spec.camera_position:
+            command.extend(["--position", spec.camera_position])
+        if spec.camera_rotation:
+            command.extend(["--rotation", spec.camera_rotation])
+        if spec.look_at_path:
+            command.extend(["--look-at", spec.look_at_path])
+        command.extend(["--fov", str(spec.field_of_view)])
+        if spec.reuse_stage_library:
+            command.append("--reuse-stage-library")
 
     progress_path, cancel_path = operation_paths(spec)
     progress_path.parent.mkdir(parents=True, exist_ok=True)
@@ -527,6 +561,12 @@ def active_snapshot(active: ActiveOperation, now: float | None = None) -> dict[s
         "testFilter": active.spec.test_filter,
         "scenePath": active.spec.scene_path or None,
         "cameraPath": active.spec.camera_path or None,
+        "viewName": active.spec.view_name or None,
+        "cameraPosition": active.spec.camera_position or None,
+        "cameraRotation": active.spec.camera_rotation or None,
+        "lookAtPath": active.spec.look_at_path or None,
+        "fieldOfView": active.spec.field_of_view if active.spec.operation == "capture" else None,
+        "reuseStageLibrary": active.spec.reuse_stage_library if active.spec.operation == "capture" else None,
         "captureWidth": active.spec.capture_width if active.spec.operation == "capture" else None,
         "captureHeight": active.spec.capture_height if active.spec.operation == "capture" else None,
         "childPid": active.process.pid,
