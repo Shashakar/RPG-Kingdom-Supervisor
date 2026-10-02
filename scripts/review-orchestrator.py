@@ -220,6 +220,10 @@ Review requirements:
 9. Approval means the current PR/head is technically ready for a human integration decision; it never authorizes merge.
 10. Do not weaken or reinterpret the issue acceptance criteria merely to approve the current implementation.
 11. When one or more fresh Unity visual captures are attached, inspect the pixels themselves. Evaluate environment/world coherence, spatial readability, visual hierarchy, asset integration and obvious repetition, actor/target readability, and whether the viewed space reads as an authored game environment rather than a test arena. Make only claims supported by the attached view; mark anything outside the frame as unassessed rather than inferring it from hierarchy or transforms.
+12. For each attached Unity capture, inspect the sibling `visual-diagnostics.json`, `shader-log.txt`, and `manifest.json` in the same Logs/SymphonyUnity capture directory when they exist. Treat these as capture-environment evidence.
+13. Magenta/pink pixels alone do not prove that the PR has broken materials. A material/shader defect may be reported as `changes_required` only when the capture diagnostics support it—for example a renderer in the camera frustum has a missing shader, `shaderSupported=false`, or the shader log contains a matching compilation/unsupported-subshader failure. Name the diagnostic evidence in the finding.
+14. If the image appears materially corrupted (for example widespread magenta) but in-frustum shaders are present/supported and the shader log does not corroborate a shader failure, treat the visual evidence as capture-tool uncertainty rather than a code/art defect. Use `blocked_or_ambiguous`, `requires_human=true`, `reason=insufficient_evidence`, no repair routing, and explain that normal-editor comparison or a trustworthy recapture is required.
+15. Record the capture render method, render pipeline, and graphics device when they materially affect confidence. Do not infer that a batch/headless rendering anomaly will reproduce in the normal player/editor without corroborating evidence.
 
 Return only the structured verdict required by the provided output schema.
 """
