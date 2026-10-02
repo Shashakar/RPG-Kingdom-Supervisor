@@ -544,13 +544,6 @@ def pending_visual_review_comment(issue_number: int) -> int | None:
         if not isinstance(comment, dict):
             continue
         body = str(comment.get("body") or "")
-        raw_id = comment.get("id")
-        try:
-            comment_id = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        if VISUAL_REVIEW_REQUEST_MARKER in body:
-            requests.append(comment_id)
         start = body.find(VISUAL_REVIEW_COMPLETE_PREFIX)
         if start >= 0:
             value_start = start + len(VISUAL_REVIEW_COMPLETE_PREFIX)
@@ -560,6 +553,13 @@ def pending_visual_review_comment(issue_number: int) -> int | None:
                     completed.add(int(body[value_start:value_end]))
                 except ValueError:
                     pass
+
+        if VISUAL_REVIEW_REQUEST_MARKER in body:
+            raw_id = comment.get("id")
+            try:
+                requests.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
     for comment_id in reversed(requests):
         if comment_id not in completed:
             return comment_id
