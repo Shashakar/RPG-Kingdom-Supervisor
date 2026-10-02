@@ -143,7 +143,7 @@ jq -cn \
   --argjson captureWidth "$capture_width" \
   --argjson captureHeight "$capture_height" \
   --arg requestedAt "$requested_at" \
-  --argjson clientPid "$" \
+  --argjson clientPid "$$" \
   '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,scenePath:$scenePath,cameraPath:$cameraPath,captureWidth:$captureWidth,captureHeight:$captureHeight,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
 mv "$temp_history" "$history_request_path"
