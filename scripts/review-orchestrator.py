@@ -534,10 +534,72 @@ def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
     remove_lifecycle_except(issue_number, {"symphony:human-attention"})
 
 
+def visual_review_scene(issue: dict[str, Any]) -> str:
+    body = str(issue.get("body") or "")
+    marker = "<!-- symphony-scene-authoring-requirements"
+    start = body.find(marker)
+    if start < 0:
+        raise RuntimeError("visual-review request requires scene-authoring requirements with an exact scene")
+    payload_start = body.find("{", start + len(marker))
+    end = body.find("-->", payload_start)
+    if payload_start < 0 or end < 0:
+        raise RuntimeError("scene-authoring requirements block is malformed")
+    try:
+        requirements = json.loads(body[payload_start:end].strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"scene-authoring requirements JSON is invalid: {exc}") from exc
+    scene = str(requirements.get("scene") or "")
+    if not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene:
+        raise RuntimeError("visual-review request requires a normalized exact Assets/*.unity scene")
+    return scene
+
+
+def process_visual_review_request(issue: dict[str, Any]) -> None:
+    number = int(issue["number"])
+    if "symphony:human-review" not in labels(issue):
+        post_comment(
+            number,
+            "Retrospective visual review request was rejected because the issue is not at "
+            "\`symphony:human-review\`. No implementation or review worker was started.",
+        )
+        remove_label(number, "symphony:visual-review")
+        return
+
+    prior = latest_state(number)
+    if not prior or prior.get("state") != "human_review":
+        post_comment(
+            number,
+            "Retrospective visual review request was rejected because durable review state is "
+            "not at \`human_review\`. No implementation or review worker was started.",
+        )
+        remove_label(number, "symphony:visual-review")
+        return
+
+    pr_number = int(prior.get("prNumber", 0))
+    if pr_number <= 0:
+        raise RuntimeError("durable human-review state does not identify a PR")
+    scene = visual_review_scene(issue)
+
+    subprocess.run(
+        [
+            str(SUPERVISOR_ROOT / "scripts/visual-review-pr.sh"),
+            "--issue", str(number),
+            "--pr", str(pr_number),
+            "--scene", scene,
+        ],
+        check=True,
+    )
+    remove_label(number, "symphony:visual-review")
+
+
 def lifecycle_issues(label: str) -> list[dict[str, Any]]:
     q = parse.urlencode({"state":"open", "labels":label, "per_page":50})
     values = api("GET", f"/issues?{q}") or []
     return [item for item in values if "pull_request" not in item]
+
+
+def visual_review_requests() -> list[dict[str, Any]]:
+    return lifecycle_issues("symphony:visual-review")
 
 
 def reviewable_issues() -> list[dict[str, Any]]:
@@ -548,6 +610,16 @@ def reviewable_issues() -> list[dict[str, Any]]:
 
 
 def once() -> None:
+    for issue in visual_review_requests():
+        try:
+            process_visual_review_request(issue)
+        except Exception as exc:
+            print(
+                f"review-orchestrator: GH-{issue.get('number')} visual review failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
     for issue in reviewable_issues():
         try:
             process(issue)
