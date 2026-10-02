@@ -117,6 +117,10 @@ fi
 grep -Fq 'run-unity-capture.ps1' "$ROOT/scripts/unity-runner-host.sh"
 grep -Fq 'SupervisorVisualCapture.Capture' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'RenderTexture' "$ROOT/scripts/windows/run-unity-capture.ps1"
+if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
+  echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
+  exit 1
+fi
 bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
 python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
