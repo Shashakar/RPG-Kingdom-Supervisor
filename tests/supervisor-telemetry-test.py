@@ -138,6 +138,33 @@ def main() -> int:
         assert dead_active.exists()
         assert telemetry.active_workers() == []
 
+        visual_active = state / "visual-reviews" / "active" / "GH-222.json"
+        telemetry.atomic_json(
+            visual_active,
+            {
+                "protocolVersion": 1,
+                "kind": "visual_review",
+                "state": "active",
+                "phase": "capturing",
+                "issue": 222,
+                "identifier": "GH-222",
+                "prNumber": 225,
+                "pid": os.getpid(),
+                "startedAt": telemetry.iso_now(),
+                "updatedAt": telemetry.iso_now(),
+                "totalViews": 4,
+                "currentViewIndex": 2,
+                "currentViewName": "blocked-exit-approach",
+                "completedViews": 1,
+                "summary": "Capturing view 2 of 4: blocked-exit-approach",
+            },
+        )
+        visual = telemetry.active_visual_reviews()
+        assert len(visual) == 1
+        assert visual[0]["role"] == "visual-review"
+        assert visual[0]["progress"] == "view 2/4 · blocked-exit-approach"
+        assert visual[0]["prNumber"] == 225
+
         sanitized = telemetry.sanitize(
             {
                 "authorization": "Bearer abcdefghijklmnop",
@@ -154,7 +181,9 @@ def main() -> int:
         assert "super-secret-fixture-token" not in serialized
         assert operations["services"]["unity"]["health"] == "busy"
         assert operations["recentWorkers"][0]["runId"] == completed["runId"]
-        assert operations["activeWorkers"] == []
+        assert len(operations["activeWorkers"]) == 1
+        assert operations["activeWorkers"][0]["identifier"] == "GH-222"
+        assert operations["activeWorkers"][0]["kind"] == "visual_review"
         assert dead_active.exists()  # Read-only telemetry does not erase crash evidence.
 
     print("supervisor-telemetry-test: PASS")
