@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -389,6 +390,62 @@ def main() -> int:
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:rearm" not in fake.issue_labels[123]
         assert "symphony:rework" not in fake.issue_labels[123]
+
+    # Visual review active-operation state is durable, archived on terminal state, and stale
+    # owner recovery prevents a crashed review from remaining active forever.
+    with tempfile.TemporaryDirectory() as raw:
+        original_state_root = review.STATE_ROOT
+        review.STATE_ROOT = Path(raw)
+        try:
+            started = review.start_visual_review_status(
+                123,
+                77,
+                "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+                {"views": [{"name": "overview"}, {"name": "exit"}]},
+                9000,
+            )
+            assert started["state"] == "active"
+            assert started["totalViews"] == 2
+            assert review.visual_review_status_path(123).is_file()
+
+            review.update_visual_review_status(
+                123,
+                phase="capturing",
+                pid=os.getpid(),
+                currentViewIndex=1,
+                currentViewName="overview",
+                completedViews=0,
+                summary="Capturing view 1 of 2: overview",
+            )
+            active = json.loads(review.visual_review_status_path(123).read_text(encoding="utf-8"))
+            assert active["phase"] == "capturing"
+            assert active["currentViewName"] == "overview"
+
+            archived = review.archive_visual_review_status(123, "completed", "done")
+            assert archived and archived["state"] == "completed"
+            assert not review.visual_review_status_path(123).exists()
+            assert list((Path(raw) / "visual-reviews" / "history").glob("GH-123-*-completed.json"))
+
+            stale = review.start_visual_review_status(
+                123, 77, "Assets/RPGKingdom/Scenes/PlaytestScene.unity", None, 9001
+            )
+            review.update_visual_review_status(
+                123,
+                pid=99999999,
+                updatedAt="2000-01-01T00:00:00+00:00",
+                phase="capturing",
+            )
+            # update_visual_review_status refreshes updatedAt; force an old timestamp for recovery.
+            stale_path = review.visual_review_status_path(123)
+            stale_payload = json.loads(stale_path.read_text(encoding="utf-8"))
+            stale_payload["pid"] = 99999999
+            stale_payload["updatedAt"] = "2000-01-01T00:00:00+00:00"
+            review._atomic_json(stale_path, stale_payload)
+            review.recover_stale_visual_review_statuses(max_age_seconds=1)
+            assert not stale_path.exists()
+            assert list((Path(raw) / "visual-reviews" / "history").glob("GH-123-*-stale.json"))
+        finally:
+            review.STATE_ROOT = original_state_root
 
     # Comment-triggered requests are one-shot and completion receipts prevent replay.
     with tempfile.TemporaryDirectory() as raw:

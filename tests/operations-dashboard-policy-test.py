@@ -65,11 +65,13 @@ for text in (
 for text in (
     "System overview",
     "Overall health",
-    "Active workers",
+    "Active work",
     "Human action",
     "5h quota remaining",
     "Active work",
-    "No active workers. Supervisor is idle.",
+    "No active work. Supervisor is idle.",
+    "Visual Review",
+    "host-owned review operations",
     "No human action required",
 ):
     assert text in html, text

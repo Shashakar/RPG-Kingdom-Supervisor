@@ -94,6 +94,150 @@ def record_visual_review_event(issue_number: int, stage: str, *, pr_number: int 
         pass
 
 
+def _visual_review_active_dir() -> Path:
+    return STATE_ROOT / "visual-reviews" / "active"
+
+
+def _visual_review_history_dir() -> Path:
+    return STATE_ROOT / "visual-reviews" / "history"
+
+
+def visual_review_status_path(issue_number: int) -> Path:
+    return _visual_review_active_dir() / f"GH-{issue_number}.json"
+
+
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    temp.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def start_visual_review_status(
+    issue_number: int,
+    pr_number: int,
+    scene: str,
+    profile: dict[str, Any] | None,
+    request_comment_id: int | None,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    total_views = len(profile.get("views") or []) if isinstance(profile, dict) else 1
+    payload = {
+        "protocolVersion": 1,
+        "kind": "visual_review",
+        "state": "active",
+        "phase": "detected",
+        "issue": issue_number,
+        "identifier": f"GH-{issue_number}",
+        "prNumber": pr_number,
+        "scene": scene,
+        "requestCommentId": request_comment_id,
+        "startedAt": now,
+        "updatedAt": now,
+        "pid": os.getpid(),
+        "totalViews": max(1, total_views),
+        "currentViewIndex": 0,
+        "currentViewName": None,
+        "completedViews": 0,
+        "summary": "Retrospective visual-review request detected.",
+    }
+    _atomic_json(visual_review_status_path(issue_number), payload)
+    return payload
+
+
+def update_visual_review_status(issue_number: int, **changes: Any) -> dict[str, Any] | None:
+    path = visual_review_status_path(issue_number)
+    try:
+        current = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(current, dict):
+        return None
+    current.update(changes)
+    current["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    _atomic_json(path, current)
+    return current
+
+
+def archive_visual_review_status(issue_number: int, outcome: str, summary: str | None = None) -> dict[str, Any] | None:
+    path = visual_review_status_path(issue_number)
+    try:
+        current = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(current, dict):
+        return None
+    now = datetime.now(timezone.utc).isoformat()
+    current.update({
+        "state": outcome,
+        "phase": outcome,
+        "updatedAt": now,
+        "endedAt": now,
+    })
+    if summary:
+        current["summary"] = summary
+    history_dir = _visual_review_history_dir()
+    history_dir.mkdir(parents=True, exist_ok=True)
+    stamp = now.replace(":", "").replace("-", "").replace("+00:00", "Z")
+    history_path = history_dir / f"GH-{issue_number}-{stamp}-{outcome}.json"
+    _atomic_json(history_path, current)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    return current
+
+
+def _pid_alive(pid: Any) -> bool:
+    try:
+        value = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if value <= 0:
+        return False
+    try:
+        os.kill(value, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def recover_stale_visual_review_statuses(max_age_seconds: float = 60.0) -> None:
+    now = datetime.now(timezone.utc)
+    active_dir = _visual_review_active_dir()
+    if not active_dir.is_dir():
+        return
+    for path in active_dir.glob("GH-*.json"):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(value, dict) or value.get("state") != "active":
+            continue
+        updated = parse_time(value.get("updatedAt"))
+        age = (now - updated).total_seconds() if updated else max_age_seconds + 1
+        if age < max_age_seconds or _pid_alive(value.get("pid")):
+            continue
+        try:
+            issue_number = int(value.get("issue"))
+        except (TypeError, ValueError):
+            continue
+        archived = archive_visual_review_status(
+            issue_number,
+            "stale",
+            "Visual review owner process exited before the operation completed.",
+        )
+        if archived:
+            record_visual_review_event(
+                issue_number,
+                "failed",
+                pr_number=archived.get("prNumber"),
+                summary="Visual review was recovered as stale after its owner process exited.",
+            )
+
+
 def latest_state(number: int) -> dict[str, Any]:
     page = 1
     newest: dict[str, Any] = {}
@@ -729,6 +873,15 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         raise RuntimeError("durable human-review state does not identify a PR")
     scene = visual_review_scene(issue)
     profile = visual_review_profile(issue)
+    start_visual_review_status(number, pr_number, scene, profile, comment_request_id)
+    update_visual_review_status(
+        number,
+        phase="capture_starting",
+        summary=(
+            f"Acquiring Unity and capturing {scene}"
+            + (f" across {len(profile['views'])} configured views." if profile else ".")
+        ),
+    )
     record_visual_review_event(
         number,
         "capture_starting",
@@ -759,6 +912,11 @@ def process_visual_review_request(issue: dict[str, Any]) -> None:
         "completed",
         pr_number=pr_number,
         summary="Retrospective Unity visual review completed.",
+    )
+    archive_visual_review_status(
+        number,
+        "completed",
+        "Retrospective Unity visual review completed.",
     )
     complete_visual_review_request(
         number,
@@ -793,6 +951,8 @@ def reviewable_issues() -> list[dict[str, Any]]:
 
 
 def once() -> None:
+    recover_stale_visual_review_statuses()
+
     for issue in visual_review_requests():
         try:
             process_visual_review_request(issue)
@@ -805,6 +965,11 @@ def once() -> None:
                 flush=True,
             )
             if number > 0:
+                archive_visual_review_status(
+                    number,
+                    "failed",
+                    f"Retrospective visual review failed: {message[:500]}",
+                )
                 record_visual_review_event(
                     number,
                     "failed",

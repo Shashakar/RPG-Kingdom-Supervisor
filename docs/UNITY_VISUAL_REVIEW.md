@@ -157,6 +157,12 @@ This path:
 
 A passing visual review leaves or returns the issue to `symphony:human-review`. A concern or ambiguity leaves or moves it to `symphony:human-attention`. This permits a trustworthy recapture to supersede a prior visual-review false positive without rearming implementation. Retrospective review is intentionally observational: it never adds `symphony:ready`, `symphony:rearm`, dispatches a repair, consumes a repair attempt, or merges the PR.
 
+### Active-operation status
+
+While a retrospective visual review is running, Supervisor persists `visual-reviews/active/GH-<issue>.json`. The record tracks the PR, start/update times, owning PID, current phase, total configured views, current view index/name, completed-view count, and summary text. The capture script heartbeats this file as it acquires Unity, captures each view, and enters independent review.
+
+The operations dashboard projects live records into **Active Work** alongside Codex workers. Successful and failed operations are atomically moved into `visual-reviews/history/`. On service restart, stale active records whose owner process has exited are recovered into history so a crashed review cannot remain visibly active forever.
+
 ## Current limits
 
 This first implementation renders an Editor-time camera view. It does not yet provide:
