@@ -27,6 +27,12 @@ As a result:
 - normal terminal worker -> shown in recent worker history/activity with its durable outcome;
 - crashed/orphaned worker -> not shown as active and not mislabeled `Done`; its diagnostic record is preserved/reconciled by Supervisor maintenance.
 
+### Host-owned visual review operations
+
+The overview's **Active Work** panel includes live host-owned retrospective Unity visual reviews in addition to Codex worker lifetimes. Visual-review entries show the current phase and, for multi-view runs, the current view number/name. They link to issue detail rather than a Codex worker detail page.
+
+These entries come from durable `visual-reviews/active/GH-<issue>.json` status records. Terminal records move to `visual-reviews/history/`. The review orchestrator recovers dead-owner stale records so a crashed visual review cannot remain active indefinitely.
+
 ## Finished task semantics
 
 **Finished tasks means trusted successful terminal work, not merely a worker process that ended.** The Overview keeps this separate from Active work so a fast successful run does not simply disappear and look as though it was never picked up.
