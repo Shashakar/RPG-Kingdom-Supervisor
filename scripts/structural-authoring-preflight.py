@@ -54,6 +54,7 @@ def parse_requirements(body: str) -> dict[str, Any] | None:
         "auxiliaryAuthoring": raw.get("auxiliaryAuthoring") or [],
         "componentAdditions": _strings(raw.get("componentAdditions"), "componentAdditions"),
         "componentRemovals": _strings(raw.get("componentRemovals"), "componentRemovals"),
+        "protectedCompositionPaths": _strings(raw.get("protectedCompositionPaths"), "protectedCompositionPaths"),
         "dependency": str(raw.get("dependency") or "").strip() or None,
         "scene": str(raw.get("scene") or "").strip() or None,
     }
@@ -127,6 +128,7 @@ def evaluate(
             operations_by_tier[entry["tier"]] = set(entry.get("operationKinds") or [])
     additions = set(contract.get("structuralComponentAdditions") or [])
     removals = set(contract.get("componentRemovals") or [])
+    existing_scene_policy = contract.get("existingSceneEnvironment") or {}
 
     unsupported: list[dict[str, str]] = []
     tier = requirements["tier"]
@@ -141,6 +143,14 @@ def evaluate(
     for operation in requirements["operations"]:
         if operation not in supported_ops:
             unsupported.append({"kind": "operation", "value": operation})
+    protected_paths = requirements["protectedCompositionPaths"]
+    if protected_paths:
+        if tier != "existing-scene-composition" or not isinstance(existing_scene_policy, dict) or not existing_scene_policy.get("protectedCompositionPathsSupported"):
+            for path in protected_paths:
+                unsupported.append({"kind": "protected-composition-path", "value": path})
+        elif any(not path or path.startswith("/") or path.endswith("/") or ".." in path or "\\" in path for path in protected_paths):
+            return {**base, "status": "invalid", "supported": False, "authoringAuthorized": False, "reason": "protectedCompositionPaths must be normalized exact scene hierarchy paths"}
+    base["authorizedProtectedCompositionPaths"] = protected_paths
 
     authorized_auxiliary: list[dict[str, Any]] = []
     for auxiliary in requirements["auxiliaryAuthoring"]:
