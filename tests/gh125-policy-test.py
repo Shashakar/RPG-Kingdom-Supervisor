@@ -19,5 +19,5 @@ assert "--match-head-commit" in actions
 assert "operator-approved below-reserve continuation" in continuation
 assert "Assets/RPGKingdom/Generated/AgentDerivatives/" in author
 assert "derivative source" in author and "DerivativeCopyBackAssets" in author
-assert "changed-assets evidence must exactly match the authorized scene, navigation assets, and exact derivative outputs" in author
+assert "changed-assets evidence must exactly match the authorized scene, navigation assets, terrain layers, and exact derivative outputs" in author
 print("gh125-policy-test: PASS")
