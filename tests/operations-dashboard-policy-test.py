@@ -65,7 +65,7 @@ for text in (
 for text in (
     "System overview",
     "Overall health",
-    "Active workers",
+    "Active work",
     "Human action",
     "5h quota remaining",
     "Active work",
