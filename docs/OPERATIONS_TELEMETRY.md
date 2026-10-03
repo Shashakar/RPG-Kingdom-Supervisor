@@ -220,9 +220,9 @@ The localhost-only dashboard exposes:
 - per-worker detail with concurrent-lifetime context;
 - existing per-issue diagnostics and Unity history/detail endpoints.
 
-The active worker list is role-labelled and may contain at most one mutation worker and one reviewer. That makes both occupied role slots and their issue owners visible without adding process-control actions.
+The operations API still exposes a role-labelled active worker list and may contain at most one mutation worker and one reviewer. Worker lifetimes remain available for capacity and drill-down diagnostics, but Overview Active Work is projected by GitHub issue: one persistent parent item contains ordered implementation/review/repair/re-review stages, with live worker telemetry identifying the currently running stage. Active host-owned visual review is attached to the same issue as an additional stage.
 
-The top-level UI visually separates human-review, human-attention, halted/quota, and report-complete work from automated queues. It provides only read-only navigation to issues/PRs and existing Unity run detail. It does not add lifecycle mutation, merge, process-kill, force-unlock, or other privileged controls.
+The top-level UI visually separates issue-centric Active Work, human-review/human-attention work, halted/quota attention, and report-complete work. It provides only read-only navigation to issues/PRs and existing Unity run detail. It does not add lifecycle mutation, merge, process-kill, force-unlock, or other privileged controls.
 
 The dashboard remains bound to `127.0.0.1`.
 
