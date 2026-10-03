@@ -322,6 +322,118 @@ def main() -> int:
         assert "symphony:ready" not in fake.issue_labels[123]
         assert "symphony:rearm" not in fake.issue_labels[123]
 
+    # Retrospective visual review may continue after the PR head advances by descendant history
+    # (for example, merging current main into the reviewed branch), provided the workspace and
+    # fresh captures are at the new head.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-attention"}
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        capture = workspace / "Logs" / "SymphonyUnity" / "capture" / "scene.png"
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        capture.write_bytes(b"png")
+        old_head = "a" * 40
+        new_head = "b" * 40
+        prior = {
+            "state": "human_attention", "issue": 123, "prNumber": 77, "prHeadSha": old_head,
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "sol",
+            "history": [
+                {"cycle": 1, "head": old_head, "verdict": "approved", "summary": "technical approval",
+                 "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"},
+                {"cycle": 2, "head": old_head, "verdict": "changes_required", "summary": "bad capture",
+                 "findings": [], "routingRecommendation": "sol", "reviewerRoute": "sol", "reason": "none"},
+            ],
+            "updatedAt": "2026-10-02T16:54:14+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        original_api = review.api
+        original_run_git = review.run_git
+        original_fresh = review.fresh_visual_capture_images
+
+        def advanced_api(method, path, body=None):
+            if method == "GET" and path == "/pulls/77":
+                value = pr()
+                value["head"]["sha"] = new_head
+                return value
+            return original_api(method, path, body)
+
+        def advanced_git(_workspace, *args):
+            if args[:2] == ("branch", "--show-current"):
+                return "codex/fixture"
+            if args[:2] == ("rev-parse", "HEAD"):
+                return new_head
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                assert args[2:] == (old_head, new_head)
+                return ""
+            return original_run_git(_workspace, *args)
+
+        review.api = advanced_api
+        review.run_git = advanced_git
+        review.fresh_visual_capture_images = lambda _: [capture]
+        try:
+            review.retrospective_visual_review(123, 77)
+        finally:
+            review.api = original_api
+            review.run_git = original_run_git
+            review.fresh_visual_capture_images = original_fresh
+        state = latest_state_from(fake)
+        assert state["state"] == "human_review"
+        assert state["prHeadSha"] == new_head
+        assert state["reviewCycle"] == 3
+
+    # Divergent/non-fast-forward PR head movement remains blocked.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        fake.issue_labels[123] = {"risk:normal", "symphony:human-attention"}
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        capture = workspace / "Logs" / "SymphonyUnity" / "capture" / "scene.png"
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        capture.write_bytes(b"png")
+        old_head = "a" * 40
+        new_head = "b" * 40
+        prior = {
+            "state": "human_attention", "issue": 123, "prNumber": 77, "prHeadSha": old_head,
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "routingRecommendation": "sol",
+            "history": [], "updatedAt": "2026-10-02T16:54:14+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        original_api = review.api
+        original_run_git = review.run_git
+        original_fresh = review.fresh_visual_capture_images
+
+        def divergent_api(method, path, body=None):
+            if method == "GET" and path == "/pulls/77":
+                value = pr()
+                value["head"]["sha"] = new_head
+                return value
+            return original_api(method, path, body)
+
+        def divergent_git(_workspace, *args):
+            if args[:2] == ("branch", "--show-current"):
+                return "codex/fixture"
+            if args[:2] == ("rev-parse", "HEAD"):
+                return new_head
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                raise review.subprocess.CalledProcessError(1, ["git", *args])
+            return original_run_git(_workspace, *args)
+
+        review.api = divergent_api
+        review.run_git = divergent_git
+        review.fresh_visual_capture_images = lambda _: [capture]
+        try:
+            try:
+                review.retrospective_visual_review(123, 77)
+            except RuntimeError as exc:
+                assert "non-fast-forward" in str(exc)
+            else:
+                raise AssertionError("divergent PR head should have been rejected")
+        finally:
+            review.api = original_api
+            review.run_git = original_run_git
+            review.fresh_visual_capture_images = original_fresh
+
     # Retrospective visual approval adds a review cycle but remains at the human gate and never
     # consumes repair budget or dispatches implementation.
     with tempfile.TemporaryDirectory() as raw:
