@@ -110,6 +110,10 @@ Supervisor validates the requested operations against RPG Kingdom's checked-in c
 
 Copy-back is limited to that exact existing scene plus executor-attested deterministic navigation outputs under `Assets/RPGKingdom/Navigation/Generated/` and their metadata. The publish remains rollback-capable and fails closed on unrelated changed assets. This does not grant generic production-scene authority, prefab mutation, arbitrary hierarchy editing, or raw YAML access.
 
+A human-approved existing-scene issue may additionally declare `protectedCompositionPaths`: exact hierarchy roots inside an otherwise protected functional tree where presentation-only composition is required. Supervisor binds those exact paths into the dispatch receipt; requests may use only a subset. The initial supported protected-path operations are `instantiate-existing-prefab` and `set-transform`. The project executor must still reject gameplay/controller objects, gameplay-bearing subtrees, identity-bearing prefabs, or any mutation outside those exact paths. This is a presentation exception, not a transfer of gameplay authority.
+
+Existing-scene composition may also use the project-reviewed `set-terrain-layer` operation when advertised by the RPG Kingdom capability contract. The operation targets scene-owned TerrainData and may create/update only executor-attested TerrainLayer assets beneath `Assets/RPGKingdom/Generated/TerrainLayers/`. Supervisor copies back only the exact scene plus the attested TerrainLayer asset/meta, navigation outputs, and other separately reviewed outputs; arbitrary generated assets remain forbidden.
+
 ### New-scene composition
 
 The new-scene lane is deliberately different from Tier 2. It does **not** broaden mutation authority for an established scene.
