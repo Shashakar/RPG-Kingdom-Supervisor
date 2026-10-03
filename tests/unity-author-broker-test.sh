@@ -126,19 +126,19 @@ printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"new-scene
 write_request composition-ok new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/PlaytestScene.unity
 wait_for_file "$RESPONSES/composition-ok.json"
 jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/composition-ok.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 # New-scene source and target must differ before the host runner is invoked.
 write_request composition-same new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/VerticalSlice.unity
 wait_for_file "$RESPONSES/composition-same.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("must differ"))' "$RESPONSES/composition-same.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 # Unknown tiers are rejected before the host runner.
 write_request unknown structural
 wait_for_file "$RESPONSES/unknown.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("unsupported scene-authoring tier"))' "$RESPONSES/unknown.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 
 # Existing-scene authority may carry a narrowly explicit prefab-derivative auxiliary grant.
@@ -150,7 +150,7 @@ JSON
 mv "$temp" "$REQUESTS/derivative-aux.json"
 wait_for_file "$RESPONSES/derivative-aux.json"
 jq -e '.status == "completed" and .exitCode == 0' "$RESPONSES/derivative-aux.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 6 ]]
 
 # Prefab-derivative is a separately authorized tier and does not require a scene.
 printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"prefab-derivative","operations":["create-prefab-derivative"]}\n' "$GH" > "$STATE/authoring/GH-111.json"
