@@ -153,10 +153,16 @@ grep -Fq 'IsNullOrWhiteSpace($CameraRotation)' "$ROOT/scripts/windows/run-unity-
 grep -Fq 'IsNullOrWhiteSpace($LookAtPath)' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'Unity argument list contains an empty value' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'python3 - "$STATUS_FILE" "$phase" "$summary" "$BASHPID" "$current_index" "$current_name" "$completed_views"' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'git -C "$workspace" diff --quiet --' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'git -C "$workspace" diff --cached --quiet --' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'git -C "$workspace" fetch --no-tags origin "$pr_head_ref"' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'git -C "$workspace" merge --ff-only "$pr_head_sha"' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'sync_workspace_to_pr_head' "$ROOT/scripts/visual-review-pr.sh"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
   exit 1
 fi
+bash -n "$ROOT/scripts/visual-review-pr.sh"
 bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
 python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
