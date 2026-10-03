@@ -78,7 +78,7 @@ update_status() {
   local completed_views="${5:-}"
 
   [[ -f "$STATUS_FILE" ]] || return 0
-  python3 - "$STATUS_FILE" "$phase" "$summary" "$" "$current_index" "$current_name" "$completed_views" <<'PY'
+  python3 - "$STATUS_FILE" "$phase" "$summary" "$BASHPID" "$current_index" "$current_name" "$completed_views" <<'PY'
 import json
 import os
 import sys

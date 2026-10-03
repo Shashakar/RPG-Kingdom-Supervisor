@@ -152,7 +152,7 @@ grep -Fq 'IsNullOrWhiteSpace($CameraPosition)' "$ROOT/scripts/windows/run-unity-
 grep -Fq 'IsNullOrWhiteSpace($CameraRotation)' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'IsNullOrWhiteSpace($LookAtPath)' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'Unity argument list contains an empty value' "$ROOT/scripts/windows/run-unity-capture.ps1"
-grep -Fq 'python3 - "$STATUS_FILE" "$phase" "$summary" "$" "$current_index" "$current_name" "$completed_views"' "$ROOT/scripts/visual-review-pr.sh"
+grep -Fq 'python3 - "$STATUS_FILE" "$phase" "$summary" "$BASHPID" "$current_index" "$current_name" "$completed_views"' "$ROOT/scripts/visual-review-pr.sh"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
   exit 1
