@@ -148,6 +148,10 @@ grep -Fq 'Remove-DirectoryTreeRobust -Path $stageLibrary' "$ROOT/scripts/windows
 grep -Fq 'robocopy.exe $empty $Path /MIR' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'rmdir /s /q' "$ROOT/scripts/windows/run-unity-capture.ps1"
 grep -Fq 'ApplyRequestedCameraPose' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'IsNullOrWhiteSpace($CameraPosition)' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'IsNullOrWhiteSpace($CameraRotation)' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'IsNullOrWhiteSpace($LookAtPath)' "$ROOT/scripts/windows/run-unity-capture.ps1"
+grep -Fq 'Unity argument list contains an empty value' "$ROOT/scripts/windows/run-unity-capture.ps1"
 if grep -Fq '\\${env:' "$ROOT/scripts/windows/run-unity-capture.ps1"; then
   echo "unity-visual-capture-policy-test: PowerShell environment references must not be backslash-escaped" >&2
   exit 1
