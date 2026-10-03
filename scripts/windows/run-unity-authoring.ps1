@@ -91,6 +91,19 @@ function Assert-GeneratedAssetPath {
     }
 }
 
+$GeneratedTerrainLayerRoot = "Assets/RPGKingdom/Generated/TerrainLayers/"
+
+function Assert-GeneratedTerrainLayerPath {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value) -or
+        -not $Value.StartsWith($GeneratedTerrainLayerRoot, [System.StringComparison]::Ordinal) -or
+        -not $Value.EndsWith(".terrainlayer", [System.StringComparison]::OrdinalIgnoreCase) -or
+        $Value.Contains("..") -or
+        $Value.Contains("\")) {
+        Fail-Authoring "generated terrain layer '$Value' is outside the reviewed terrain-layer root" 92
+    }
+}
+
 function Publish-AssetsAtomically {
     param([Parameter(Mandatory = $true)][string[]]$AssetPaths)
 
@@ -406,8 +419,12 @@ else {
 
 $changedAssets = @($result.changedAssets | ForEach-Object { [string]$_ })
 $generatedNavigationAssets = @($result.generatedNavigationAssets | ForEach-Object { [string]$_ })
+$generatedTerrainLayerAssets = @($result.generatedTerrainLayerAssets | ForEach-Object { [string]$_ })
 if ($generatedNavigationAssets.Count -ne @($generatedNavigationAssets | Select-Object -Unique).Count) {
     Fail-Authoring "executor generated-navigation-assets evidence contains duplicate paths" 92
+}
+if ($generatedTerrainLayerAssets.Count -ne @($generatedTerrainLayerAssets | Select-Object -Unique).Count) {
+    Fail-Authoring "executor generated-terrain-layer evidence contains duplicate paths" 92
 }
 $generatedCopyBackAssets = @()
 foreach ($snapshot in $DerivativeSourceSnapshots) {
@@ -420,6 +437,12 @@ foreach ($generatedAsset in $generatedNavigationAssets) {
     $generatedMeta = "$generatedAsset.meta"
     Assert-GeneratedAssetPath -Value $generatedMeta
     $generatedCopyBackAssets += @($generatedAsset, $generatedMeta)
+}
+$generatedTerrainLayerCopyBackAssets = @()
+foreach ($terrainLayerAsset in $generatedTerrainLayerAssets) {
+    Assert-GeneratedTerrainLayerPath -Value $terrainLayerAsset
+    $terrainLayerMeta = "$terrainLayerAsset.meta"
+    $generatedTerrainLayerCopyBackAssets += @($terrainLayerAsset, $terrainLayerMeta)
 }
 
 if ($IsPrefabDerivative) {
@@ -478,18 +501,21 @@ elseif ($IsNewSceneComposition) {
     $result | Add-Member -NotePropertyName sourceHashAfter -NotePropertyValue (Get-Sha256 $StageSourceScene) -Force
 }
 elseif ($IsExistingSceneComposition) {
-    $expected = @(@($scene) + @($generatedCopyBackAssets) + @($DerivativeCopyBackAssets) | Sort-Object)
+    $expected = @(@($scene) + @($generatedCopyBackAssets) + @($generatedTerrainLayerCopyBackAssets) + @($DerivativeCopyBackAssets) | Sort-Object)
     $actual = @($changedAssets | Sort-Object)
     if ($actual.Count -ne $expected.Count -or (Compare-Object -ReferenceObject $expected -DifferenceObject $actual).Count -ne 0) {
-        Fail-Authoring "existing-scene executor changed-assets evidence must exactly match the authorized scene, navigation assets, and exact derivative outputs" 92
+        Fail-Authoring "existing-scene executor changed-assets evidence must exactly match the authorized scene, navigation assets, terrain layers, and exact derivative outputs" 92
     }
-    $copyBackAssets = @(@($scene) + @($generatedCopyBackAssets) + @($DerivativeCopyBackAssets))
+    $copyBackAssets = @(@($scene) + @($generatedCopyBackAssets) + @($generatedTerrainLayerCopyBackAssets) + @($DerivativeCopyBackAssets))
     Publish-AssetsAtomically -AssetPaths $copyBackAssets
     $result | Add-Member -NotePropertyName copiedBackAssets -NotePropertyValue $copyBackAssets -Force
 }
 else {
     if ($generatedNavigationAssets.Count -ne 0) {
         Fail-Authoring "generated navigation assets are only supported for composition authoring tiers" 92
+    }
+    if ($generatedTerrainLayerAssets.Count -ne 0) {
+        Fail-Authoring "generated terrain layers are only supported for existing-scene-composition" 92
     }
     if ($changedAssets.Count -ne 1 -or $changedAssets[0] -ne $scene) {
         Fail-Authoring "executor changed-assets evidence does not exactly match the one authorized scene '$scene'" 92
