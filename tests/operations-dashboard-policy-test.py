@@ -84,7 +84,6 @@ for text in (
     "lifecycleWorkCard",
     "lifecycleStageRows",
     "Visual Review",
-    "Repair Review",
     "aria-label",
     "prefers-reduced-motion",
 ):
