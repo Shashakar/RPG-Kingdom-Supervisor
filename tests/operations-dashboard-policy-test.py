@@ -78,6 +78,18 @@ for text in (
 for service in ("symphony", "review", "unity", "git"):
     assert service in html
 
+# #172 Active Work is issue-centric and renders lifecycle stages under one persistent work item.
+for text in (
+    "lifecycleActiveItems",
+    "lifecycleWorkCard",
+    "lifecycleStageRows",
+    "Visual Review",
+    "Repair Review",
+    "aria-label",
+    "prefers-reduced-motion",
+):
+    assert text in html, text
+
 # #99 exposes trusted successful terminal work on Overview without confusing PID death, halt,
 # human review, or human attention with completion. Open report-only completion is merged from the
 # authoritative lifecycle queue.
