@@ -385,6 +385,123 @@ def _issue_detail(repo: str, number: int, runner: GhRunner) -> dict[str, Any]:
         return {"_error": str(exc)}
 
 
+
+def _workflow_stages(
+    queue: str,
+    review_markers: list[dict[str, Any]],
+    active_worker: dict[str, Any] | None,
+    review: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Project authoritative lifecycle/review data into ordered display-only stages."""
+    active_role = str(active_worker.get("role") or "") if active_worker and active_worker.get("alive") else ""
+    cycle_states: dict[int, dict[str, Any]] = {}
+    for marker in review_markers:
+        state = marker.get("state") if isinstance(marker.get("state"), dict) else {}
+        try:
+            cycle = int(state.get("reviewCycle") or 0)
+        except (TypeError, ValueError):
+            cycle = 0
+        if cycle > 0:
+            cycle_states[cycle] = state
+
+    try:
+        current_cycle = int(review.get("reviewCycle") or 0)
+    except (TypeError, ValueError):
+        current_cycle = 0
+    try:
+        repair_attempts = int(review.get("repairAttempts") or 0)
+    except (TypeError, ValueError):
+        repair_attempts = 0
+
+    def verdict_status(verdict: Any) -> str:
+        value = str(verdict or "").lower()
+        if value in {"approved", "passed", "pass"}:
+            return "passed"
+        if value in {"changes_requested", "changes_required", "needs_changes", "failed", "rejected"}:
+            return "failed"
+        if value in {"blocked_or_ambiguous", "blocked", "human_attention"}:
+            return "blocked"
+        return "pending"
+
+    stages: list[dict[str, Any]] = []
+    implementation_reached = queue != "implementing" or bool(cycle_states) or current_cycle > 0 or bool(review.get("prNumber"))
+    if active_role in {"implementation", "report-only"}:
+        implementation_status = "running"
+    elif queue == "implementing":
+        implementation_status = "pending"
+    elif queue == "halted" and not implementation_reached:
+        implementation_status = "blocked"
+    else:
+        implementation_status = "passed"
+    stages.append({"kind": "implementation", "label": "Implementation", "status": implementation_status})
+
+    review_reached = (
+        queue in {"agent_review", "rework", "human_review", "human_attention"}
+        or bool(cycle_states)
+        or current_cycle > 0
+        or bool(review.get("lastVerdict"))
+    )
+    if review_reached:
+        first = cycle_states.get(1, {})
+        first_status = verdict_status(first.get("lastVerdict"))
+        if not first and current_cycle == 1:
+            first_status = verdict_status(review.get("lastVerdict"))
+        elif not first and current_cycle > 1:
+            # Entering a later review cycle proves the prior cycle required repair.
+            first_status = "failed"
+        if queue == "agent_review" and max(current_cycle, 1) == 1 and active_role == "review":
+            first_status = "running"
+        elif queue == "agent_review" and max(current_cycle, 1) == 1 and first_status == "pending":
+            first_status = "pending"
+        stages.append({"kind": "review", "cycle": 1, "label": "Review", "status": first_status})
+
+    max_cycle = max([current_cycle, *cycle_states.keys()], default=current_cycle)
+    repair_count = max(repair_attempts, max(0, max_cycle - 1), 1 if queue == "rework" else 0)
+    numbered = repair_count > 1
+    for repair_index in range(1, repair_count + 1):
+        repair_review_cycle = repair_index + 1
+        later_review = cycle_states.get(repair_review_cycle)
+        repair_label = f"Repair #{repair_index}" if numbered else "Repair"
+        review_label = f"Repair Review #{repair_index}" if numbered else "Repair Review"
+
+        if later_review is not None or max_cycle >= repair_review_cycle:
+            repair_status = "passed"
+        elif queue == "rework" and repair_index == repair_count:
+            repair_status = "running" if active_role == "repair" else "pending"
+        elif repair_index < repair_count:
+            repair_status = "passed"
+        elif queue == "halted":
+            repair_status = "blocked"
+        else:
+            repair_status = "pending"
+        stages.append({"kind": "repair", "attempt": repair_index, "label": repair_label, "status": repair_status})
+
+        review_stage_reached = later_review is not None or current_cycle >= repair_review_cycle
+        if review_stage_reached:
+            if later_review is None and current_cycle > repair_review_cycle:
+                # A subsequent repair exists only because this review did not pass.
+                repair_review_status = "failed"
+            else:
+                repair_review_status = verdict_status(
+                    (later_review or {}).get("lastVerdict")
+                    if later_review is not None
+                    else review.get("lastVerdict")
+                )
+            if queue == "agent_review" and current_cycle == repair_review_cycle and active_role == "review":
+                repair_review_status = "running"
+            stages.append({
+                "kind": "repair_review",
+                "attempt": repair_index,
+                "cycle": repair_review_cycle,
+                "label": review_label,
+                "status": repair_review_status,
+            })
+
+    if queue == "halted" and stages and not any(stage["status"] == "blocked" for stage in stages):
+        stages[-1]["status"] = "blocked"
+    return stages
+
+
 def collect_lifecycle(
     *,
     repo: str | None = None,
@@ -472,6 +589,7 @@ def collect_lifecycle(
             "headSha": review.get("prHeadSha"),
             "latestWorkerOutcome": recent.get("outcome") if recent else None,
             "humanActionRequired": queue in {"human_review", "human_attention", "halted", "report_complete"},
+            "workflowStages": _workflow_stages(queue, review_markers, active, review),
         }
         items.append(item)
         github_activity.extend(_github_activity(item, events, review_markers))

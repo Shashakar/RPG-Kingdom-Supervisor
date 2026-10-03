@@ -170,6 +170,41 @@ assert implementation["issue"] == 110 and implementation["active"] is True
 # Runtime truth wins for an active worker; labels describe what should route, not what is already running.
 assert implementation["route"]["source"] == "active-worker"
 assert implementation["route"]["route"] == "terra"
+assert implementation["workflowStages"] == [
+    {"kind": "implementation", "label": "Implementation", "status": "running"},
+]
+
+# Active Work is issue-centric: intermediate review failures remain visible while the parent
+# continues through repair/re-review rather than becoming a new top-level task.
+assert [(stage["label"], stage["status"]) for stage in rework["workflowStages"]] == [
+    ("Implementation", "passed"),
+    ("Review", "failed"),
+    ("Repair", "pending"),
+]
+assert [(stage["label"], stage["status"]) for stage in human_review["workflowStages"]] == [
+    ("Implementation", "passed"),
+    ("Review", "failed"),
+    ("Repair", "passed"),
+    ("Repair Review", "passed"),
+]
+assert halted["workflowStages"] == [
+    {"kind": "implementation", "label": "Implementation", "status": "blocked"},
+]
+
+two_repairs = activity._workflow_stages(
+    "agent_review",
+    [],
+    {"alive": True, "role": "review"},
+    {"reviewCycle": 3, "repairAttempts": 2, "lastVerdict": None, "prNumber": 200},
+)
+assert [(stage["label"], stage["status"]) for stage in two_repairs] == [
+    ("Implementation", "passed"),
+    ("Review", "failed"),
+    ("Repair #1", "passed"),
+    ("Repair Review #1", "failed"),
+    ("Repair #2", "passed"),
+    ("Repair Review #2", "running"),
+]
 
 # Routing projection follows the same precedence as routing-policy.sh.
 assert activity.route_from_labels(["symphony:ready", "risk:architecture"])["route"] == "sol"

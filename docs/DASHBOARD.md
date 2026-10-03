@@ -15,23 +15,26 @@ The dashboard is organized around the questions an operator needs answered first
 
 The sticky header keeps overall health, active-worker state, Codex quota, refresh time, and refresh control visible. The Overview view emphasizes those same signals, keeps healthy services compact, shows recent trusted finished tasks separately from live work, and raises an attention banner only when service state, halted work, or lifecycle data requires it.
 
-## Active worker semantics
+## Active Work lifecycle semantics
 
-**Active work means live worker lifetimes only.** `activeWorkers` is filtered by the recorded worker PID before it reaches the dashboard. A dead PID must not remain visible as a `stale` card under Active work.
+**Active Work is issue-centric, not worker-centric.** Once an RPG Kingdom issue enters the automated Supervisor lifecycle, the Overview keeps that GitHub issue as the persistent top-level work item while implementation, automated review, repair, re-review, and host-owned visual review appear as ordered child stages.
 
-PID death alone is not evidence that work completed successfully. Normal worker completion moves the durable lifetime record into worker history with its actual lifecycle outcome. If a worker dies outside that normal completion boundary, startup maintenance preserves the record as `stale-process` reconciliation evidence before removing the orphaned active file. The dashboard remains read-only and does not perform this reconciliation itself.
+The stage projection is read-only. It is derived from the same GitHub-authoritative lifecycle labels and structured automated-review state already used by the Work / Activity view, enriched by live worker telemetry only to identify the currently executing stage. The dashboard does not persist a second workflow state machine.
 
-As a result:
+Stage states are:
 
-- live worker -> shown under Active work;
-- normal terminal worker -> shown in recent worker history/activity with its durable outcome;
-- crashed/orphaned worker -> not shown as active and not mislabeled `Done`; its diagnostic record is preserved/reconciled by Supervisor maintenance.
+- `pending` — the workflow has reached or scheduled the stage but no live execution/result is present;
+- `running` — the corresponding worker or host visual-review operation is live;
+- `passed` — progression proves the stage completed successfully;
+- `failed` — a review verdict required another repair cycle;
+- `blocked` — the current lifecycle cannot progress without operator/system intervention.
 
-### Host-owned visual review operations
+Repair rows are created only after rework actually occurs. One repair uses `Repair` / `Repair Review`; multiple cycles use numbered `Repair #N` / `Repair Review #N` rows. A failed intermediate review remains visible after repair begins so the operator can see how the issue reached its current stage. Reaching a later review cycle is sufficient lifecycle evidence that the preceding review required repair; this is presentation inference, not a new authority.
 
-The overview's **Active Work** panel includes live host-owned retrospective Unity visual reviews in addition to Codex worker lifetimes. Visual-review entries show the current phase and, for multi-view runs, the current view number/name. They link to issue detail rather than a Codex worker detail page.
+Live worker records still retain their normal model/effort/session/timing detail and remain available through worker drill-down. They no longer replace one another as the top-level Overview item. Host-owned visual review is similarly attached to its issue as a `Visual Review` stage while active.
 
-These entries come from durable `visual-reviews/active/GH-<issue>.json` status records. Terminal records move to `visual-reviews/history/`. The review orchestrator recovers dead-owner stale records so a crashed visual review cannot remain active indefinitely.
+An issue leaves Overview Active Work when the authoritative lifecycle moves it into a manual/terminal bucket such as human review/attention or report completion. Halted work remains visible as blocked Active Work because the issue has not completed and still needs intervention.
+
 
 ## Finished task semantics
 
