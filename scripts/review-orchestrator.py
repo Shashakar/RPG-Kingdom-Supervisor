@@ -660,9 +660,6 @@ def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
         raise RuntimeError(
             f"GH-{issue_number} durable review state points to PR #{prior.get('prNumber')}, not #{pr_number}"
         )
-    if prior.get("prHeadSha") != pr.get("head", {}).get("sha"):
-        raise RuntimeError("PR head moved after the durable human-review state was recorded")
-
     workspace = WORKSPACE_ROOT / f"GH-{issue_number}"
     if not workspace.is_dir():
         raise RuntimeError(f"cannot visually review GH-{issue_number}: workspace missing")
@@ -672,6 +669,16 @@ def retrospective_visual_review(issue_number: int, pr_number: int) -> None:
     local_head = run_git(workspace, "rev-parse", "HEAD")
     if local_head != pr["head"]["sha"]:
         raise RuntimeError(f"workspace HEAD {local_head} does not match PR head {pr['head']['sha']}")
+
+    prior_head = str(prior.get("prHeadSha") or "")
+    current_head = str(pr["head"]["sha"])
+    if prior_head != current_head:
+        try:
+            run_git(workspace, "merge-base", "--is-ancestor", prior_head, current_head)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                "PR head moved non-fast-forward after the durable human-review state was recorded"
+            ) from exc
 
     visual_images = fresh_visual_capture_images(workspace)
     if not visual_images:
