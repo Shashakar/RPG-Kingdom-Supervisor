@@ -70,6 +70,62 @@ STATUS_FILE="$STATE_ROOT/visual-reviews/active/GH-$issue.json"
   exit 74
 }
 
+sync_workspace_to_pr_head() {
+  local repo_slug="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
+  local api_root="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
+  local pr_json
+  local pr_head_ref
+  local pr_head_sha
+  local local_branch
+  local fetched_sha
+  local local_head
+
+  update_status "syncing_workspace" "Synchronizing the issue workspace to PR #$pr head." "" "" "0"
+
+  pr_json="$(curl -fsSL \
+    -H "Authorization: Bearer $SYMPHONY_GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "$api_root/repos/$repo_slug/pulls/$pr")"
+  pr_head_ref="$(jq -r '.head.ref // empty' <<<"$pr_json")"
+  pr_head_sha="$(jq -r '.head.sha // empty' <<<"$pr_json")"
+  [[ -n "$pr_head_ref" && "$pr_head_sha" =~ ^[0-9a-fA-F]{40}$ ]] || {
+    echo "visual-review-pr: could not resolve PR #$pr head branch/SHA" >&2
+    exit 75
+  }
+
+  local_branch="$(git -C "$workspace" branch --show-current)"
+  [[ "$local_branch" == "$pr_head_ref" ]] || {
+    echo "visual-review-pr: workspace branch '$local_branch' does not match PR head '$pr_head_ref'" >&2
+    exit 76
+  }
+
+  git -C "$workspace" diff --quiet -- || {
+    echo "visual-review-pr: workspace has tracked unstaged changes; refusing to synchronize" >&2
+    exit 77
+  }
+  git -C "$workspace" diff --cached --quiet -- || {
+    echo "visual-review-pr: workspace has tracked staged changes; refusing to synchronize" >&2
+    exit 77
+  }
+
+  git -C "$workspace" fetch --no-tags origin "$pr_head_ref"
+  fetched_sha="$(git -C "$workspace" rev-parse FETCH_HEAD)"
+  [[ "$fetched_sha" == "$pr_head_sha" ]] || {
+    echo "visual-review-pr: fetched '$pr_head_ref' at $fetched_sha but GitHub reports $pr_head_sha" >&2
+    exit 78
+  }
+
+  git -C "$workspace" merge --ff-only "$pr_head_sha"
+  local_head="$(git -C "$workspace" rev-parse HEAD)"
+  [[ "$local_head" == "$pr_head_sha" ]] || {
+    echo "visual-review-pr: workspace HEAD $local_head does not match PR head $pr_head_sha after sync" >&2
+    exit 79
+  }
+
+  echo "visual-review-pr: synchronized workspace to PR #$pr head $pr_head_sha"
+}
+
 update_status() {
   local phase="$1"
   local summary="$2"
@@ -131,6 +187,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+sync_workspace_to_pr_head
 update_status "acquiring_unity" "Acquiring the exclusive Unity resource." "" "" "0"
 echo "visual-review-pr: acquiring Unity resource for GH-$issue"
 (
