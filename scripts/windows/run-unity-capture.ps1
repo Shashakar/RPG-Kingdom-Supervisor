@@ -573,15 +573,19 @@ $unityArgs = @(
     "-rpgkOutput", $PngPath,
     "-rpgkManifest", $ManifestPath,
     "-rpgkDiagnostics", $DiagnosticsPath,
-    "-rpgkViewName", $ViewName,
-    "-rpgkCameraPosition", $CameraPosition,
-    "-rpgkCameraRotation", $CameraRotation,
-    "-rpgkLookAt", $LookAtPath,
     "-rpgkFieldOfView", $FieldOfView.ToString([System.Globalization.CultureInfo]::InvariantCulture),
     "-rpgkWidth", $Width,
     "-rpgkHeight", $Height
 )
 if (-not [string]::IsNullOrWhiteSpace($CameraPath)) { $unityArgs += @("-rpgkCamera", $CameraPath) }
+if (-not [string]::IsNullOrWhiteSpace($ViewName)) { $unityArgs += @("-rpgkViewName", $ViewName) }
+if (-not [string]::IsNullOrWhiteSpace($CameraPosition)) { $unityArgs += @("-rpgkCameraPosition", $CameraPosition) }
+if (-not [string]::IsNullOrWhiteSpace($CameraRotation)) { $unityArgs += @("-rpgkCameraRotation", $CameraRotation) }
+if (-not [string]::IsNullOrWhiteSpace($LookAtPath)) { $unityArgs += @("-rpgkLookAt", $LookAtPath) }
+
+if ($unityArgs | Where-Object { $null -eq $_ -or ([string]$_).Length -eq 0 }) {
+    Fail-Runner "internal error: Unity argument list contains an empty value" 86
+}
 
 Write-ProgressState -Phase "unity_startup"
 $unityProcess = Start-Process -FilePath $UnityPath -ArgumentList $unityArgs -PassThru
