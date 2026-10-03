@@ -523,6 +523,43 @@ def active_workers() -> list[dict[str, Any]]:
     return items
 
 
+def active_visual_reviews() -> list[dict[str, Any]]:
+    """Project live host-owned visual reviews into the same Active Work surface as workers."""
+    items: list[dict[str, Any]] = []
+    active_dir = state_root() / "visual-reviews" / "active"
+    if not active_dir.is_dir():
+        return items
+    for path in sorted(active_dir.glob("GH-*.json")):
+        value = read_json(path)
+        if not value or value.get("state") != "active" or not process_alive(value.get("pid")):
+            continue
+        phase = str(value.get("phase") or "visual_review")
+        current_index = int(value.get("currentViewIndex") or 0)
+        total_views = int(value.get("totalViews") or 1)
+        current_name = value.get("currentViewName")
+        progress = None
+        if phase in {"capturing", "view_completed"} and current_index > 0:
+            progress = f"view {current_index}/{max(total_views, 1)}"
+            if current_name:
+                progress += f" · {current_name}"
+        elif phase == "independent_review":
+            progress = "independent review"
+        else:
+            progress = phase.replace("_", " ")
+        items.append(sanitize({
+            **value,
+            "alive": True,
+            "kind": "visual_review",
+            "role": "visual-review",
+            "runId": f"visual-review-{value.get('identifier') or path.stem}",
+            "model": "host-owned",
+            "effort": progress,
+            "route": "review",
+            "progress": progress,
+        }))
+    return items
+
+
 def _read_jsonl_tail(path: Path, limit: int) -> list[dict[str, Any]]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -554,7 +591,7 @@ def collect_operations() -> dict[str, Any]:
         "generatedAt": iso_now(),
         "services": {name: normalize_service(name) for name in ("symphony", "review", "unity", "git")},
         "quota": current_quota(),
-        "activeWorkers": active_workers(),
+        "activeWorkers": [*active_workers(), *active_visual_reviews()],
         "recentWorkers": recent_workers(),
         "recentEvents": recent_events(),
     })
