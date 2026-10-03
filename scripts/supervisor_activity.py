@@ -417,7 +417,7 @@ def _workflow_stages(
         value = str(verdict or "").lower()
         if value in {"approved", "passed", "pass"}:
             return "passed"
-        if value in {"changes_requested", "needs_changes", "failed", "rejected"}:
+        if value in {"changes_requested", "changes_required", "needs_changes", "failed", "rejected"}:
             return "failed"
         if value in {"blocked_or_ambiguous", "blocked", "human_attention"}:
             return "blocked"
@@ -446,6 +446,9 @@ def _workflow_stages(
         first_status = verdict_status(first.get("lastVerdict"))
         if not first and current_cycle == 1:
             first_status = verdict_status(review.get("lastVerdict"))
+        elif not first and current_cycle > 1:
+            # Entering a later review cycle proves the prior cycle required repair.
+            first_status = "failed"
         if queue == "agent_review" and max(current_cycle, 1) == 1 and active_role == "review":
             first_status = "running"
         elif queue == "agent_review" and max(current_cycle, 1) == 1 and first_status == "pending":
@@ -475,11 +478,15 @@ def _workflow_stages(
 
         review_stage_reached = later_review is not None or current_cycle >= repair_review_cycle
         if review_stage_reached:
-            repair_review_status = verdict_status(
-                (later_review or {}).get("lastVerdict")
-                if later_review is not None
-                else review.get("lastVerdict")
-            )
+            if later_review is None and current_cycle > repair_review_cycle:
+                # A subsequent repair exists only because this review did not pass.
+                repair_review_status = "failed"
+            else:
+                repair_review_status = verdict_status(
+                    (later_review or {}).get("lastVerdict")
+                    if later_review is not None
+                    else review.get("lastVerdict")
+                )
             if queue == "agent_review" and current_cycle == repair_review_cycle and active_role == "review":
                 repair_review_status = "running"
             stages.append({
