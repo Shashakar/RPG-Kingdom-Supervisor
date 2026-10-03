@@ -50,13 +50,17 @@ esac
 
 authorization="$STATE_ROOT/authoring/$issue_identifier.json"
 target_scene="$(jq -r '.authoring.scene // empty' "$request")"
-if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier "$requested_tier" --arg scene "$target_scene" '
+requested_protected_paths="$(jq -c '.authoring.protectedCompositionPaths // []' "$request")"
+if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier "$requested_tier" --arg scene "$target_scene" --argjson requestedProtected "$requested_protected_paths" '
   .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and
   (
     (.tier == $tier and ($tier != "existing-scene-composition" or .scene == $scene))
     or
     ([.auxiliaryAuthoring[]? | select(.tier == $tier)] | length == 1)
-  )
+  ) and
+  (($requestedProtected | length) == 0 or
+   ($tier == "existing-scene-composition" and
+    (($requestedProtected - (.protectedCompositionPaths // [])) | length) == 0))
 ' "$authorization" >/dev/null 2>&1; then
   echo "RPG Kingdom Unity authoring: current dispatch is not authorized for requested tier '$requested_tier'" >&2
   exit 83

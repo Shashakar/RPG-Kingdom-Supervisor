@@ -102,7 +102,7 @@ def validate_shared_lock(state_root: Path, workspace: Path) -> str | None:
     return None
 
 
-def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str | None, requested_operations: list[Any]) -> str | None:
+def validate_authorization(state_root: Path, workspace: Path, requested_tier: str, requested_scene: str | None, requested_operations: list[Any], requested_protected_paths: list[str]) -> str | None:
     match = ISSUE_WORKSPACE.fullmatch(workspace.name)
     if match is None:
         return "workspace is not a GH issue workspace"
@@ -134,6 +134,11 @@ def validate_authorization(state_root: Path, workspace: Path, requested_tier: st
         requested_kinds = {operation.get("kind") for operation in requested_operations if isinstance(operation, dict)}
         if not requested_kinds.issubset(set(authorized_operations)):
             return "scene-authoring authorization does not permit one or more requested operations"
+    authorized_protected_paths = payload.get("protectedCompositionPaths") or []
+    if requested_tier != "existing-scene-composition" and requested_protected_paths:
+        return "protected composition paths are only valid for existing-scene-composition"
+    if not set(requested_protected_paths).issubset(set(authorized_protected_paths)):
+        return "scene-authoring authorization does not permit one or more requested protected composition paths"
     try:
         authorized_workspace = Path(str(payload.get("workspace", ""))).resolve()
     except OSError:
@@ -162,6 +167,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         scene = authoring.get("scene")
         source_scene = authoring.get("sourceScene")
         operations = authoring.get("operations")
+        protected_paths = authoring.get("protectedCompositionPaths") or []
         if requested_tier == "prefab-derivative":
             source_prefab = authoring.get("sourcePrefab")
             destination_prefab = authoring.get("destinationPrefab")
@@ -182,6 +188,10 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
             raise ValueError("sourceScene is only valid for new-scene-composition")
         if not isinstance(operations, list) or not operations:
             raise ValueError("one or more authoring operations are required")
+        if not isinstance(protected_paths, list) or any(not isinstance(path, str) or not path or path.startswith("/") or path.endswith("/") or ".." in path or "\\" in path for path in protected_paths):
+            raise ValueError("protectedCompositionPaths must be normalized exact hierarchy paths")
+        if len(set(protected_paths)) != len(protected_paths):
+            raise ValueError("protectedCompositionPaths must be unique")
         if requested_tier == "prefab-derivative" and (len(operations) != 1 or not isinstance(operations[0], dict) or operations[0].get("kind") != "create-prefab-derivative"):
             raise ValueError("prefab-derivative requires exactly one create-prefab-derivative operation")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -198,7 +208,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    error = validate_authorization(state_root, workspace, requested_tier, scene, operations)
+    error = validate_authorization(state_root, workspace, requested_tier, scene, operations, protected_paths)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
     return workspace, payload, None

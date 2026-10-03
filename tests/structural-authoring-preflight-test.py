@@ -31,7 +31,7 @@ CONTRACT = {
         },
         {
             "tier": "existing-scene-composition",
-            "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "bake-navmesh"],
+            "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "set-terrain-layer", "bake-navmesh"],
         },
         {
             "tier": "prefab-derivative",
@@ -50,6 +50,7 @@ CONTRACT = {
         "RPGKingdom.Runtime.PlayerCombat.PlayerCombatController",
     ],
     "newSceneComposition": {"creationOperationKind": "copy-scene"},
+    "existingSceneEnvironment": {"protectedCompositionPathsSupported": True},
 }
 
 
@@ -88,6 +89,36 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertEqual("supported", result["status"])
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual("Assets/RPGKingdom/Scenes/PlaytestScene.unity", result["authorizedScene"])
+
+    def test_existing_scene_can_authorize_exact_protected_composition_paths(self):
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["instantiate-existing-prefab", "set-transform", "set-terrain-layer"],
+            "protectedCompositionPaths": [
+                "Systems/WorldPhase_VerticalSlice/WorldPhaseTarget_SandboxRoute/Route_Blocked_Phase"
+            ],
+        }))
+        self.assertEqual("supported", result["status"])
+        self.assertTrue(result["authoringAuthorized"])
+        self.assertEqual(
+            ["Systems/WorldPhase_VerticalSlice/WorldPhaseTarget_SandboxRoute/Route_Blocked_Phase"],
+            result["authorizedProtectedCompositionPaths"],
+        )
+
+    def test_protected_composition_paths_fail_closed_when_contract_does_not_support_them(self):
+        contract = json.loads(json.dumps(CONTRACT))
+        contract["existingSceneEnvironment"]["protectedCompositionPathsSupported"] = False
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["set-transform"],
+            "protectedCompositionPaths": ["Systems/Phase"],
+        }), contract=contract)
+        self.assertEqual("unsupported", result["status"])
+        self.assertIn({"kind": "protected-composition-path", "value": "Systems/Phase"}, result["unsupported"])
 
     def test_existing_scene_can_explicitly_authorize_derivative_auxiliary_lane(self):
         result = self.evaluate(marker({

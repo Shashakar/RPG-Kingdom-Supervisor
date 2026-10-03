@@ -101,24 +101,44 @@ wait_for_file "$RESPONSES/existing-wrong.json"
 jq -e '.status == "rejected" and .exitCode == 83 and (.stderr | contains("does not permit requested scene"))' "$RESPONSES/existing-wrong.json" >/dev/null
 [[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 3 ]]
 
+# Protected composition paths must be explicitly bound in the authorization receipt.
+printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","operations":["set-transform"],"protectedCompositionPaths":["Systems/Phase"]}\n' "$GH" > "$STATE/authoring/GH-111.json"
+temp="$REQUESTS/.protected-ok.json.tmp.$.$RANDOM"
+cat > "$temp" <<'JSON'
+{"protocolVersion":1,"requestId":"protected-ok","operation":"author","authoring":{"protocolVersion":1,"tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","protectedCompositionPaths":["Systems/Phase"],"operations":[{"kind":"set-transform","objectPath":"Systems/Phase/Rock","localPosition":{"x":0,"y":0,"z":0},"localEulerAngles":{"x":0,"y":0,"z":0},"localScale":{"x":1,"y":1,"z":1}}]}}
+JSON
+mv "$temp" "$REQUESTS/protected-ok.json"
+wait_for_file "$RESPONSES/protected-ok.json"
+jq -e '.status == "completed" and .exitCode == 0' "$RESPONSES/protected-ok.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+
+temp="$REQUESTS/.protected-bad.json.tmp.$.$RANDOM"
+cat > "$temp" <<'JSON'
+{"protocolVersion":1,"requestId":"protected-bad","operation":"author","authoring":{"protocolVersion":1,"tier":"existing-scene-composition","scene":"Assets/RPGKingdom/Scenes/VerticalSlice.unity","protectedCompositionPaths":["Systems/OtherPhase"],"operations":[{"kind":"set-transform","objectPath":"Systems/OtherPhase/Rock","localPosition":{"x":0,"y":0,"z":0},"localEulerAngles":{"x":0,"y":0,"z":0},"localScale":{"x":1,"y":1,"z":1}}]}}
+JSON
+mv "$temp" "$REQUESTS/protected-bad.json"
+wait_for_file "$RESPONSES/protected-bad.json"
+jq -e '.status == "rejected" and .exitCode == 83 and (.stderr | contains("protected composition paths"))' "$RESPONSES/protected-bad.json" >/dev/null
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+
 # Exact new-scene authorization permits the third tier and preserves sourceScene in broker status.
 printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"new-scene-composition"}\n' "$GH" > "$STATE/authoring/GH-111.json"
 write_request composition-ok new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/PlaytestScene.unity
 wait_for_file "$RESPONSES/composition-ok.json"
 jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/composition-ok.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 # New-scene source and target must differ before the host runner is invoked.
 write_request composition-same new-scene-composition Assets/RPGKingdom/Scenes/VerticalSlice.unity Assets/RPGKingdom/Scenes/VerticalSlice.unity
 wait_for_file "$RESPONSES/composition-same.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("must differ"))' "$RESPONSES/composition-same.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 # Unknown tiers are rejected before the host runner.
 write_request unknown structural
 wait_for_file "$RESPONSES/unknown.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("unsupported scene-authoring tier"))' "$RESPONSES/unknown.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 4 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
 
 
 # Existing-scene authority may carry a narrowly explicit prefab-derivative auxiliary grant.
@@ -130,7 +150,7 @@ JSON
 mv "$temp" "$REQUESTS/derivative-aux.json"
 wait_for_file "$RESPONSES/derivative-aux.json"
 jq -e '.status == "completed" and .exitCode == 0' "$RESPONSES/derivative-aux.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 5 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 6 ]]
 
 # Prefab-derivative is a separately authorized tier and does not require a scene.
 printf '{"protocolVersion":1,"issue":"GH-111","workspace":"%s","tier":"prefab-derivative","operations":["create-prefab-derivative"]}\n' "$GH" > "$STATE/authoring/GH-111.json"
@@ -141,7 +161,7 @@ JSON
 mv "$temp" "$REQUESTS/derivative-ok.json"
 wait_for_file "$RESPONSES/derivative-ok.json"
 jq -e '.status == "completed" and .exitCode == 0 and .result.success == true' "$RESPONSES/derivative-ok.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 6 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
 
 # Derivative authority must not grant unrelated operations.
 temp="$REQUESTS/.derivative-bad-op.json.tmp.$"
@@ -151,13 +171,13 @@ JSON
 mv "$temp" "$REQUESTS/derivative-bad-op.json"
 wait_for_file "$RESPONSES/derivative-bad-op.json"
 jq -e '.status == "rejected" and .exitCode == 64 and (.stderr | contains("exactly one create-prefab-derivative"))' "$RESPONSES/derivative-bad-op.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 6 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
 
 printf 'GH-999\n' > "$STATE/locks/unity-editor.lock/owner"
 write_request wrong-lock mechanical-structural
 wait_for_file "$RESPONSES/wrong-lock.json"
 jq -e '.status == "rejected" and .exitCode == 82' "$RESPONSES/wrong-lock.json" >/dev/null
-[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 6 ]]
+[[ "$(wc -l < "$FAKE_HOST_CALLS")" -eq 7 ]]
 
 kill "$BROKER_PID"
 wait "$BROKER_PID" || true
