@@ -16,6 +16,7 @@ param(
     [string]$RequestId = "",
     [string]$ProgressPath = "",
     [string]$CancelPath = "",
+    [int]$CancelWaitSeconds = 15,
     [switch]$HealthOnly
 )
 
@@ -238,7 +239,11 @@ while (-not $unityProcess.HasExited) {
         Write-ProgressState -Phase "recovery_cancel_requested" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
         try {
             Stop-Process -Id $unityProcess.Id -Force -ErrorAction Stop
-            $unityProcess.WaitForExit()
+            $cancelWaitMilliseconds = [Math]::Max(1, $CancelWaitSeconds) * 1000
+            if (-not $unityProcess.WaitForExit($cancelWaitMilliseconds)) {
+                Write-ProgressState -Phase "recovery_cancel_timeout" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
+                Fail-Runner "request-owned Unity PID $($unityProcess.Id) did not report exit within $CancelWaitSeconds seconds after Stop-Process -Force; last phase=$phase, Editor.log bytes=$lastLogLength, results bytes=$lastResultsLength." 92
+            }
             $cancelled = $true
             Write-ProgressState -Phase "recovery_cancelled" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -ResultsBytes $lastResultsLength
             break
