@@ -265,6 +265,43 @@ def latest_state(number: int) -> dict[str, Any]:
     return newest
 
 
+def human_rework_context(issue_number: int, prior: dict[str, Any], current_head: str) -> dict[str, Any] | None:
+    """Capture human continuation requirements that were added after a durable human gate."""
+    baseline = prior.get("prHeadSha")
+    if prior.get("state") not in {"human_review", "human_attention"}:
+        return None
+    if not isinstance(baseline, str) or not baseline or baseline == current_head:
+        return None
+    gate_time = parse_time(prior.get("updatedAt"))
+    directives: list[str] = []
+    page = 1
+    generated_prefixes = (
+        "Implementation/repair handoff completed",
+        "### Automated review cycle",
+        "## Human Review packet",
+    )
+    while page <= 20:
+        comments = api("GET", f"/issues/{issue_number}/comments?per_page=100&page={page}") or []
+        if not comments:
+            break
+        for comment in comments:
+            body = str(comment.get("body") or "").strip()
+            created = parse_time(comment.get("created_at"))
+            if not body or MARKER in body or body.startswith(generated_prefixes):
+                continue
+            if gate_time is not None and created is not None and created <= gate_time:
+                continue
+            directives.append(body)
+        if len(comments) < 100:
+            break
+        page += 1
+    return {
+        "baselineHead": baseline,
+        "currentHead": current_head,
+        "directives": directives,
+    }
+
+
 def persist_state(issue_number: int, state: dict[str, Any], human_text: str) -> None:
     state["updatedAt"] = datetime.now(timezone.utc).isoformat()
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":"))
@@ -365,6 +402,9 @@ Current PR title: {pr.get('title','')}
 Current PR description:
 {pr.get('body') or '(none)'}
 
+Human-requested rework context:
+{json.dumps(state.get('humanRework'), indent=2) if state.get('humanRework') else '(none)'}
+
 Review requirements:
 1. Read repository-root AGENTS.md and only the architecture/system docs it requires for the changed scope.
 2. Inspect the actual current diff with `git diff origin/main...HEAD` and changed-file list. Repository state, not prior worker prose or hidden reasoning, is authoritative.
@@ -376,11 +416,12 @@ Review requirements:
 8. `routing_recommendation` is advisory for a repair task. Recommend the cheapest route likely to resolve the actual findings; use `unchanged` when no repair is required.
 9. Approval means the current PR/head is technically ready for a human integration decision; it never authorizes merge.
 10. Do not weaken or reinterpret the issue acceptance criteria merely to approve the current implementation.
-11. When one or more fresh Unity visual captures are attached, inspect the pixels themselves. Evaluate environment/world coherence, spatial readability, visual hierarchy, asset integration and obvious repetition, actor/target readability, and whether the viewed space reads as an authored game environment rather than a test arena. Make only claims supported by the attached view; mark anything outside the frame as unassessed rather than inferring it from hierarchy or transforms.
-12. For each attached Unity capture, inspect the sibling `visual-diagnostics.json`, `shader-log.txt`, and `manifest.json` in the same Logs/SymphonyUnity capture directory when they exist. Treat these as capture-environment evidence.
-13. Magenta/pink pixels alone do not prove that the PR has broken materials. A material/shader defect may be reported as `changes_required` only when the capture diagnostics support it—for example a renderer in the camera frustum has a missing shader, `shaderSupported=false`, or the shader log contains a matching compilation/unsupported-subshader failure. Name the diagnostic evidence in the finding.
-14. If the image appears materially corrupted (for example widespread magenta) but in-frustum shaders are present/supported and the shader log does not corroborate a shader failure, treat the visual evidence as capture-tool uncertainty rather than a code/art defect. Use `blocked_or_ambiguous`, `requires_human=true`, `reason=insufficient_evidence`, no repair routing, and explain that normal-editor comparison or a trustworthy recapture is required.
-15. Record the capture render method, render pipeline, and graphics device when they materially affect confidence. Do not infer that a batch/headless rendering anomaly will reproduce in the normal player/editor without corroborating evidence.
+11. If Human-requested rework context is present, treat its baselineHead and directives as authoritative continuation acceptance criteria. Inspect `git diff <baselineHead>...HEAD` in addition to the whole PR. Do not approve unless the delta since that rejected/human-gated generation materially satisfies every applicable human directive. A changed SHA, fresh tests, or unrelated/test-only edits are not evidence that a requested runtime/architecture change was implemented. If a directive is impossible, contradictory, or requires scope expansion, use `blocked_or_ambiguous` rather than ignoring it.
+12. When one or more fresh Unity visual captures are attached, inspect the pixels themselves. Evaluate environment/world coherence, spatial readability, visual hierarchy, asset integration and obvious repetition, actor/target readability, and whether the viewed space reads as an authored game environment rather than a test arena. Make only claims supported by the attached view; mark anything outside the frame as unassessed rather than inferring it from hierarchy or transforms.
+13. For each attached Unity capture, inspect the sibling `visual-diagnostics.json`, `shader-log.txt`, and `manifest.json` in the same Logs/SymphonyUnity capture directory when they exist. Treat these as capture-environment evidence.
+14. Magenta/pink pixels alone do not prove that the PR has broken materials. A material/shader defect may be reported as `changes_required` only when the capture diagnostics support it—for example a renderer in the camera frustum has a missing shader, `shaderSupported=false`, or the shader log contains a matching compilation/unsupported-subshader failure. Name the diagnostic evidence in the finding.
+15. If the image appears materially corrupted (for example widespread magenta) but in-frustum shaders are present/supported and the shader log does not corroborate a shader failure, treat the visual evidence as capture-tool uncertainty rather than a code/art defect. Use `blocked_or_ambiguous`, `requires_human=true`, `reason=insufficient_evidence`, no repair routing, and explain that normal-editor comparison or a trustworthy recapture is required.
+16. Record the capture render method, render pipeline, and graphics device when they materially affect confidence. Do not infer that a batch/headless rendering anomaly will reproduce in the normal player/editor without corroborating evidence.
 
 Return only the structured verdict required by the provided output schema.
 """
@@ -606,6 +647,13 @@ def process(issue: dict[str, Any]) -> None:
         "reviewCycle": len(prior_history) + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
         "history": list(prior_history),
     }
+    rework_context = human_rework_context(number, prior, pr["head"]["sha"]) if prior else None
+    if rework_context is not None:
+        state["humanRework"] = rework_context
+    else:
+        inherited_rework = prior.get("humanRework")
+        if isinstance(inherited_rework, dict):
+            state["humanRework"] = inherited_rework
     verdict = run_reviewer(issue, pr, state)
     state["lastVerdict"] = verdict["verdict"]
     state["lastSummary"] = verdict["summary"]

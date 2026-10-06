@@ -209,3 +209,14 @@ agent-review -> rework + rearm + ready -> repair -> agent-review -> human-review
 ```
 
 Do not merge automatically; human approval remains the final gate.
+
+
+## Human-requested continuation review
+
+A human may reject an otherwise approved generation and authorize another continuation with additional requirements. That creates a new review contract, not merely another opportunity to rerun validation.
+
+When a PR advances after a durable `human_review` or `human_attention` gate, the orchestrator captures the rejected `prHeadSha` as the rework baseline and carries applicable human issue comments added after that gate into the next review as durable `humanRework` context. The independent reviewer must inspect the delta from that baseline to the new head and evaluate it against those directives as well as the original issue acceptance criteria.
+
+A changed SHA, fresh validation, documentation-only edits, or test-only edits do not by themselves satisfy a human request for runtime or architecture changes. The reviewer must not approve until the requested delta is materially implemented. If the human directive is contradictory, ambiguous, or requires unapproved scope expansion, review stops for human attention rather than silently dropping or reinterpreting the directive.
+
+Generated handoff/review comments and embedded review-state comments are excluded from the captured human directive set so orchestration prose does not become accidental product requirements.

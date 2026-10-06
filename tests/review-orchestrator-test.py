@@ -211,6 +211,45 @@ def main() -> int:
         assert state["reviewCycle"] == 1
         assert len(state["history"]) == 1
 
+    # Human rework directives added after a human gate become durable reviewer context. The
+    # reviewer must assess the delta from the rejected baseline rather than merely the whole PR.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        old_head = "a" * 40
+        new_head = "b" * 40
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": old_head,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "approved", "history": [],
+            "updatedAt": "2026-10-06T20:00:00+00:00",
+        }
+        fake.comments[123].append({
+            "body": "## Human rework\nReplace two physical loot sources with one composed corpse source.",
+            "created_at": "2026-10-06T20:05:00Z",
+        })
+        fake.comments[123].append({
+            "body": "Implementation/repair handoff completed for PR #77.",
+            "created_at": "2026-10-06T20:10:00Z",
+        })
+        context = review.human_rework_context(123, prior, new_head)
+        assert context is not None
+        assert context["baselineHead"] == old_head
+        assert context["currentHead"] == new_head
+        assert context["directives"] == [
+            "## Human rework\nReplace two physical loot sources with one composed corpse source."
+        ]
+        state = {
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "humanRework": context,
+        }
+        prompt = review.build_prompt(issue(fake), pr(), state, "sol")
+        assert f"git diff {old_head}...HEAD" not in prompt  # reviewer receives the baseline as data, not shell interpolation
+        assert old_head in prompt
+        assert "Replace two physical loot sources with one composed corpse source." in prompt
+        assert "Do not approve unless the delta" in prompt
+        assert "test-only edits are not evidence" in prompt
+
     # Once the PR advances beyond the human-review baseline, that rework generation is eligible
     # for a fresh automated review and the cycle advances normally.
     with tempfile.TemporaryDirectory() as raw:
