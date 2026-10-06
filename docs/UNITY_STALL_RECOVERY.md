@@ -48,7 +48,7 @@ A stall does not authorize broad process cleanup.
 
 ### Request-owned Unity process
 
-When progress metadata records a concrete Unity PID launched by the current request, the broker writes a request-scoped cancel marker and waits a bounded recovery grace period. The PowerShell runner validates the request ID and calls `Stop-Process` only for that exact PID. The default grace period is **60 seconds** so Unity and the host runner have time to unwind after cancellation on slower hosts; this wait does not authorize broader process termination.
+When progress metadata records a concrete Unity PID launched by the current request, the broker writes a request-scoped cancel marker and waits a bounded recovery grace period. The PowerShell runner validates the request ID and calls `Stop-Process` only for that exact PID. Its post-`Stop-Process` `WaitForExit` is itself bounded at 15 seconds; if Windows does not confirm termination, the runner publishes `recovery_cancel_timeout` with the last observed phase and artifact byte counts and exits instead of waiting indefinitely. The broker's default outer grace period is **60 seconds** so the host runner still has ample time to unwind; neither bound authorizes broader process termination.
 
 If the host runner exits after that cancellation, the response is:
 
