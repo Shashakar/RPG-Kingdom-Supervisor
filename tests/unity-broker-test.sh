@@ -516,6 +516,16 @@ grep -Fq 'StallRecoveryBlocked' "$ROOT/scripts/unity-host-broker.py" || {
   echo "unity-broker-test: broker must have an explicit ambiguous-recovery state" >&2
   exit 1
 }
+# The Windows bridge must never wait indefinitely for a cancelled Unity process.
+grep -Fq 'WaitForExit($cancelWaitMilliseconds)' "$ROOT/scripts/windows/run-unity-tests.ps1" || {
+  echo "unity-broker-test: Windows Unity cancellation wait must be bounded" >&2
+  exit 1
+}
+grep -Fq 'recovery_cancel_timeout' "$ROOT/scripts/windows/run-unity-tests.ps1" || {
+  echo "unity-broker-test: cancellation timeout must publish diagnostic progress" >&2
+  exit 1
+}
+
 grep -Fq 'RPGK_UNITY_PROGRESS_FILE' "$ROOT/scripts/unity-runner-host.sh" || {
   echo "unity-broker-test: host runner must forward broker progress metadata" >&2
   exit 1
