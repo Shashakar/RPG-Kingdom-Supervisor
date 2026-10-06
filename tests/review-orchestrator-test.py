@@ -185,8 +185,9 @@ def main() -> int:
         assert "repair-route:sol" in fake.issue_labels[123]
         assert latest_state_from(fake)["repairAttempts"] == 1
 
-    # A human-requested worker lifetime after prior automated approval gets a fresh review rather
-    # than restoring the old terminal human-review state. Review cycle advances from history.
+    # Human-requested rework cannot satisfy a new generation by completing another worker
+    # lifetime on the exact head recorded at the human gate. The durable prHeadSha is the
+    # generation baseline even if review history's latest head differs.
     with tempfile.TemporaryDirectory() as raw:
         fake = FakeGitHub()
         workspace = configure(Path(raw), fake, verdict("approved"))
@@ -201,9 +202,46 @@ def main() -> int:
         }
         fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
         write_attempt(workspace, "2026-09-11T11:00:00Z")
+        review.run_reviewer = lambda *_: (_ for _ in ()).throw(
+            AssertionError("human-rejected baseline head must not be reviewed again")
+        )
         review.process(issue(fake))
         state = latest_state_from(fake)
         assert state["state"] == "human_review"
+        assert state["reviewCycle"] == 1
+        assert len(state["history"]) == 1
+
+    # Once the PR advances beyond the human-review baseline, that rework generation is eligible
+    # for a fresh automated review and the cycle advances normally.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        old_head = "a" * 40
+        new_head = "b" * 40
+        prior = {
+            "state": "human_review", "issue": 123, "prNumber": 77, "prHeadSha": old_head,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "approved", "history": [{
+                "cycle": 1, "head": old_head, "verdict": "approved", "summary": "prior approval",
+                "findings": [], "routingRecommendation": "unchanged", "reviewerRoute": "sol", "reason": "none"
+            }],
+            "updatedAt": "2026-09-11T10:00:00+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-09-11T11:00:00Z")
+        advanced_pr = pr()
+        advanced_pr["head"]["sha"] = new_head
+        review.open_pr = lambda branch: advanced_pr
+        review.run_git = lambda workspace, *args: (
+            "codex/fixture" if args[:2] == ("branch", "--show-current") else new_head
+        )
+        advanced_verdict = verdict("approved")
+        advanced_verdict["reviewedHead"] = new_head
+        review.run_reviewer = lambda *_: dict(advanced_verdict)
+        review.process(issue(fake))
+        state = latest_state_from(fake)
+        assert state["state"] == "human_review"
+        assert state["prHeadSha"] == new_head
         assert state["reviewCycle"] == 2
         assert len(state["history"]) == 2
 
