@@ -307,6 +307,18 @@ def head_already_reviewed(pr: dict[str, Any], state: dict[str, Any]) -> bool:
     return isinstance(latest, dict) and latest.get("head") == pr.get("head", {}).get("sha")
 
 
+def head_matches_recorded_generation(pr: dict[str, Any], state: dict[str, Any]) -> bool:
+    """Return whether the PR is still at the head recorded for this durable state.
+
+    Human review/attention is itself a generation boundary. Its recorded prHeadSha is
+    authoritative even when review history contains a different latest head (for
+    example after retrospective review or lifecycle reconciliation).
+    """
+    recorded = state.get("prHeadSha")
+    current = pr.get("head", {}).get("sha")
+    return isinstance(recorded, str) and bool(recorded) and recorded == current
+
+
 def run_git(workspace: Path, *args: str) -> str:
     completed = subprocess.run(["git", "-C", str(workspace), *args], check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return completed.stdout.strip()
@@ -536,15 +548,16 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, 
     current = labels(issue)
     state = prior.get("state")
     same_reviewed_head = head_already_reviewed(pr, prior)
+    same_recorded_generation = head_matches_recorded_generation(pr, prior)
     if state == "human_review":
-        if repair_completed_since_state(workspace, prior) and not same_reviewed_head:
+        if repair_completed_since_state(workspace, prior) and not same_recorded_generation:
             return False
         add_labels(number, "symphony:human-review")
         set_repair_route(number, "unchanged")
         remove_lifecycle_except(number, {"symphony:human-review"})
         return True
     if state == "human_attention":
-        if repair_completed_since_state(workspace, prior) and not same_reviewed_head:
+        if repair_completed_since_state(workspace, prior) and not same_recorded_generation:
             return False
         add_labels(number, "symphony:human-attention")
         set_repair_route(number, "unchanged")
