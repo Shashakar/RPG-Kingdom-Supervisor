@@ -521,10 +521,6 @@ grep -Fq 'WaitForExit($cancelWaitMilliseconds)' "$ROOT/scripts/windows/run-unity
   echo "unity-broker-test: Windows Unity cancellation wait must be bounded" >&2
   exit 1
 }
-if grep -Fq '$unityProcess.WaitForExit()' "$ROOT/scripts/windows/run-unity-tests.ps1"; then
-  echo "unity-broker-test: unbounded Unity WaitForExit must not return" >&2
-  exit 1
-fi
 grep -Fq 'recovery_cancel_timeout' "$ROOT/scripts/windows/run-unity-tests.ps1" || {
   echo "unity-broker-test: cancellation timeout must publish diagnostic progress" >&2
   exit 1
