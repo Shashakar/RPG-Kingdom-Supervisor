@@ -48,7 +48,7 @@ A stall does not authorize broad process cleanup.
 
 ### Request-owned Unity process
 
-When progress metadata records a concrete Unity PID launched by the current request, the broker writes a request-scoped cancel marker and waits a bounded recovery grace period. The PowerShell runner validates the request ID and calls `Stop-Process` only for that exact PID.
+When progress metadata records a concrete Unity PID launched by the current request, the broker writes a request-scoped cancel marker and waits a bounded recovery grace period. The PowerShell runner validates the request ID and calls `Stop-Process` only for that exact PID. The default grace period is **60 seconds** so Unity and the host runner have time to unwind after cancellation on slower hosts; this wait does not authorize broader process termination.
 
 If the host runner exits after that cancellation, the response is:
 
@@ -123,7 +123,7 @@ Normal operation should use the conservative defaults. Available host settings a
 
 ```text
 RPGK_UNITY_BROKER_STALL_SECONDS=300
-RPGK_UNITY_BROKER_STALL_RECOVERY_GRACE_SECONDS=15
+RPGK_UNITY_BROKER_STALL_RECOVERY_GRACE_SECONDS=60
 RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS=1800
 RPGK_UNITY_BROKER_KILL_GRACE_SECONDS=5
 ```

@@ -899,7 +899,7 @@ def main() -> int:
     parser.add_argument("--command-timeout-seconds", type=int, default=int(os.environ.get("RPGK_UNITY_BROKER_HOST_TIMEOUT_SECONDS", "1800")))
     parser.add_argument("--kill-grace-seconds", type=float, default=float(os.environ.get("RPGK_UNITY_BROKER_KILL_GRACE_SECONDS", "5")))
     parser.add_argument("--stall-seconds", type=float, default=float(os.environ.get("RPGK_UNITY_BROKER_STALL_SECONDS", "300")))
-    parser.add_argument("--stall-recovery-grace-seconds", type=float, default=float(os.environ.get("RPGK_UNITY_BROKER_STALL_RECOVERY_GRACE_SECONDS", "15")))
+    parser.add_argument("--stall-recovery-grace-seconds", type=float, default=float(os.environ.get("RPGK_UNITY_BROKER_STALL_RECOVERY_GRACE_SECONDS", "60")))
     args = parser.parse_args()
 
     workspace_root = Path(args.workspace_root).expanduser().resolve()
