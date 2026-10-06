@@ -647,13 +647,13 @@ def process(issue: dict[str, Any]) -> None:
         "reviewCycle": len(prior_history) + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
         "history": list(prior_history),
     }
-    inherited_rework = prior.get("humanRework")
-    if isinstance(inherited_rework, dict):
-        state["humanRework"] = inherited_rework
+    rework_context = human_rework_context(number, prior, pr["head"]["sha"]) if prior else None
+    if rework_context is not None:
+        state["humanRework"] = rework_context
     else:
-        rework_context = human_rework_context(number, prior, pr["head"]["sha"]) if prior else None
-        if rework_context is not None:
-            state["humanRework"] = rework_context
+        inherited_rework = prior.get("humanRework")
+        if isinstance(inherited_rework, dict):
+            state["humanRework"] = inherited_rework
     verdict = run_reviewer(issue, pr, state)
     state["lastVerdict"] = verdict["verdict"]
     state["lastSummary"] = verdict["summary"]
