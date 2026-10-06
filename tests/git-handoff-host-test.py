@@ -180,6 +180,26 @@ def main() -> int:
         assert module.handoff_has_reviewable_progress(None, commit_sha, []) is True
         assert module.handoff_has_reviewable_progress(commit_sha, commit_sha, []) is False
         assert module.handoff_has_reviewable_progress(commit_sha, commit_sha, fresh_evidence) is True
+        # Fresh validation may update a normal handoff, but it must never substitute for source
+        # progress during a reviewed/rearmed continuation.
+        assert (
+            module.handoff_has_reviewable_progress(
+                commit_sha,
+                commit_sha,
+                fresh_evidence,
+                reviewed_continuation=True,
+            )
+            is False
+        )
+        assert (
+            module.handoff_has_reviewable_progress(
+                commit_sha,
+                "f" * 40,
+                fresh_evidence,
+                reviewed_continuation=True,
+            )
+            is True
+        )
 
         pr_number, pr_url, created = module.create_or_update_pr(
             "https://api.invalid",
