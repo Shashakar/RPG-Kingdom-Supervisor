@@ -97,7 +97,9 @@ The host runner fails closed unless all applicable checks pass:
 
 A normal handoff operation may stage and commit the issue's source changes, but it will not rebase, force-push, delete branches, or mutate another repository. The reviewed-continuation **prepare** path may create a normal merge commit from current `origin/main` when required to refresh a clean preserved branch; it never rewrites the continuation's existing commits.
 
-The existing-PR progress gate is deliberately independent from whether `git commit` happens during the current handoff call. A recovered workspace may already contain a valid local commit from an earlier failed network handoff; advancing the remote branch to that commit is real progress and permits the PR update. Conversely, if the remote branch is unchanged and no fresh validation exists, the host returns `NoHandoffProgress` instead of allowing a worker to rewrite the PR description with unsupported completion claims.
+The existing-PR progress gate is deliberately independent from whether `git commit` happens during the current handoff call. A recovered workspace may already contain a valid local commit from an earlier failed network handoff; advancing the remote branch to that commit is real progress and permits the PR update. For a normal handoff, fresh current-attempt validation can also justify updating an unchanged existing PR.
+
+A **reviewed/rearmed continuation is stricter**: the feature branch must advance beyond the remote PR head. Fresh validation alone cannot satisfy rework progress, because that would allow a human-requested repair to rerun tests and hand the unchanged reviewed generation back for another review cycle. An unchanged reviewed continuation fails with `NoHandoffProgress` before push, PR mutation, or dispatch-lease removal.
 
 ## Authentication
 

@@ -392,8 +392,13 @@ def handoff_has_reviewable_progress(
     remote_sha_before: str | None,
     commit_sha: str,
     evidence: list[dict[str, Any]],
+    *,
+    reviewed_continuation: bool = False,
 ) -> bool:
-    return remote_sha_before != commit_sha or bool(evidence)
+    branch_advanced = remote_sha_before != commit_sha
+    if reviewed_continuation:
+        return branch_advanced
+    return branch_advanced or bool(evidence)
 
 
 def create_or_update_pr(
@@ -510,11 +515,12 @@ def main() -> int:
         run_ids_raw = payload.get("validationRunIds", [])
         if not isinstance(run_ids_raw, list) or not all(isinstance(item, str) for item in run_ids_raw):
             raise HandoffError("validationRunIds must be an array of strings", code=64, status="InvalidRequest")
+        attempt_boundary_ns = previous_attempt_boundary_ns(workspace)
         evidence = validate_unity_evidence(
             workspace,
             list(dict.fromkeys(run_ids_raw)),
             "validation:unity-required" in labels,
-            newer_than_ns=previous_attempt_boundary_ns(workspace),
+            newer_than_ns=attempt_boundary_ns,
         )
 
         run_git(workspace, "fetch", "--prune", "origin", timeout=180)
@@ -525,7 +531,20 @@ def main() -> int:
         if commit_sha == run_git(workspace, "rev-parse", "origin/main").stdout.strip():
             raise HandoffError("handoff contains no commit beyond origin/main", code=75, status="NoChanges")
 
-        reviewable_progress = handoff_has_reviewable_progress(remote_sha_before, commit_sha, evidence)
+        reviewed_continuation = attempt_boundary_ns is not None
+        reviewable_progress = handoff_has_reviewable_progress(
+            remote_sha_before,
+            commit_sha,
+            evidence,
+            reviewed_continuation=reviewed_continuation,
+        )
+        if reviewed_continuation and not reviewable_progress:
+            raise HandoffError(
+                "reviewed continuation did not advance the existing feature branch; fresh validation alone cannot satisfy rework handoff",
+                code=75,
+                status="NoHandoffProgress",
+                details={"branch": branch, "head": commit_sha, "remoteHead": remote_sha_before},
+            )
         pushed_sha = push_branch(workspace, branch)
         pr_number, pr_url, pr_created = create_or_update_pr(
             api_root,
