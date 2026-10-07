@@ -50,7 +50,7 @@ def parse_labels(value: str) -> list[str]:
 
 def route_class(labels: list[str]) -> str:
     label_set = set(labels)
-    for model in ("astra", "sol", "luna"):
+    for model in ("sol", "luna"):
         if f"model:{model}" in label_set:
             return model
     if "risk:end-to-end" in label_set:
@@ -92,7 +92,7 @@ def auto_turn_limit(route: str) -> int:
 
 
 def quota_thresholds(route: str) -> tuple[float, float]:
-    expensive = route in {"sol", "astra"}
+    expensive = route == "sol"
     primary_default = 35.0 if expensive else 20.0
     weekly_default = 10.0
     return (
