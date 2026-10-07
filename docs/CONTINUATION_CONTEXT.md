@@ -12,7 +12,8 @@ Codex gives `AGENTS.override.md` precedence over `AGENTS.md`, so the generated f
 - current PR review submission bodies;
 - unresolved inline review threads;
 - PR conversation comments newer than the previous worker completion marker;
-- issue comments newer than the previous worker completion marker.
+- issue comments newer than the previous worker completion marker;
+- explicit human rework/playtest-rejection directives regardless of marker age, so a marker synthesized during rearm cannot hide the instruction that caused the continuation.
 
 This keeps older issue chatter out of the worker context while retaining review blockers that may have been posted before the immediately previous attempt.
 
@@ -46,7 +47,8 @@ This preserves the protected model-side Git boundary while ensuring reviewed wor
 - the current PR and head are included;
 - review submission bodies survive across attempt boundaries;
 - unresolved inline feedback is included while resolved threads are omitted;
-- only issue and PR conversation comments newer than the previous attempt marker are included;
+- ordinary issue and PR conversation comments are limited to those newer than the previous attempt marker;
+- explicit human rework directives survive even when they predate the marker;
 - the generated override is ignored by Git;
 - a fresh workspace removes the generated override.
 
