@@ -776,7 +776,11 @@ def process(issue: dict[str, Any]) -> None:
     else:
         inherited_rework = prior.get("humanRework")
         if isinstance(inherited_rework, dict):
-            state["humanRework"] = inherited_rework
+            # The rejected baseline and directives are durable across reviewed continuations,
+            # but currentHead describes the generation being reviewed. Never inherit a stale
+            # currentHead after the PR advances through a later human-authorized repair.
+            state["humanRework"] = dict(inherited_rework)
+            state["humanRework"]["currentHead"] = pr["head"]["sha"]
     verdict = run_reviewer(issue, pr, state)
     verdict = enforce_human_rework_acceptance(workspace, state, verdict)
     state["lastVerdict"] = verdict["verdict"]

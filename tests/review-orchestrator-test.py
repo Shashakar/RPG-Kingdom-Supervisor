@@ -353,6 +353,60 @@ def main() -> int:
         assert state["reviewCycle"] == 2
         assert len(state["history"]) == 2
 
+    # Inherited human-rework context keeps the original rejected baseline but updates currentHead
+    # to each newly reviewed PR generation. This prevents a valid approval after a second
+    # human-authorized continuation from being rejected against stale continuation metadata.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        baseline = "5" * 40
+        prior_head = "6" * 40
+        current_head = "7" * 40
+        prior = {
+            "state": "agent_review", "issue": 123, "prNumber": 77, "prHeadSha": prior_head,
+            "reviewCycle": 2, "repairAttempts": 2, "maxRepairAttempts": 2,
+            "lastVerdict": "changes_required", "history": [{
+                "cycle": 2, "head": prior_head, "verdict": "changes_required",
+                "summary": "targeted continuation required", "findings": [],
+                "routingRecommendation": "luna", "reviewerRoute": "sol", "reason": "none",
+            }],
+            "humanRework": {
+                "baselineHead": baseline,
+                "currentHead": prior_head,
+                "directives": ["Repair the production runtime interaction path."],
+            },
+            "updatedAt": "2026-10-07T05:00:00+00:00",
+        }
+        fake.comments[123].append({"body": f"prior\n\n{review.MARKER}{json.dumps(prior)}\n-->"})
+        write_attempt(workspace, "2026-10-07T05:05:00Z")
+        advanced_pr = pr()
+        advanced_pr["head"]["sha"] = current_head
+        review.open_pr = lambda branch: advanced_pr
+        review.run_git = lambda _workspace, *args: (
+            "codex/fixture" if args[:2] == ("branch", "--show-current")
+            else "Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"
+        )
+        approved = verdict("approved")
+        approved["reviewedHead"] = current_head
+        approved["human_rework_assessment"] = {
+            "baseline_head": baseline,
+            "current_head": current_head,
+            "directives_satisfied": True,
+            "evidence_paths": ["Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"],
+        }
+        seen_state: dict = {}
+        def capture_reviewer(_issue, _pr, state_value):
+            seen_state.update(state_value)
+            return dict(approved)
+        review.run_reviewer = capture_reviewer
+        review.process(issue(fake))
+        state = latest_state_from(fake)
+        assert seen_state["humanRework"]["baselineHead"] == baseline
+        assert seen_state["humanRework"]["currentHead"] == current_head
+        assert state["humanRework"]["baselineHead"] == baseline
+        assert state["humanRework"]["currentHead"] == current_head
+        assert state["state"] == "human_review"
+
     # A newer attempt marker is not enough to justify review when preflight/host work never
     # changed the PR head. Preserve the prior human-attention gate and do not spend another review.
     with tempfile.TemporaryDirectory() as raw:
