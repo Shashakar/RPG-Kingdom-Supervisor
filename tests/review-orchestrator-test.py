@@ -226,7 +226,7 @@ def main() -> int:
             "updatedAt": "2026-10-06T20:00:00+00:00",
         }
         fake.comments[123].append({
-            "body": "## Human rework\nReplace two physical loot sources with one composed corpse source.",
+            "body": "## Human rework\nImplement the runtime architecture change: replace two physical loot sources with one composed corpse source; test-only changes do not satisfy this rework.",
             "created_at": "2026-10-06T20:05:00Z",
         })
         fake.comments[123].append({
@@ -238,7 +238,7 @@ def main() -> int:
         assert context["baselineHead"] == old_head
         assert context["currentHead"] == new_head
         assert context["directives"] == [
-            "## Human rework\nReplace two physical loot sources with one composed corpse source."
+            "## Human rework\nImplement the runtime architecture change: replace two physical loot sources with one composed corpse source; test-only changes do not satisfy this rework."
         ]
         state = {
             "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
@@ -247,7 +247,7 @@ def main() -> int:
         prompt = review.build_prompt(issue(fake), pr(), state, "sol")
         assert f"git diff {old_head}...HEAD" not in prompt  # reviewer receives the baseline as data, not shell interpolation
         assert old_head in prompt
-        assert "Replace two physical loot sources with one composed corpse source." in prompt
+        assert "Implement the runtime architecture change: replace two physical loot sources with one composed corpse source; test-only changes do not satisfy this rework." in prompt
         assert "Do not approve unless the delta" in prompt
         assert "test-only edits are not evidence" in prompt
         assert "Always populate human_rework_assessment" in prompt
