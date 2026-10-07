@@ -314,6 +314,49 @@ def human_rework_requires_implementation(context: dict[str, Any]) -> bool:
     return any(marker in text for marker in markers)
 
 
+def human_rework_required_evidence_categories(context: dict[str, Any]) -> set[str]:
+    """Infer concrete artifact categories explicitly required by human rework prose."""
+    text = "\n".join(str(item) for item in context.get("directives") or []).lower()
+    required: set[str] = set()
+    if any(marker in text for marker in (
+        ".unity", "production scene", "scene placement", "scene composition",
+        "authored transform", "soul placement", "placement evidence",
+    )):
+        required.add("scene")
+    if any(marker in text for marker in (
+        "journey", "objective", "soul guidance", "soulguidance",
+        "staged progression", "staged journey", "journey evidence",
+    )):
+        required.add("journey")
+    if any(marker in text for marker in (
+        "focused test", "focused tests", "test assertion", "test assertions",
+        "update focused", "add/adjust scene integrity coverage",
+    )):
+        required.add("tests")
+    return required
+
+
+def human_rework_evidence_category(path: str) -> set[str]:
+    normalized = path.replace("\\", "/").lower()
+    categories: set[str] = set()
+    if normalized.endswith(".unity") or "/scenes/" in normalized:
+        categories.add("scene")
+    if (
+        "/journey/" in normalized
+        or "/objectives/" in normalized
+        or "soulguidance" in normalized
+        or "soul_guidance" in normalized
+    ) and "/tests/" not in normalized:
+        categories.add("journey")
+    if (
+        "/tests/" in normalized
+        or normalized.startswith("tests/")
+        or normalized.endswith(("_test.py", "-test.py", "tests.cs"))
+    ):
+        categories.add("tests")
+    return categories
+
+
 def enforce_human_rework_acceptance(
     workspace: Path, state: dict[str, Any], verdict: dict[str, Any]
 ) -> dict[str, Any]:
@@ -378,6 +421,18 @@ def enforce_human_rework_acceptance(
                 "human directives require runtime/production implementation, but the continuation "
                 "assessment cites only tests/docs/non-implementation changes"
             )
+
+    required_categories = human_rework_required_evidence_categories(context)
+    evidenced_categories: set[str] = set()
+    for path in evidence:
+        if path in changed:
+            evidenced_categories.update(human_rework_evidence_category(path))
+    missing_categories = sorted(required_categories - evidenced_categories)
+    if missing_categories:
+        failures.append(
+            "human directives explicitly require changed-file evidence for: "
+            + ", ".join(missing_categories)
+        )
 
     if not failures:
         return verdict
