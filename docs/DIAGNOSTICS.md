@@ -30,9 +30,12 @@ The host determines why the worker lifetime ended from deterministic evidence. E
 - `usage_limit_exceeded`;
 - `continuation_policy`;
 - `hard_turn_ceiling`;
+- `model_unavailable` when the selected Codex model is rejected by the configured account/provider;
 - generic `worker_lifetime_ended` when no stronger deterministic cause is available.
 
 The host never asks Codex for an extra turn solely to explain a stop.
+
+Before a normal worker is recorded as started, `codex-model-compatibility.sh` verifies the selected model against the installed Codex client/account. Successful checks are cached by Codex version + model. A rejection is persisted under `$RPGK_SUPERVISOR_STATE_ROOT/model-errors/GH-N.json`, the worker is not started, and the normal halt path surfaces the actual model/provider error as `model_unavailable` instead of misclassifying it as an unexplained worker lifetime.
 
 ### Task-level worker status
 
