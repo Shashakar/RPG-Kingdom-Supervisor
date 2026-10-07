@@ -19,10 +19,10 @@ Phase 1 proved the end-to-end path:
 
 Phase 2 makes that path usage-aware:
 
-- risk/model labels route work between GPT-6 Luna and GPT-6.1 Sol;
+- risk/model labels route work between GPT-6 Luna and GPT-6 Sol;
 - GPT-6 Luna / medium is the default for normal and unclassified bounded work;
-- `risk:investigative` promotes ambiguous debugging and multi-layer investigation to GPT-6.1 Sol / medium;
-- GPT-6.1 Sol / high is the default architecture-sensitive and end-to-end tier;
+- `risk:investigative` promotes ambiguous debugging and multi-layer investigation to GPT-6 Sol / medium;
+- GPT-6 Sol / high is the default architecture-sensitive and end-to-end tier;
 - model and reasoning labels allow explicit human/ChatGPT overrides;
 - worker turns are capped at four for the current phase;
 - a persistent workspace marker prevents a second Codex worker lifetime from starting accidentally;
@@ -31,7 +31,7 @@ Phase 2 makes that path usage-aware:
 - worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads;
 - fixes that change behavior-bearing configuration/wiring must validate the relevant pre-existing behavior as well as the new acceptance path.
 
-The routing policy is grounded in production benchmarks: cheap bounded work stays on Luna, while investigative, architecture-sensitive, and end-to-end work uses GPT-6.1 Sol. Historical high-cost routing was retired after production evidence showed poor cost/benefit. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
+The routing policy is grounded in production benchmarks: cheap bounded work stays on Luna, while investigative, architecture-sensitive, and end-to-end work uses GPT-6 Sol. Historical high-cost routing was retired after production evidence showed poor cost/benefit. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
 Phase 3 makes Unity dependence explicit:
 
