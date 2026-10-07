@@ -201,7 +201,7 @@ def main() -> int:
             },
             "history": [], "updatedAt": "2026-10-07T02:00:00+00:00",
         }
-        fake.comments[123].append({"body": "prior\\n\\n" + review.MARKER + json.dumps(prior) + "\\n-->"})
+        fake.comments[123].append({"body": "prior\n\n" + review.MARKER + json.dumps(prior) + "\n-->"})
         write_attempt(workspace, "2026-10-07T01:00:00Z")
         review.run_reviewer = lambda *_: (_ for _ in ()).throw(AssertionError("rejected head must not be reviewed"))
         review.process(issue(fake))
