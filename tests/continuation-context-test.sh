@@ -30,7 +30,7 @@ JSON
     ;;
   repos/Shashakar/RPG-Kingdom/pulls/100/reviews?per_page=100)
     cat <<'JSON'
-[{"state":"COMMENTED","user":{"login":"reviewer"},"body":"Persistent review blocker from before the last attempt"}]
+[{"state":"COMMENTED","user":{"login":"reviewer"},"body":"Persistent review blocker from before the last attempt\n\n<!-- rpgk-human-rework\n{\"rejectedHead\":\"deadbeef\",\"directive\":\"Review-body authoritative repair\"}\n-->"}]
 JSON
     ;;
   repos/Shashakar/RPG-Kingdom/issues/100/comments?per_page=100)
@@ -66,6 +66,8 @@ grep -Fq 'Preserve system boundaries.' AGENTS.override.md
 grep -Fq 'PR: #100 — Fix animator' AGENTS.override.md
 grep -Fq 'Current head: `deadbeef`' AGENTS.override.md
 grep -Fq 'Persistent review blocker from before the last attempt' AGENTS.override.md
+grep -Fq 'Review-body authoritative repair' AGENTS.override.md
+grep -Fq '### PR review by reviewer' AGENTS.override.md
 grep -Fq 'Unresolved inline blocker' AGENTS.override.md
 grep -Fq 'New continuation requirement' AGENTS.override.md
 grep -Fq 'Implement the runtime production repair even though this directive predates the attempt marker.' AGENTS.override.md

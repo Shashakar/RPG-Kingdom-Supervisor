@@ -31,11 +31,14 @@ The host determines why the worker lifetime ended from deterministic evidence. E
 - `continuation_policy`;
 - `hard_turn_ceiling`;
 - `model_unavailable` when the selected Codex model is rejected by the configured account/provider;
+- `app_server_terminated` when model compatibility succeeds but the actual Codex App Server exits before a trusted completion/handoff and leaves stderr evidence;
 - generic `worker_lifetime_ended` when no stronger deterministic cause is available.
 
 The host never asks Codex for an extra turn solely to explain a stop.
 
 Before a normal worker is recorded as started, `codex-model-compatibility.sh` verifies the selected model against the installed Codex client/account. Successful checks are cached by Codex version + model. A rejection is persisted under `$RPGK_SUPERVISOR_STATE_ROOT/model-errors/GH-N.json`, the worker is not started, and the normal halt path surfaces the actual model/provider error as `model_unavailable` instead of misclassifying it as an unexplained worker lifetime.
+
+The compatibility probe uses a separate `codex exec` session and therefore is not evidence that Symphony successfully established the subsequent App Server session. Worker token attribution excludes pre-worker probe rollouts. The router also preserves the current App Server stderr stream at `$RPGK_SUPERVISOR_STATE_ROOT/app-server-stderr/GH-N.log`; when an unexpected lifetime ends without stronger evidence, halt diagnosis includes the bounded stderr tail and classifies the boundary as `app_server_terminated`.
 
 ### Task-level worker status
 

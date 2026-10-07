@@ -56,6 +56,7 @@ if [[ -n "${SYMPHONY_GITHUB_TOKEN:-}" ]]; then
   exit 91
 fi
 printf '%s\n' "$@" > "$RPGK_TEST_CODEX_ARGS"
+echo "mock app server stderr" >&2
 MOCK
 chmod +x "$TMP/bin/codex"
 
@@ -75,6 +76,7 @@ fi
 grep -Fxq 'model="gpt-6-luna"' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'model_reasoning_effort=low' "$RPGK_TEST_CODEX_ARGS"
 grep -Fxq 'app-server' "$RPGK_TEST_CODEX_ARGS"
+grep -Fq 'mock app server stderr' "$TMP/state/app-server-stderr/GH-321.log"
 
 python3 - "$TMP/state" <<'PY'
 import json, sys

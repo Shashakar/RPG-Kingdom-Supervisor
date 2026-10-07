@@ -36,6 +36,16 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _read_app_server_stderr(path: Path, max_chars: int = 4000) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    return text[-max_chars:]
+
+
 def _active_run_id(issue: int, root: Path) -> str | None:
     for path in (root / "workers" / "active").glob("*.json"):
         value = _read_json(path)
@@ -169,11 +179,16 @@ def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, s
     task_status, unavailable_reason = worker_status.read_fresh_status(workspace, issue, expected_boundary)
     classification, reason = _deterministic_stop(kind, latest_turn, continuation, usage)
     model_error = _read_json(root / "model-errors" / f"GH-{issue}.json")
+    app_server_stderr = _read_app_server_stderr(root / "app-server-stderr" / f"GH-{issue}.log")
     if kind == "worker_lifetime_ended" and model_error.get("classification") == "model_unavailable":
         classification = "model_unavailable"
         model = str(model_error.get("model") or "selected model")
         message = str(model_error.get("message") or "Codex rejected the selected model")
         reason = f"{model} could not start with the configured Codex account/provider: {message}"
+    elif kind == "worker_lifetime_ended" and app_server_stderr:
+        classification = "app_server_terminated"
+        final_line = app_server_stderr.splitlines()[-1].strip()
+        reason = f"Codex App Server terminated before a trusted completion/handoff; stderr ended with: {final_line}"
     run_id = _active_run_id(issue, root)
     payload: dict[str, Any] = {
         "protocolVersion": 1,
@@ -186,6 +201,7 @@ def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, s
         "latestTurn": latest_turn,
         "latestUnity": _latest_unity(latest_turn, continuation),
         "modelError": model_error or None,
+        "appServerStderr": app_server_stderr,
         "workspace": _workspace_snapshot(workspace),
         "attemptBoundary": str(expected_boundary),
     }

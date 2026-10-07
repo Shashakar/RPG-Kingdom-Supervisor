@@ -380,7 +380,15 @@ def find_rollout_usage(workspace: Path, started_at: Any) -> dict[str, Any]:
             if latest_usage:
                 if matched_workspace:
                     return {"status": "available", "source": str(path), "threadId": thread_id, **latest_usage}
-                fallback.append((path, latest_usage, thread_id))
+                # A compatibility probe can create the only nearby rollout immediately before
+                # worker-start. Never attribute a pre-start, non-workspace rollout to the worker merely
+                # because it is the sole session in the broad discovery window.
+                try:
+                    after_worker_start = started is None or path.stat().st_mtime >= started.timestamp()
+                except OSError:
+                    after_worker_start = False
+                if after_worker_start:
+                    fallback.append((path, latest_usage, thread_id))
         except OSError:
             continue
     if len(fallback) == 1:
