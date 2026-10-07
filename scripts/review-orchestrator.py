@@ -710,6 +710,23 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, 
         set_repair_route(number, "unchanged")
         remove_lifecycle_except(number, {"symphony:human-attention"})
         return True
+    if state == "human_rework":
+        # Human rejection is a new implementation contract, not another automated repair.
+        # The PR owns the substantive directive; durable issue state owns dispatch identity.
+        if "symphony:ready" in current or "symphony:rearm" in current:
+            add_labels(number, "symphony:rework")
+            remove_label(number, "symphony:agent-review")
+            return True
+        if same_recorded_generation and repair_completed_since_state(workspace, prior):
+            add_labels(number, "symphony:rework")
+            remove_label(number, "symphony:agent-review")
+            return True
+        if not repair_completed_since_state(workspace, prior):
+            add_labels(number, "symphony:rework")
+            remove_label(number, "symphony:agent-review")
+            return True
+        # A completed continuation that advanced the rejected head must be independently reviewed.
+        return False
     if state == "rework":
         if "symphony:ready" in current or "symphony:rearm" in current:
             add_labels(number, "symphony:rework")
