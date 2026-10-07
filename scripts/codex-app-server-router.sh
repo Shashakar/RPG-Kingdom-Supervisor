@@ -108,6 +108,15 @@ if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
   exit 70
 fi
 
+# Preserve App Server stderr per issue before exec. The compatibility probe only proves that the
+# account can answer with the selected model; it does not prove Symphony can establish an App Server
+# session. Keeping this narrow stderr stream lets halt diagnosis distinguish that boundary without
+# wrapping Codex in another long-lived process or changing its stdio protocol.
+app_server_stderr_dir="$STATE_ROOT/app-server-stderr"
+app_server_stderr_file="$app_server_stderr_dir/$identifier.log"
+mkdir -p "$app_server_stderr_dir"
+: > "$app_server_stderr_file"
+
 # exec preserves this shell PID in the active worker record, allowing the dashboard to distinguish
 # a live worker from stale state without introducing a second wrapper process. Open flock file
 # descriptors are inherited by Codex, so both the mutation slot and issue ownership remain held.
@@ -117,4 +126,5 @@ exec codex \
   --config "model=\"$model\"" \
   --config "model_reasoning_effort=$reasoning_effort" \
   "${capability_args[@]}" \
-  app-server
+  app-server \
+  2> >(tee -a "$app_server_stderr_file" >&2)
