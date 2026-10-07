@@ -482,8 +482,8 @@ def reviewer_route(issue_labels: set[str]) -> tuple[str, str, str]:
     if override:
         return override, os.environ.get("RPGK_REVIEW_EFFORT", "medium"), "override"
     if "risk:architecture" in issue_labels or "risk:end-to-end" in issue_labels:
-        return "gpt-6.1-sol", "high", "sol"
-    return "gpt-6.1-sol", "medium", "sol"
+        return "gpt-6-sol", "high", "sol"
+    return "gpt-6-sol", "medium", "sol"
 
 
 def build_prompt(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any], route: str) -> str:
