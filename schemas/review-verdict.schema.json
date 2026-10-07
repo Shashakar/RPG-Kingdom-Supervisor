@@ -3,135 +3,37 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "verdict": {
-      "type": "string",
-      "enum": [
-        "approved",
-        "changes_required",
-        "blocked_or_ambiguous"
-      ]
-    },
-    "summary": {
-      "type": "string",
-      "minLength": 1
-    },
+    "verdict": {"type":"string","enum":["approved","changes_required","blocked_or_ambiguous"]},
+    "summary": {"type":"string","minLength":1},
     "findings": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "severity": {
-            "type": "string",
-            "enum": [
-              "blocker",
-              "major",
-              "minor"
-            ]
-          },
-          "category": {
-            "type": "string",
-            "enum": [
-              "correctness",
-              "architecture",
-              "regression",
-              "tests",
-              "docs",
-              "scope",
-              "other"
-            ]
-          },
-          "description": {
-            "type": "string",
-            "minLength": 1
-          },
-          "path": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "suggested_action": {
-            "type": "string",
-            "minLength": 1
-          }
+      "type":"array",
+      "items":{
+        "type":"object",
+        "additionalProperties":false,
+        "properties":{
+          "severity":{"type":"string","enum":["blocker","major","minor"]},
+          "category":{"type":"string","enum":["correctness","architecture","regression","tests","docs","scope","other"]},
+          "description":{"type":"string","minLength":1},
+          "path":{"type":["string","null"]},
+          "suggested_action":{"type":"string","minLength":1}
         },
-        "required": [
-          "severity",
-          "category",
-          "description",
-          "path",
-          "suggested_action"
-        ]
+        "required":["severity","category","description","path","suggested_action"]
       }
     },
-    "routing_recommendation": {
-      "type": "string",
-      "enum": [
-        "luna",
-        "sol",
-        "unchanged"
-      ]
-    },
-    "requires_human": {
-      "type": "boolean"
-    },
-    "reason": {
-      "type": "string",
-      "enum": [
-        "none",
-        "scope_change_required",
-        "product_decision_required",
-        "insufficient_evidence",
-        "review_loop_exhausted",
-        "other"
-      ]
-    },
-    "human_rework_assessment": {
-      "oneOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "baseline_head": {
-              "type": "string",
-              "minLength": 1
-            },
-            "current_head": {
-              "type": "string",
-              "minLength": 1
-            },
-            "directives_satisfied": {
-              "type": "boolean"
-            },
-            "evidence_paths": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          },
-          "required": [
-            "baseline_head",
-            "current_head",
-            "directives_satisfied",
-            "evidence_paths"
-          ]
-        }
-      ]
+    "routing_recommendation":{"type":"string","enum":["luna","sol","unchanged"]},
+    "requires_human":{"type":"boolean"},
+    "reason":{"type":"string","enum":["none","scope_change_required","product_decision_required","insufficient_evidence","review_loop_exhausted","other"]},
+    "human_rework_assessment":{
+      "type":["object","null"],
+      "additionalProperties":false,
+      "properties":{
+        "baseline_head":{"type":"string","minLength":1},
+        "current_head":{"type":"string","minLength":1},
+        "directives_satisfied":{"type":"boolean"},
+        "evidence_paths":{"type":"array","items":{"type":"string","minLength":1}}
+      },
+      "required":["baseline_head","current_head","directives_satisfied","evidence_paths"]
     }
   },
-  "required": [
-    "verdict",
-    "summary",
-    "findings",
-    "routing_recommendation",
-    "requires_human",
-    "reason",
-    "human_rework_assessment"
-  ]
+  "required":["verdict","summary","findings","routing_recommendation","requires_human","reason","human_rework_assessment"]
 }
