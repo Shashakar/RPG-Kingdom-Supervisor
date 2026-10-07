@@ -111,6 +111,7 @@ Path(sys.argv[1]).write_text(json.dumps({
     "summary": sys.argv[2],
     "findings": [],
     "routing_recommendation": "unchanged",
+    "human_rework_assessment": None,
     "requires_human": True,
     "reason": "other"
 }, separators=(",", ":")), encoding="utf-8")
@@ -122,13 +123,13 @@ import json, sys
 from pathlib import Path
 output = Path(sys.argv[1])
 value = json.loads(output.read_text(encoding="utf-8"))
-required = {"verdict", "summary", "findings", "routing_recommendation", "requires_human", "reason"}
+required = {"verdict", "summary", "findings", "routing_recommendation", "human_rework_assessment", "requires_human", "reason"}
 missing = required - set(value)
 if missing:
     raise SystemExit(f"review output missing fields: {sorted(missing)}")
 if value["verdict"] not in {"approved", "changes_required", "blocked_or_ambiguous"}:
     raise SystemExit("invalid review verdict")
-if value["routing_recommendation"] not in {"luna", "sol", "astra", "unchanged"}:
+if value["routing_recommendation"] not in {"luna", "sol", "unchanged"}:
     raise SystemExit("invalid routing recommendation")
 if not isinstance(value["findings"], list):
     raise SystemExit("review findings must be an array")
