@@ -85,6 +85,20 @@ with tempfile.TemporaryDirectory() as temp:
     assert unknown["taskStatus"] is None
     assert "do not assume" in unknown["markdown"]
 
+    # A durable router/model compatibility failure must outrank the generic lifetime diagnosis.
+    model_errors = state_root / "model-errors"
+    model_errors.mkdir(parents=True)
+    (model_errors / "GH-111.json").write_text(json.dumps({
+        "classification": "model_unavailable",
+        "model": "gpt-test-sol",
+        "message": "model is not supported for this account",
+    }), encoding="utf-8")
+    model_failure = diagnosis.collect(workspace, 111, new_boundary, "worker_lifetime_ended", state_root=state_root)
+    assert model_failure["supervisor"]["classification"] == "model_unavailable"
+    assert "gpt-test-sol" in model_failure["supervisor"]["reason"]
+    assert "not supported" in model_failure["markdown"]
+    (model_errors / "GH-111.json").unlink()
+
     # Specialized stop types retain their deterministic classification.
     (workspace / diagnosis.USAGE_MARKER).write_text(json.dumps({"reason": "usage_limit_exceeded", "message": "quota exhausted"}), encoding="utf-8")
     quota = diagnosis.collect(workspace, 111, new_boundary, "usage_limit_exceeded", state_root=state_root)
