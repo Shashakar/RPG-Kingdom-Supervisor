@@ -20,7 +20,7 @@ fi
 case "$1" in
   repos/Shashakar/RPG-Kingdom/issues/98/comments?per_page=100)
     cat <<'JSON'
-[{"created_at":"2026-09-10T20:45:00Z","user":{"login":"owner"},"body":"## Human rework continuation — rejected baseline deadbeef\\nImplement the runtime production repair even though this directive predates the attempt marker."},{"created_at":"2026-09-10T21:00:00Z","user":{"login":"old"},"body":"Old issue chatter"},{"created_at":"2026-09-10T22:30:00Z","user":{"login":"owner"},"body":"New continuation requirement"}]
+[{"created_at":"2026-09-10T21:00:00Z","user":{"login":"old"},"body":"Old issue chatter"},{"created_at":"2026-09-10T22:30:00Z","user":{"login":"owner"},"body":"New continuation requirement"}]
 JSON
     ;;
   repos/Shashakar/RPG-Kingdom/pulls?state=open\&head=Shashakar:codex%2Fgh-98-humanoid-animator-fix\&per_page=10)
@@ -35,7 +35,7 @@ JSON
     ;;
   repos/Shashakar/RPG-Kingdom/issues/100/comments?per_page=100)
     cat <<'JSON'
-[{"created_at":"2026-09-10T21:30:00Z","user":{"login":"old"},"body":"Old PR comment"},{"created_at":"2026-09-10T22:40:00Z","user":{"login":"owner"},"body":"New PR continuation comment"}]
+[{"created_at":"2026-09-10T20:45:00Z","user":{"login":"owner"},"body":"## Human review — changes required\n\nImplement the runtime production repair even though this directive predates the attempt marker.\n\n<!-- rpgk-human-rework\n{\"rejectedHead\":\"deadbeef\",\"directive\":\"Implement runtime repair\"}\n-->"},{"created_at":"2026-09-10T21:30:00Z","user":{"login":"old"},"body":"Old PR comment"},{"created_at":"2026-09-10T22:40:00Z","user":{"login":"owner"},"body":"New PR continuation comment"}]
 JSON
     ;;
   *)
@@ -68,7 +68,6 @@ grep -Fq 'Current head: `deadbeef`' AGENTS.override.md
 grep -Fq 'Persistent review blocker from before the last attempt' AGENTS.override.md
 grep -Fq 'Unresolved inline blocker' AGENTS.override.md
 grep -Fq 'New continuation requirement' AGENTS.override.md
-grep -Fq 'Human rework continuation — rejected baseline deadbeef' AGENTS.override.md
 grep -Fq 'Implement the runtime production repair even though this directive predates the attempt marker.' AGENTS.override.md
 grep -Fq 'New PR continuation comment' AGENTS.override.md
 ! grep -Fq 'Old issue chatter' AGENTS.override.md

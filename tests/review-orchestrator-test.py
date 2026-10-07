@@ -186,6 +186,32 @@ def main() -> int:
         assert "repair-route:sol" in fake.issue_labels[123]
         assert latest_state_from(fake)["repairAttempts"] == 1
 
+    # A first-class human_rework state keeps the rejected PR generation in rework without
+    # consuming automated repair budget or silently restoring human-review approval.
+    with tempfile.TemporaryDirectory() as raw:
+        fake = FakeGitHub()
+        workspace = configure(Path(raw), fake, verdict("approved"))
+        prior = {
+            "state": "human_rework", "issue": 123, "prNumber": 77, "prHeadSha": "a" * 40,
+            "reviewCycle": 1, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "lastVerdict": "human_changes_required", "reason": "human_rework",
+            "humanRework": {
+                "baselineHead": "a" * 40, "currentHead": "a" * 40,
+                "directives": ["Implement the runtime production repair."], "prCommentId": 9001,
+            },
+            "history": [], "updatedAt": "2026-10-07T02:00:00+00:00",
+        }
+        fake.comments[123].append({"body": "prior\n\n" + review.MARKER + json.dumps(prior) + "\n-->"})
+        write_attempt(workspace, "2026-10-07T01:00:00Z")
+        review.run_reviewer = lambda *_: (_ for _ in ()).throw(AssertionError("rejected head must not be reviewed"))
+        review.process(issue(fake))
+        assert "symphony:rework" in fake.issue_labels[123]
+        assert "symphony:human-review" not in fake.issue_labels[123]
+        state = latest_state_from(fake)
+        assert state["state"] == "human_rework"
+        assert state["repairAttempts"] == 0
+        assert state["humanRework"]["baselineHead"] == "a" * 40
+
     # Human-requested rework cannot satisfy a new generation by completing another worker
     # lifetime on the exact head recorded at the human gate. The durable prHeadSha is the
     # generation baseline even if review history's latest head differs.

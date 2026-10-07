@@ -120,6 +120,14 @@ fi
       printf 'No unresolved inline review threads are currently present.\n'
     fi
 
+    printf '\n## Authoritative human PR rework directives\n\n'
+    printf 'PR comments containing the hidden rpgk-human-rework contract are authoritative human rejection/rework instructions and remain in force across worker boundaries until superseded by a later contract.\n\n'
+    if jq -e '[.[] | select((.body // "") | contains("<!-- rpgk-human-rework"))] | length > 0' >/dev/null <<<"$pr_comments"; then
+      jq -r '.[] | select((.body // "") | contains("<!-- rpgk-human-rework")) | "### " + (.user.login // "unknown") + " — " + .created_at + "\n\n" + (.body // "") + "\n"' <<<"$pr_comments"
+    else
+      printf 'No authoritative human PR rework directive is currently present.\n'
+    fi
+
     printf '\n## New PR conversation comments since the previous worker\n\n'
     if jq -e --arg ts "$marker_timestamp" '[.[] | select(.created_at > $ts)] | length > 0' >/dev/null <<<"$pr_comments"; then
       jq -r --arg ts "$marker_timestamp" '.[] | select(.created_at > $ts) | "### " + (.user.login // "unknown") + " — " + .created_at + "\n\n" + (.body // "") + "\n"' <<<"$pr_comments"
@@ -128,14 +136,6 @@ fi
     fi
   else
     printf '\n## Existing pull request\n\nNo open PR was found for the current workspace branch.\n'
-  fi
-
-  printf '\n## Durable human rework directives\n\n'
-  printf 'Explicit human rejection/rework directives remain authoritative across worker boundaries even when they predate the local attempt marker. This prevents a marker synthesized during rearm from hiding the instruction that caused the rearm.\n\n'
-  if jq -e '[.[] | select(((.body // "") | ascii_downcase) as $body | ($body | contains("human rework")) or ($body | contains("human playtest rejection")))] | length > 0' >/dev/null <<<"$issue_comments"; then
-    jq -r '.[] | select(((.body // "") | ascii_downcase) as $body | ($body | contains("human rework")) or ($body | contains("human playtest rejection"))) | "### " + (.user.login // "unknown") + " — " + .created_at + "\n\n" + (.body // "") + "\n"' <<<"$issue_comments"
-  else
-    printf 'No durable human rework directives are currently present.\n'
   fi
 
   printf '\n## New issue comments since the previous worker\n\n'
