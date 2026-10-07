@@ -4,6 +4,7 @@ set -euo pipefail
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 RPGK_REPO="${RPGK_REPO:-Shashakar/RPG-Kingdom}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+MODEL_COMPATIBILITY_PROBE="${RPGK_MODEL_COMPATIBILITY_PROBE:-$SUPERVISOR_ROOT/scripts/codex-model-compatibility.sh}"
 
 # shellcheck source=routing-policy.sh
 source "$SUPERVISOR_ROOT/scripts/routing-policy.sh"
@@ -89,6 +90,11 @@ exec 9>"$slot_lock"
 flock 9
 exec 8>"$issue_lock"
 flock 8
+
+if ! bash "$MODEL_COMPATIBILITY_PROBE" --model "$model" --issue "$identifier"; then
+  echo "RPG Kingdom router: refusing to start worker because model compatibility failed for $model" >&2
+  exit 78
+fi
 
 python3 "$SUPERVISOR_ROOT/scripts/codex-usage-snapshot.py" --write --quiet || true
 if ! python3 "$SUPERVISOR_ROOT/scripts/supervisor_telemetry.py" worker-start \
