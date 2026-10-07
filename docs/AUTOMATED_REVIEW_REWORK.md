@@ -215,7 +215,11 @@ Do not merge automatically; human approval remains the final gate.
 
 A human may reject an otherwise approved generation and authorize another continuation with additional requirements. That creates a new review contract, not merely another opportunity to rerun validation.
 
-When a PR advances after a durable `human_review` or `human_attention` gate, the orchestrator captures the rejected `prHeadSha` as the rework baseline and carries applicable human issue comments added after that gate into the next review as durable `humanRework` context. The independent reviewer must inspect the delta from that baseline to the new head and evaluate it against those directives as well as the original issue acceptance criteria.
+The **pull request owns human review feedback**. Record a rejection with `scripts/human-rework.py <issue> <pr> --directive "..."`. The command posts the substantive directive to the PR with a hidden `rpgk-human-rework` contract anchored to the rejected PR head, then persists an issue-side `human_rework` state that references that PR contract. The issue itself remains the feature specification; issue labels/state only drive orchestration.
+
+A human rejection transitions `human_review|human_attention -> human_rework` without consuming the automatic repair budget. Rearm is a separate explicit action. Continuation workers receive PR-side human-rework contracts regardless of the local attempt-marker timestamp, while ordinary historical PR/issue chatter remains bounded.
+
+When the PR advances beyond the rejected head, the next independent review inherits the durable `humanRework` baseline/directive and evaluates the new delta against it. The independent reviewer must inspect the delta from that baseline to the new head and evaluate it against those directives as well as the original issue acceptance criteria.
 
 A changed SHA, fresh validation, documentation-only edits, or test-only edits do not by themselves satisfy a human request for runtime or architecture changes. The reviewer must not approve until the requested delta is materially implemented. If the human directive is contradictory, ambiguous, or requires unapproved scope expansion, review stops for human attention rather than silently dropping or reinterpreting the directive.
 
