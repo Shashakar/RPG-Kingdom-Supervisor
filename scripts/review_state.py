@@ -55,5 +55,6 @@ def collect(issue_number: int, repo: str | None = None) -> dict[str, Any]:
         "prHeadSha": (state or {}).get("prHeadSha"),
         "routingRecommendation": (state or {}).get("routingRecommendation"),
         "humanActionRequired": "symphony:human-review" in labels or "symphony:human-attention" in labels,
+        "humanReworkRequired": (state or {}).get("state") == "human_rework",
         "labels": labels,
     }
