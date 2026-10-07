@@ -12,7 +12,7 @@ grep -Fq 'timeout_ms: 600000' "$WORKFLOW" || {
   exit 1
 }
 grep -Fq 'existing-scene-composition' "$WORKFLOW"
-grep -Eq 'risk:end-to-end.*GPT-6.1 Sol / high reasoning' "$WORKFLOW"
-grep -Eq 'risk:end-to-end.*defaults to GPT-6.1 Sol / high' "$LABELS"
+grep -Eq 'risk:end-to-end.*GPT-6 Sol / high reasoning' "$WORKFLOW"
+grep -Eq 'risk:end-to-end.*defaults to GPT-6 Sol / high' "$LABELS"
 
 echo "workflow-policy-alignment: PASS"
