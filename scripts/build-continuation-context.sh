@@ -122,8 +122,8 @@ fi
 
     printf '\n## Authoritative human PR rework directives\n\n'
     printf 'PR comments containing the hidden rpgk-human-rework contract are authoritative human rejection/rework instructions and remain in force across worker boundaries until superseded by a later contract.\n\n'
-    if jq -e '[.[] | select((.body // "") | contains("<!-- rpgk-human-rework\\n"))] | length > 0' >/dev/null <<<"$pr_comments"; then
-      jq -r '.[] | select((.body // "") | contains("<!-- rpgk-human-rework\\n")) | "### " + (.user.login // "unknown") + " — " + .created_at + "\n\n" + (.body // "") + "\n"' <<<"$pr_comments"
+    if jq -e '[.[] | select((.body // "") | contains("<!-- rpgk-human-rework"))] | length > 0' >/dev/null <<<"$pr_comments"; then
+      jq -r '.[] | select((.body // "") | contains("<!-- rpgk-human-rework")) | "### " + (.user.login // "unknown") + " — " + .created_at + "\n\n" + (.body // "") + "\n"' <<<"$pr_comments"
     else
       printf 'No authoritative human PR rework directive is currently present.\n'
     fi
