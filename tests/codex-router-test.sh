@@ -18,6 +18,14 @@ export RPGK_SUPERVISOR_ROOT="$ROOT"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export CODEX_HOME="$TMP/codex-home"
 export RPGK_USAGE_SNAPSHOT_TIMEOUT_SECONDS=1
+cat > "$TMP/model-probe.sh" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+MOCK
+chmod +x "$TMP/model-probe.sh"
+export RPGK_MODEL_COMPATIBILITY_PROBE="$TMP/model-probe.sh"
+
 export RPGK_ROUTER_DRY_RUN=1
 cd "$TMP/GH-321"
 
@@ -31,7 +39,7 @@ actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
 
 export RPGK_TEST_LABELS="risk:investigative"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-6.1-sol\tmedium\tsol' ]]
+[[ "$actual" == $'gpt-6-sol\tmedium\tsol' ]]
 
 
 export RPGK_TEST_LABELS=$'model:luna\nmodel:sol'

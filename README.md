@@ -19,10 +19,10 @@ Phase 1 proved the end-to-end path:
 
 Phase 2 makes that path usage-aware:
 
-- risk/model labels route work between GPT-6 Luna and GPT-6.1 Sol;
+- risk/model labels route work between GPT-6 Luna and GPT-6 Sol;
 - GPT-6 Luna / medium is the default for normal and unclassified bounded work;
-- `risk:investigative` promotes ambiguous debugging and multi-layer investigation to GPT-6.1 Sol / medium;
-- GPT-6.1 Sol / high is the default architecture-sensitive and end-to-end tier;
+- `risk:investigative` promotes ambiguous debugging and multi-layer investigation to GPT-6 Sol / medium;
+- GPT-6 Sol / high is the default architecture-sensitive and end-to-end tier;
 - model and reasoning labels allow explicit human/ChatGPT overrides;
 - worker turns are capped at four for the current phase;
 - a persistent workspace marker prevents a second Codex worker lifetime from starting accidentally;
@@ -31,7 +31,7 @@ Phase 2 makes that path usage-aware:
 - worker prompts scale context gathering to task risk while still obeying RPG Kingdom's repository-mandated reads;
 - fixes that change behavior-bearing configuration/wiring must validate the relevant pre-existing behavior as well as the new acceptance path.
 
-The routing policy is grounded in production benchmarks: cheap bounded work stays on Luna, while investigative, architecture-sensitive, and end-to-end work uses GPT-6.1 Sol. Historical high-cost routing was retired after production evidence showed poor cost/benefit. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
+The routing policy is grounded in production benchmarks: cheap bounded work stays on Luna, while investigative, architecture-sensitive, and end-to-end work uses GPT-6 Sol. Historical high-cost routing was retired after production evidence showed poor cost/benefit. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
 Phase 3 makes Unity dependence explicit:
 
@@ -124,6 +124,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services including the autonomous scheduler, and publishes Symphony service state.\n- [`scripts/autonomous-plan.py`](scripts/autonomous-plan.py) — deterministic operating-window, dependency, quota, and human-gate policy.\n- [`scripts/autonomous-scheduler.py`](scripts/autonomous-scheduler.py) — durable host scheduler and operator-control CLI for approved unattended work plans.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
+- [`scripts/codex-model-compatibility.sh`](scripts/codex-model-compatibility.sh) — cached Codex-version/model compatibility gate that surfaces account/provider model rejection before a worker is recorded as started.
 - [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.
 - [`scripts/supervisor_telemetry.py`](scripts/supervisor_telemetry.py) — durable service/worker/quota correlation, redaction, history, and operations collector.
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.

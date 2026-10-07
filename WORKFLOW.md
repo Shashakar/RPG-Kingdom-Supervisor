@@ -261,13 +261,13 @@ The App Server launcher chooses the model before this thread starts:
 
 - `risk:mechanical` -> GPT-6 Luna / low reasoning;
 - `risk:normal` or no risk label -> GPT-6 Luna / medium reasoning;
-- `risk:investigative` -> GPT-6.1 Sol / medium reasoning;
-- `risk:architecture` -> GPT-6.1 Sol / high reasoning;
-- `risk:end-to-end` -> GPT-6.1 Sol / high reasoning.
+- `risk:investigative` -> GPT-6 Sol / medium reasoning;
+- `risk:architecture` -> GPT-6 Sol / high reasoning;
+- `risk:end-to-end` -> GPT-6 Sol / high reasoning.
 
 `model:luna` or `model:sol` explicitly override the risk-derived model. `effort:low`, `effort:medium`, or `effort:high` explicitly override reasoning effort. Conflicting labels fail closed instead of silently choosing the more expensive route.
 
-GPT-6 Luna is the default workhorse for bounded implementation. GPT-6.1 Sol handles investigative work at medium effort and architecture-sensitive work at high effort. GPT-6.1 Sol is the default for end-to-end work at high effort. GPT-6  is reserved for explicit operator or reviewer escalation when concrete evidence justifies the higher-cost route. Do not promote work merely because a higher-cost model is available.
+GPT-6 Luna is the default workhorse for bounded implementation. GPT-6 Sol handles investigative work at medium effort and architecture-sensitive work at high effort. GPT-6 Sol is the default for end-to-end work at high effort. Supervisor has no higher-cost automatic model route; unresolved capability or model-availability problems return to human attention rather than silently changing models.
 
 ## GitHub issue handling
 
