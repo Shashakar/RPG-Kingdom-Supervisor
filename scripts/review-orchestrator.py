@@ -295,6 +295,8 @@ def human_rework_context(issue_number: int, prior: dict[str, Any], current_head:
         if len(comments) < 100:
             break
         page += 1
+    if not directives:
+        return None
     return {
         "baselineHead": baseline,
         "currentHead": current_head,
