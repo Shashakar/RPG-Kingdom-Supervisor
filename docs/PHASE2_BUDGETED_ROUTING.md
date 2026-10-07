@@ -62,7 +62,7 @@ The hard ceiling is deliberately different from the continuation policy:
 - **hard ceiling:** an absolute safety limit;
 - **dynamic continuation budget:** the normal decision about whether another turn should be spent.
 
-Model route no longer creates a smaller automatic turn ceiling such as Terra=2 or Astra=1. Luna, Sol, and Astra can all use turns up to the workflow hard maximum when the dynamic policy continues to approve them.
+Model route no longer creates a smaller automatic turn ceiling such as Terra=2 or the retired high-cost route=1. Luna and Sol can all use turns up to the workflow hard maximum when the dynamic policy continues to approve them.
 
 ## Dynamic continuation budget
 
@@ -75,7 +75,7 @@ The Supervisor refreshes the authoritative App Server rate-limit sample before d
 By default:
 
 - Luna work requires at least 20% remaining in the primary/five-hour window;
-- Sol and Astra require at least 35% remaining in the primary/five-hour window;
+- Sol require at least 35% remaining in the primary/five-hour window;
 - all routes require at least 10% remaining weekly.
 
 Unavailable, stale, or incomplete quota data fails safe.
@@ -150,7 +150,7 @@ The first version of continuation policy used route-specific automatic limits:
 - Luna: 4;
 - Terra: 2;
 - Sol: 2;
-- Astra: 1.
+- retired high-cost route: 1.
 
 That was a conservative proxy for cost before enough production telemetry existed.
 
@@ -176,13 +176,13 @@ Use exactly zero or one of:
 |---|---|---|---|
 | `risk:mechanical` | GPT-6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
 | `risk:normal` | GPT-6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
-| `risk:investigative` | GPT-6 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
-| `risk:architecture` | GPT-6 Sol | high | architecture-sensitive or cross-system boundary work |
-| `risk:end-to-end` | GPT-6 Sol | high | substantial end-to-end integration/tool work; escalate to Astra only from explicit evidence |
+| `risk:investigative` | GPT-6.1 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
+| `risk:architecture` | GPT-6.1 Sol | high | architecture-sensitive or cross-system boundary work |
+| `risk:end-to-end` | GPT-6.1 Sol | high | substantial end-to-end integration/tool work |
 
 If no risk or model label exists, the router defaults to Luna / medium.
 
-The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6 Sol covers investigative/debugging work at medium effort and architecture/end-to-end work at high effort; GPT-6 Astra is an explicit escalation tier, not the automatic consequence of end-to-end breadth.** Use `model:astra` when prior Sol work or concrete task evidence shows the stronger route is justified, or accept a fresh `repair-route:astra` recommendation during reviewed rework.
+The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6.1 Sol covers investigative/debugging work at medium effort and architecture/end-to-end work at high effort.** Supervisor has no higher-cost model escalation route; unresolved ambiguity or capability limits return to human attention.
 
 ### Explicit model override
 
@@ -190,7 +190,6 @@ Use exactly zero or one of:
 
 - `model:luna`
 - `model:sol`
-- `model:astra`
 
 An explicit model label wins over risk classification.
 
@@ -291,12 +290,8 @@ The resulting policy is therefore:
 4. stop repeated ineffective behavior early;
 5. require explicit human/ChatGPT rearm only when a bounded worker lifetime still cannot complete.
 
-### #139 — Astra end-to-end cost benchmark
+### #139 — retired high-cost end-to-end benchmark
 
-`Shashakar/RPG-Kingdom#139` provided a production benchmark for the previous automatic Astra end-to-end route. After the initial discovery lifetime, a reviewed continuation began with a freshly reset five-hour allowance. That continuation consumed approximately 97 percentage points of the five-hour allowance and roughly 20–25 percentage points of the weekly allowance while producing a technically sound 16-file integration PR (596 additions / 27 deletions) with extensive Unity validation.
-
-Independent automated review approved the implementation, but immediate human playtesting still found basic player-facing acquisition/readability gaps: the weapon grant was not visibly communicated in normal play and the equip gesture needed adjustment. The result was useful, but there was no observed capability unique to Astra that justified making that cost the default for every `risk:end-to-end` issue.
-
-Accordingly, end-to-end breadth now defaults to **Sol / high**. Astra remains available through explicit `model:astra` override or a fresh reviewed `repair-route:astra` escalation. A task should escalate because there is evidence that Sol is insufficient—not merely because the task crosses multiple systems or uses Unity tooling.
+RPG Kingdom #139 showed that the previous highest-cost end-to-end route could consume nearly an entire freshly reset five-hour allowance while still requiring immediate human follow-up for basic player-facing gaps. That evidence motivated making Sol/high the end-to-end default. GPT-6.1 Sol now replaces the older Sol model as the sole strong Supervisor route; unresolved work should increase Sol reasoning effort or return to human attention rather than escalating to another model.
 
 Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts or automatic high-cost routing.

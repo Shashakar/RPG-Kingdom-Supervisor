@@ -31,11 +31,8 @@ actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
 
 export RPGK_TEST_LABELS="risk:investigative"
 actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-6-sol\tmedium\tsol' ]]
+[[ "$actual" == $'gpt-6.1-sol\tmedium\tsol' ]]
 
-export RPGK_TEST_LABELS=$'risk:architecture\nmodel:astra\neffort:high'
-actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
-[[ "$actual" == $'gpt-6-astra\thigh\tastra' ]]
 
 export RPGK_TEST_LABELS=$'model:luna\nmodel:sol'
 if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
