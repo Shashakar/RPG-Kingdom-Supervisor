@@ -319,6 +319,84 @@ def main() -> int:
             review.run_git = original_run_git
         assert accepted["verdict"] == "approved"
 
+        # Explicit multi-category human directives are independently host-gated.
+        multi_context = {
+            "baselineHead": old_head,
+            "currentHead": new_head,
+            "directives": [
+                "Modify the production scene placement in VerticalSlice.unity. "
+                "Repair the staged Journey / Objective / Soul Guidance progression. "
+                "Update focused tests and test assertions proving the order."
+            ],
+        }
+        multi_state = {
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "humanRework": multi_context,
+        }
+
+        def assess(paths):
+            value = verdict("approved")
+            value["reviewedHead"] = new_head
+            value["human_rework_assessment"] = {
+                "baseline_head": old_head,
+                "current_head": new_head,
+                "directives_satisfied": True,
+                "evidence_paths": paths,
+            }
+            review.run_git = lambda _workspace, *args: (
+                "\n".join(paths) if args[:2] == ("diff", "--name-only") else original_run_git(_workspace, *args)
+            )
+            try:
+                return review.enforce_human_rework_acceptance(workspace, multi_state, value)
+            finally:
+                review.run_git = original_run_git
+
+        assert assess(["docs/SAVE_SYSTEM.md"])["verdict"] == "changes_required"
+
+        scene_only = assess(["Assets/RPGKingdom/Scenes/VerticalSlice.unity"])
+        assert scene_only["verdict"] == "changes_required"
+        assert "journey, tests" in scene_only["summary"]
+
+        scene_and_journey = assess([
+            "Assets/RPGKingdom/Scenes/VerticalSlice.unity",
+            "Assets/RPGKingdom/Runtime/Journey/VerticalSliceJourney.cs",
+        ])
+        assert scene_and_journey["verdict"] == "changes_required"
+        assert "tests" in scene_and_journey["summary"]
+
+        complete_evidence = assess([
+            "Assets/RPGKingdom/Scenes/VerticalSlice.unity",
+            "Assets/RPGKingdom/Runtime/Journey/VerticalSliceJourney.cs",
+            "Assets/RPGKingdom/Tests/PlayMode/E2E/VerticalSlice/VerticalSliceJourneyPlayModeTests.cs",
+        ])
+        assert complete_evidence["verdict"] == "approved"
+
+        # Directives without explicit artifact categories retain generic implementation gating.
+        generic_state = {
+            "reviewCycle": 2, "repairAttempts": 0, "maxRepairAttempts": 2,
+            "humanRework": {
+                "baselineHead": old_head,
+                "currentHead": new_head,
+                "directives": ["Implement the production runtime repair."],
+            },
+        }
+        generic = verdict("approved")
+        generic["reviewedHead"] = new_head
+        generic["human_rework_assessment"] = {
+            "baseline_head": old_head,
+            "current_head": new_head,
+            "directives_satisfied": True,
+            "evidence_paths": ["Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"],
+        }
+        review.run_git = lambda _workspace, *args: (
+            "Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"
+            if args[:2] == ("diff", "--name-only") else original_run_git(_workspace, *args)
+        )
+        try:
+            assert review.enforce_human_rework_acceptance(workspace, generic_state, generic)["verdict"] == "approved"
+        finally:
+            review.run_git = original_run_git
+
     # Once the PR advances beyond the human-review baseline, that rework generation is eligible
     # for a fresh automated review and the cycle advances normally.
     with tempfile.TemporaryDirectory() as raw:

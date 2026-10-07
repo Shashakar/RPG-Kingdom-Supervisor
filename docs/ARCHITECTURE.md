@@ -265,3 +265,8 @@ The supervisor does not:
 - silently escalate work to expensive models;
 - treat a staged Unity project as authoritative;
 - hide failed validation, exhausted budgets, missing host infrastructure, or unresolved blockers.
+
+
+### Human-rework evidence gate
+
+Human-requested continuations are verified at the host review boundary, not only by reviewer prose. When a directive explicitly requires production scene composition, Journey/Objective/Soul Guidance behavior, or focused tests, an approval must cite changed paths for every requested category in the rejected-baseline...current-head delta. Missing categories convert approval to `changes_required`; unrelated documentation or a single implementation file cannot satisfy a multi-part human directive.
