@@ -168,6 +168,12 @@ def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, s
     latest_turn = _latest_turn(workspace)
     task_status, unavailable_reason = worker_status.read_fresh_status(workspace, issue, expected_boundary)
     classification, reason = _deterministic_stop(kind, latest_turn, continuation, usage)
+    model_error = _read_json(root / "model-errors" / f"GH-{issue}.json")
+    if kind == "worker_lifetime_ended" and model_error.get("classification") == "model_unavailable":
+        classification = "model_unavailable"
+        model = str(model_error.get("model") or "selected model")
+        message = str(model_error.get("message") or "Codex rejected the selected model")
+        reason = f"{model} could not start with the configured Codex account/provider: {message}"
     run_id = _active_run_id(issue, root)
     payload: dict[str, Any] = {
         "protocolVersion": 1,
@@ -179,6 +185,7 @@ def collect(workspace: Path, issue: int, expected_boundary: str, kind: str, *, s
         "taskStatusUnavailableReason": unavailable_reason,
         "latestTurn": latest_turn,
         "latestUnity": _latest_unity(latest_turn, continuation),
+        "modelError": model_error or None,
         "workspace": _workspace_snapshot(workspace),
         "attemptBoundary": str(expected_boundary),
     }
