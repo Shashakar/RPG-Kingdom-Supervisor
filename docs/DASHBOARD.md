@@ -33,7 +33,7 @@ Repair rows are created only after rework actually occurs. One repair uses `Repa
 
 Live worker records still retain their normal model/effort/session/timing detail and remain available through worker drill-down. They no longer replace one another as the top-level Overview item. Host-owned visual review is similarly attached to its issue as a `Visual Review` stage while active.
 
-An issue leaves Overview Active Work when the authoritative lifecycle moves it into a manual/terminal bucket such as human review/attention or report completion. Halted work remains visible as blocked Active Work because the issue has not completed and still needs intervention.
+Execution activity and human-attention state are intentionally orthogonal. A live worker keeps its issue visible in Overview Active Work even when GitHub still carries `symphony:human-attention`; the card retains the human-attention signal and the global action count remains raised. This uses live worker telemetry rather than introducing a second mutable `symphony:active-work` label. Once no worker is live, human-review/attention issues return to Manual Validation. Report completion leaves Active Work, while halted work remains visible there as blocked because the issue has not completed and still needs intervention.
 
 
 ## Finished task semantics
