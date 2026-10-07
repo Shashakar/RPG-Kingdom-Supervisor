@@ -81,6 +81,7 @@ def verdict(kind: str, *, route: str = "unchanged", requires_human: bool = False
         "summary": f"fixture {kind}",
         "findings": findings,
         "routing_recommendation": route,
+        "human_rework_assessment": None,
         "requires_human": requires_human,
         "reason": reason,
         "reviewerRoute": "sol",
@@ -249,6 +250,48 @@ def main() -> int:
         assert "Replace two physical loot sources with one composed corpse source." in prompt
         assert "Do not approve unless the delta" in prompt
         assert "test-only edits are not evidence" in prompt
+        assert "Always populate human_rework_assessment" in prompt
+
+        # Host acceptance is independent of reviewer prompt obedience. Reproduce GH-242 cycle 9:
+        # a human runtime/production directive followed by a test-only continuation cannot pass
+        # merely because the reviewer returns approved.
+        test_only = verdict("approved")
+        test_only["reviewedHead"] = new_head
+        test_only["human_rework_assessment"] = {
+            "baseline_head": old_head,
+            "current_head": new_head,
+            "directives_satisfied": True,
+            "evidence_paths": ["Assets/RPGKingdom/Tests/PlayMode/WorldLoot/Runtime/WorldLootPlayModeTests.cs"],
+        }
+        original_run_git = review.run_git
+        review.run_git = lambda _workspace, *args: (
+            "Assets/RPGKingdom/Tests/PlayMode/WorldLoot/Runtime/WorldLootPlayModeTests.cs"
+            if args[:2] == ("diff", "--name-only") else original_run_git(_workspace, *args)
+        )
+        try:
+            rejected = review.enforce_human_rework_acceptance(workspace, state, test_only)
+        finally:
+            review.run_git = original_run_git
+        assert rejected["verdict"] == "changes_required"
+        assert "only tests/docs/non-implementation changes" in rejected["summary"]
+
+        runtime_change = verdict("approved")
+        runtime_change["reviewedHead"] = new_head
+        runtime_change["human_rework_assessment"] = {
+            "baseline_head": old_head,
+            "current_head": new_head,
+            "directives_satisfied": True,
+            "evidence_paths": ["Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"],
+        }
+        review.run_git = lambda _workspace, *args: (
+            "Assets/RPGKingdom/Runtime/WorldLoot/Unity/WorldLootRoot.cs"
+            if args[:2] == ("diff", "--name-only") else original_run_git(_workspace, *args)
+        )
+        try:
+            accepted = review.enforce_human_rework_acceptance(workspace, state, runtime_change)
+        finally:
+            review.run_git = original_run_git
+        assert accepted["verdict"] == "approved"
 
     # Once the PR advances beyond the human-review baseline, that rework generation is eligible
     # for a fresh automated review and the cycle advances normally.
