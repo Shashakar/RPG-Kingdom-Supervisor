@@ -302,6 +302,108 @@ def human_rework_context(issue_number: int, prior: dict[str, Any], current_head:
     }
 
 
+def human_rework_requires_implementation(context: dict[str, Any]) -> bool:
+    """Conservatively detect human continuations that explicitly demand production/runtime change."""
+    text = "\n".join(str(item) for item in context.get("directives") or []).lower()
+    markers = (
+        "runtime", "architecture", "production", "implementation", "implement ",
+        "not test-only", "test-only", "docs-only", "player-facing",
+    )
+    return any(marker in text for marker in markers)
+
+
+def enforce_human_rework_acceptance(
+    workspace: Path, state: dict[str, Any], verdict: dict[str, Any]
+) -> dict[str, Any]:
+    """Fail closed when an approval does not prove the human-requested continuation.
+
+    Prompt instructions remain useful reviewer context, but they are not a control boundary.
+    The host independently verifies that an approval names the rejected baseline/current head
+    and cites files that actually changed in that continuation generation. Explicit runtime /
+    architecture / production rework also requires non-test, non-doc implementation evidence.
+    """
+    context = state.get("humanRework")
+    if verdict.get("verdict") != "approved" or not isinstance(context, dict):
+        return verdict
+
+    assessment = verdict.get("human_rework_assessment")
+    baseline = context.get("baselineHead")
+    current = context.get("currentHead")
+    failures: list[str] = []
+    evidence: list[str] = []
+
+    if not isinstance(assessment, dict):
+        failures.append("reviewer omitted the required human rework assessment")
+    else:
+        if assessment.get("baseline_head") != baseline:
+            failures.append("assessment baseline does not match the rejected human-review head")
+        if assessment.get("current_head") != current:
+            failures.append("assessment current head does not match the reviewed continuation head")
+        if assessment.get("directives_satisfied") is not True:
+            failures.append("reviewer did not affirm that every human directive is satisfied")
+        raw_evidence = assessment.get("evidence_paths")
+        if isinstance(raw_evidence, list):
+            evidence = [str(path) for path in raw_evidence if isinstance(path, str) and path]
+        if not evidence:
+            failures.append("assessment supplied no concrete changed-file evidence")
+
+    changed: set[str] = set()
+    if isinstance(baseline, str) and baseline:
+        try:
+            changed = {
+                line.strip()
+                for line in run_git(workspace, "diff", "--name-only", f"{baseline}...HEAD").splitlines()
+                if line.strip()
+            }
+        except subprocess.CalledProcessError:
+            failures.append("host could not verify the baseline...HEAD continuation delta")
+
+    missing = sorted(path for path in evidence if path not in changed)
+    if missing:
+        failures.append("assessment cites paths not changed since the rejected baseline: " + ", ".join(missing))
+
+    if human_rework_requires_implementation(context):
+        implementation_evidence = [
+            path for path in evidence
+            if path in changed
+            and not path.startswith(("docs/", ".github/"))
+            and "/Tests/" not in path
+            and not path.startswith("tests/")
+            and not path.endswith((".md", ".txt"))
+        ]
+        if not implementation_evidence:
+            failures.append(
+                "human directives require runtime/production implementation, but the continuation "
+                "assessment cites only tests/docs/non-implementation changes"
+            )
+
+    if not failures:
+        return verdict
+
+    verdict = dict(verdict)
+    verdict["verdict"] = "changes_required"
+    verdict["requires_human"] = False
+    verdict["reason"] = "none"
+    verdict["routing_recommendation"] = "sol"
+    verdict["summary"] = (
+        "Reviewer approval was rejected by the host human-rework acceptance gate: "
+        + "; ".join(failures)
+    )
+    findings = list(verdict.get("findings") or [])
+    findings.append({
+        "severity": "major",
+        "category": "correctness",
+        "description": verdict["summary"],
+        "path": None,
+        "suggested_action": (
+            "Implement the human-requested continuation against the recorded baseline and have "
+            "the next review cite changed implementation paths that prove each directive."
+        ),
+    })
+    verdict["findings"] = findings
+    return verdict
+
+
 def persist_state(issue_number: int, state: dict[str, Any], human_text: str) -> None:
     state["updatedAt"] = datetime.now(timezone.utc).isoformat()
     encoded = json.dumps(state, sort_keys=True, separators=(",", ":"))
@@ -378,8 +480,8 @@ def reviewer_route(issue_labels: set[str]) -> tuple[str, str, str]:
     if override:
         return override, os.environ.get("RPGK_REVIEW_EFFORT", "medium"), "override"
     if "risk:architecture" in issue_labels or "risk:end-to-end" in issue_labels:
-        return "gpt-6-sol", "high", "sol"
-    return "gpt-6-sol", "medium", "sol"
+        return "gpt-6.1-sol", "high", "sol"
+    return "gpt-6.1-sol", "medium", "sol"
 
 
 def build_prompt(issue: dict[str, Any], pr: dict[str, Any], state: dict[str, Any], route: str) -> str:
@@ -422,6 +524,8 @@ Review requirements:
 14. Magenta/pink pixels alone do not prove that the PR has broken materials. A material/shader defect may be reported as `changes_required` only when the capture diagnostics support it—for example a renderer in the camera frustum has a missing shader, `shaderSupported=false`, or the shader log contains a matching compilation/unsupported-subshader failure. Name the diagnostic evidence in the finding.
 15. If the image appears materially corrupted (for example widespread magenta) but in-frustum shaders are present/supported and the shader log does not corroborate a shader failure, treat the visual evidence as capture-tool uncertainty rather than a code/art defect. Use `blocked_or_ambiguous`, `requires_human=true`, `reason=insufficient_evidence`, no repair routing, and explain that normal-editor comparison or a trustworthy recapture is required.
 16. Record the capture render method, render pipeline, and graphics device when they materially affect confidence. Do not infer that a batch/headless rendering anomaly will reproduce in the normal player/editor without corroborating evidence.
+
+17. Always populate human_rework_assessment. Use null when Human-requested rework context is absent. When it is present, report the exact baselineHead/currentHead, whether every applicable directive is satisfied, and concrete repository paths from the baseline...HEAD delta that prove satisfaction. Do not cite unchanged files or validation artifacts as implementation evidence.
 
 Return only the structured verdict required by the provided output schema.
 """
@@ -561,7 +665,7 @@ def remove_lifecycle_except(number: int, keep: set[str]) -> None:
 def set_repair_route(number: int, recommendation: str) -> None:
     for name in ("repair-route:luna", "repair-route:terra", "repair-route:sol", "repair-route:astra"):
         remove_label(number, name)
-    if recommendation in {"luna", "sol", "astra"}:
+    if recommendation in {"luna", "sol"}:
         add_labels(number, f"repair-route:{recommendation}")
 
 
@@ -655,6 +759,7 @@ def process(issue: dict[str, Any]) -> None:
         if isinstance(inherited_rework, dict):
             state["humanRework"] = inherited_rework
     verdict = run_reviewer(issue, pr, state)
+    verdict = enforce_human_rework_acceptance(workspace, state, verdict)
     state["lastVerdict"] = verdict["verdict"]
     state["lastSummary"] = verdict["summary"]
     state["routingRecommendation"] = verdict["routing_recommendation"]
