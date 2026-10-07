@@ -176,13 +176,13 @@ Use exactly zero or one of:
 |---|---|---|---|
 | `risk:mechanical` | GPT-6 Luna | low | docs, file moves, renames, narrowly specified repetitive changes |
 | `risk:normal` | GPT-6 Luna | medium | normal bounded implementation, straightforward fixes, focused refactors |
-| `risk:investigative` | GPT-6.1 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
-| `risk:architecture` | GPT-6.1 Sol | high | architecture-sensitive or cross-system boundary work |
-| `risk:end-to-end` | GPT-6.1 Sol | high | substantial end-to-end integration/tool work |
+| `risk:investigative` | GPT-6 Sol | medium | ambiguous debugging, multiple plausible root causes, multi-layer investigation |
+| `risk:architecture` | GPT-6 Sol | high | architecture-sensitive or cross-system boundary work |
+| `risk:end-to-end` | GPT-6 Sol | high | substantial end-to-end integration/tool work |
 
 If no risk or model label exists, the router defaults to Luna / medium.
 
-The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6.1 Sol covers investigative/debugging work at medium effort and architecture/end-to-end work at high effort.** Supervisor has no higher-cost model escalation route; unresolved ambiguity or capability limits return to human attention.
+The current practical rule is: **GPT-6 Luna is the workhorse; GPT-6 Sol covers investigative/debugging work at medium effort and architecture/end-to-end work at high effort.** Supervisor has no higher-cost model escalation route; unresolved ambiguity or capability limits return to human attention.
 
 ### Explicit model override
 
@@ -292,6 +292,6 @@ The resulting policy is therefore:
 
 ### #139 — retired high-cost end-to-end benchmark
 
-RPG Kingdom #139 showed that the previous highest-cost end-to-end route could consume nearly an entire freshly reset five-hour allowance while still requiring immediate human follow-up for basic player-facing gaps. That evidence motivated making Sol/high the end-to-end default. GPT-6.1 Sol now replaces the older Sol model as the sole strong Supervisor route; unresolved work should increase Sol reasoning effort or return to human attention rather than escalating to another model.
+RPG Kingdom #139 showed that the previous highest-cost end-to-end route could consume nearly an entire freshly reset five-hour allowance while still requiring immediate human follow-up for basic player-facing gaps. That evidence motivated making Sol/high the end-to-end default. GPT-6 Sol now replaces the older Sol model as the sole strong Supervisor route; unresolved work should increase Sol reasoning effort or return to human attention rather than escalating to another model.
 
 Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts or automatic high-cost routing.
