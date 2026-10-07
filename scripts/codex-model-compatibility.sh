@@ -37,7 +37,7 @@ trap 'rm -rf -- "$probe_dir" "$probe_out"' EXIT
 set +e
 (
   cd "$probe_dir"
-  timeout "${RPGK_MODEL_COMPATIBILITY_TIMEOUT_SECONDS:-60}s"     codex exec --model "$MODEL" --sandbox read-only "Reply with exactly: MODEL_OK"
+  timeout "${RPGK_MODEL_COMPATIBILITY_TIMEOUT_SECONDS:-60}s"     codex exec --skip-git-repo-check --model "$MODEL" --sandbox read-only "Reply with exactly: MODEL_OK"
 ) >"$probe_out" 2>&1
 status=$?
 set -e
