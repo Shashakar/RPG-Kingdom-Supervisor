@@ -93,7 +93,7 @@ for text in (
 # actively running work visible while retaining the attention signal instead of requiring
 # another mutable "active-work" GitHub label.
 for text in (
-    "for(const item of(l.items||[])if(item.active&&!map.has(item.identifier))",
+    "for(const item of(l.items||[]))if(item.active&&!map.has(item.identifier))",
     "Human attention remains required while this work is active.",
     ".filter(i=>!(i.active&&i.lifecycleState==='human_attention'))",
 ):

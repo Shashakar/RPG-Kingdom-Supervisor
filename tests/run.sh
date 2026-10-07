@@ -31,6 +31,7 @@ python3 "$ROOT/tests/supervisor-detail-test.py"
 python3 "$ROOT/tests/supervisor-usage-analysis-test.py"
 python3 "$ROOT/tests/codex-concurrent-usage-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
+python3 "$ROOT/tests/dashboard-javascript-syntax-test.py"
 python3 "$ROOT/tests/dashboard-update-test.py"
 python3 "$ROOT/tests/gh125-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
