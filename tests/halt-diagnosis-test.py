@@ -99,6 +99,20 @@ with tempfile.TemporaryDirectory() as temp:
     assert "not supported" in model_failure["markdown"]
     (model_errors / "GH-111.json").unlink()
 
+    # App Server stderr must outrank the generic lifetime diagnosis when model compatibility passed
+    # but the actual App Server process terminated before a trusted handoff.
+    app_stderr = state_root / "app-server-stderr"
+    app_stderr.mkdir(parents=True)
+    (app_stderr / "GH-111.log").write_text(
+        "startup detail\nError: app server transport closed unexpectedly\n",
+        encoding="utf-8",
+    )
+    app_failure = diagnosis.collect(workspace, 111, new_boundary, "worker_lifetime_ended", state_root=state_root)
+    assert app_failure["supervisor"]["classification"] == "app_server_terminated"
+    assert "transport closed unexpectedly" in app_failure["supervisor"]["reason"]
+    assert "transport closed unexpectedly" in app_failure["appServerStderr"]
+    (app_stderr / "GH-111.log").unlink()
+
     # Specialized stop types retain their deterministic classification.
     (workspace / diagnosis.USAGE_MARKER).write_text(json.dumps({"reason": "usage_limit_exceeded", "message": "quota exhausted"}), encoding="utf-8")
     quota = diagnosis.collect(workspace, 111, new_boundary, "usage_limit_exceeded", state_root=state_root)
