@@ -102,6 +102,8 @@ if (( status != 0 )); then
   summary="Independent reviewer execution failed; human attention is required before retrying automated review."
   if grep -Eqi 'usage_limit_exceeded|usage limit|try again at' "$RUN_LOG"; then
     summary="Independent reviewer could not run because Codex usage quota is unavailable; human attention is required before requeueing review after quota resets."
+  elif grep -Eqi 'Invalid schema for response_format|invalid_json_schema|text\.format\.schema' "$RUN_LOG"; then
+    summary="Independent reviewer could not start because Codex rejected the configured structured-output schema; fix the Supervisor review schema before retrying automated review."
   fi
   python3 - "$output_file" "$summary" <<'PY'
 import json, sys

@@ -67,6 +67,12 @@ A `worker_halt_diagnosed` telemetry event is also emitted. Worker drill-down inc
 
 The operator contract is: when Supervisor stops, the available evidence should answer **what stopped, what remains, whether manual action is required, and what to do next**. Unknown fields remain explicit unknowns.
 
+## Automated review startup failures
+
+Independent PR review uses Codex strict structured output. The review verdict schema must therefore stay within the structured-output JSON Schema subset accepted by Codex. Nullable objects use a nullable `type` array rather than composition keywords such as `oneOf`.
+
+If Codex rejects the review schema before inference, `review-worker.sh` preserves the raw Codex log beside the verdict and reports that the configured structured-output schema was rejected. This is a Supervisor configuration failure, not evidence that the implementation under review is ambiguous or incorrect. Fix the Supervisor schema before requeueing the review; do not spend an implementation repair attempt for this condition.
+
 ## Read-only issue diagnostics
 
 ### Terminal
