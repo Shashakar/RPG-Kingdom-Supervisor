@@ -89,6 +89,16 @@ for text in (
 ):
     assert text in html, text
 
+# Live execution is orthogonal to a human-attention lifecycle label: Overview must keep
+# actively running work visible while retaining the attention signal instead of requiring
+# another mutable "active-work" GitHub label.
+for text in (
+    "for(const item of(l.items||[])if(item.active&&!map.has(item.identifier))",
+    "Human attention remains required while this work is active.",
+    ".filter(i=>!(i.active&&i.lifecycleState==='human_attention'))",
+):
+    assert text in html, text
+
 # #99 exposes trusted successful terminal work on Overview without confusing PID death, halt,
 # human review, or human attention with completion. Open report-only completion is merged from the
 # authoritative lifecycle queue.
