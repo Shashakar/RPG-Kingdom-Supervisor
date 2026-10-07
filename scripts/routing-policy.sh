@@ -73,7 +73,7 @@ rpgk_select_route() {
 
   # Human/operator model overrides retain precedence over reviewer recommendations.
   if rpgk_has_label model:sol "$labels"; then
-    model="gpt-6.1-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label model:luna "$labels"; then
@@ -82,7 +82,7 @@ rpgk_select_route() {
     default_effort="low"
   # A structured review recommendation is fresh routing evidence for rework only.
   elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:sol "$labels"; then
-    model="gpt-6.1-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label symphony:rework "$labels" && rpgk_has_label repair-route:luna "$labels"; then
@@ -90,15 +90,15 @@ rpgk_select_route() {
     route="luna"
     default_effort="low"
   elif rpgk_has_label risk:end-to-end "$labels"; then
-    model="gpt-6.1-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label risk:architecture "$labels"; then
-    model="gpt-6.1-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="high"
   elif rpgk_has_label risk:investigative "$labels"; then
-    model="gpt-6.1-sol"
+    model="gpt-6-sol"
     route="sol"
     default_effort="medium"
   elif rpgk_has_label risk:mechanical "$labels"; then
