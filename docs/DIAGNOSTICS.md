@@ -215,6 +215,14 @@ A manual persistent `codex app-server` invocation from the GH-245 workspace sent
 
 A manual reproduction tried the final `exec codex ... --config "model_reasoning_effort=$reasoning_effort" ...` line directly from a normal terminal. It returned `reasoning_effort must not be empty`, alongside an empty-path OS error; this was **not** the captured GH-245 worker exit. `model`, `reasoning_effort`, `RPGK_CODEX_PERMISSION_ARGS`, and `capability_args` are initialized by earlier router steps and may be absent when the final `exec` line is copied. Moreover, `exec` replaces the interactive shell and can close the WSL terminal session. Use a standalone, explicitly parameterized `codex ... app-server` diagnostic instead; do not attribute the manual invalid-configuration output to the original worker. The original router log selected `gpt-6-luna` / `medium` successfully.
 
+#### GH-245 permission probe passes (2026-10-08)
+
+The installed `scripts/codex-app-server-permission-probe.sh` returned `PASS (active=rpgk_supervisor_workspace, workspace_write=ok)`, exit code 0. Its Python implementation initializes a standalone Codex App Server, creates an ephemeral `thread/start` with the named permission profile, confirms `activePermissionProfile.id`, then runs a temporary workspace file-write/delete test through `command/exec`. It never sends `turn/start` and does not touch the GH-245 issue workspace. Together with the independently successful `initialize` and `skills/extraRoots/set` tests, this makes a generic permissions/profile incompatibility less likely but **does not** validate the actual router-launched process, its specific capability args, or lifetime ownership.
+
+The deployed Symphony response handler also logs-and-skips non-JSON response stream lines, using warnings for error-like text and debug otherwise. Accordingly, normal router diagnostic lines on the merged stream do not alone explain the failure. Do not copy the router's final `exec codex` line into an uninitialized interactive shell: missing local `model` and `reasoning_effort` variables cause a manual config error, and `exec` replaces the shell. Neither result is evidence of the original worker's exit.
+
+Next priority: correlate Symphony's actual worker process exit, elapsed time, lifecycle ownership and any startup/hook cancellation around 14:26:32–14:26:38 local. Preserve relevant structured status and exact exit reason before changing issue labels or rearming.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
