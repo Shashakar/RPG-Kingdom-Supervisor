@@ -223,6 +223,10 @@ The deployed Symphony response handler also logs-and-skips non-JSON response str
 
 Next priority: correlate Symphony's actual worker process exit, elapsed time, lifecycle ownership and any startup/hook cancellation around 14:26:32–14:26:38 local. Preserve relevant structured status and exact exit reason before changing issue labels or rearming.
 
+#### GH-245 Symphony application log confirms premature after_run
+
+The actual rotated Symphony application log `log/symphony.log.2` shows: dispatch 14:25:50.778; `after_create` 14:25:50.796; `before_run` 14:26:18.338; router route log `gpt-6-luna / medium` 14:26:22.740; capability output 14:26:22.942; **`after_run` hook starts 14:26:27.944**; and only **later** `Issue no longer routed ... stopping active agent` at 14:26:37.606. No `Codex session started` appeared between those events. The `after_run` event predates the unassignment, so do not attribute the initial worker abort to that later route removal. Compare a successful GH-223 attempt: it reported `thread/started`, Codex messages, and a session completion before `after_run`. Investigate why Symphony transitions to `after_run` roughly 5 s after the last router output, and inspect its error reporting and cleanup path.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
