@@ -175,6 +175,8 @@ sudo journalctl -u rpg-kingdom-supervisor.service \
 
 Check whether the filtered result is still dominated by TUI rows; `log/symphony.log*` may be more useful for application events. Journal grepping may miss stack traces without those keywords; if a process-level failure remains unclear, capture journal output without filtering to a local file and inspect around the relevant event.
 
+The follow-up filtered journal command was executed and returned **only** approximately 47 per-second GH-245 TUI rows (`no codex message yet`), with no exception, exit code, or process reason. On this host, the systemd journal is not an adequate substitute for Symphony's application log or explicit child-process telemetry for this incident. Avoid repeating the same grep. Next inspect Codex/Symphony startup handshake, exit reason, and the process-launch boundary; persist a structured termination reason if missing.
+
 The halt-diagnostics JSON confirmed `attemptBoundary: none`, `modelError: null`, `appServerStderr: null`, `latestTurn: null`, `latestUnity: null`, and a clean `main` workspace. The App Server stderr file itself was empty. These facts **do not establish the root cause**. Next inspect the App Server startup/exit boundary and Symphony's child-process exit reason; do not relabel the incident as a model rejection.
 
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
