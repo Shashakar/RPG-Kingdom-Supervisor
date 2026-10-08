@@ -158,6 +158,25 @@ Review logs for tokens, credentials, and private content before sharing them out
 - Dashboard displayed `gpt-5.6-luna / medium` while router output selected `gpt-6-luna / medium`. This is an *observed discrepancy*, not yet proof of a stale dashboard label or model execution.
 - System services on this host were `rpg-kingdom-supervisor.service` and `rpg-kingdom-diagnostics.service` (system-level services).
 
+#### GH-245 additional evidence (collected 2026-10-08)
+
+The worker history record `workers/history/GH-245-implementation-20261008T212632Z-1334ee4b.json` identifies `model: gpt-6-luna`, `effort: medium`, `outcome: halted`, and a **5.099111-second** recorded worker lifetime (14:26:32.607–14:26:37.706 MDT). No uniquely attributable Codex tokens were found. Fresh App Server quota snapshots showed 100% remaining in the five-hour window and 53% remaining in the weekly window; the quota percentage-point delta was zero.
+
+The model-compatibility record `model-compatibility/a7a9c339087ff230362bc4ac128a582257b8748cb5a9d1bdcfd28e24a3cbb212.json` reported `status: compatible` for `gpt-6-luna` on `codex-cli 0.156.0` at 14:26:31 MDT. **This verifies the separate compatibility probe only, not a successful App Server session.** The dashboard's `gpt-5.6-luna` display conflicts with both router selection and worker history.
+
+The journal query for `rpg-kingdom-supervisor.service` returned large amounts of per-second terminal-dashboard redraw output (`Agents: 1/1`, `no codex message yet` through 14:26:37, then `Agents: 0/1`). It did not establish a definitive process-level failure. Filter the journal for diagnostic lines to avoid the redraw noise:
+
+```bash
+sudo journalctl -u rpg-kingdom-supervisor.service \
+  --since '2026-10-08 14:25:45' --until '2026-10-08 14:26:45' \
+  --no-pager -o cat | grep -Ei \
+  'GH-245|error|warn|exception|exit|terminated|codex|app.server|failed|halt|router|worker|signal' | tail -160
+```
+
+Check whether the filtered result is still dominated by TUI rows; `log/symphony.log*` may be more useful for application events. Journal grepping may miss stack traces without those keywords; if a process-level failure remains unclear, capture journal output without filtering to a local file and inspect around the relevant event.
+
+The halt-diagnostics JSON confirmed `attemptBoundary: none`, `modelError: null`, `appServerStderr: null`, `latestTurn: null`, `latestUnity: null`, and a clean `main` workspace. The App Server stderr file itself was empty. These facts **do not establish the root cause**. Next inspect the App Server startup/exit boundary and Symphony's child-process exit reason; do not relabel the incident as a model rejection.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
