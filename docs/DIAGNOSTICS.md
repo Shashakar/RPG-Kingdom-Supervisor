@@ -197,6 +197,10 @@ cat /tmp/rpgk-init-stderr.log
 
 This returned successful JSON-RPC `{"id":1,"result":{...}}` with user agent `symphony-orchestrator/0.156.0` and `platformFamily: unix`, plus ordinary account status notifications identifying ChatGPT authentication. Stderr was empty. **The basic Codex CLI startup and initialize handshake work in the issue workspace.** The test did *not* send `thread/start`, reproduce Supervisor's full permission/env arguments, or establish a model-backed turn. Investigate the subsequent thread/start/session boundary and actual Supervisor subprocess configuration; do not call the manual handshake proof of a successful GH-245 agent launch.
 
+#### GH-245 local Symphony startup path (2026-10-08)
+
+The installed Supervisor `WORKFLOW.md` specifies `codex.command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"`, `approval_policy: never`, and `permissions: rpgk_supervisor_workspace`. The **local** `~/src/openai-symphony/elixir/lib/symphony_elixir/codex/app_server.ex` `do_start_session` path calls `send_initialize`, then `configure_supervisor_skill_roots`, then `start_thread`; this differs from a public upstream snapshot that calls `start_thread` directly. Inspect the deployed local source, not just upstream. The successful standalone initialize test did **not** reproduce the full router invocation, permission profile, skill-root registration, or `thread/start`. Investigate those boundaries next. Never assume that `permissions: rpgk_supervisor_workspace` is the root cause without a captured error.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
