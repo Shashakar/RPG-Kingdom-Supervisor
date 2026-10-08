@@ -179,6 +179,24 @@ The follow-up filtered journal command was executed and returned **only** approx
 
 The halt-diagnostics JSON confirmed `attemptBoundary: none`, `modelError: null`, `appServerStderr: null`, `latestTurn: null`, `latestUnity: null`, and a clean `main` workspace. The App Server stderr file itself was empty. These facts **do not establish the root cause**. Next inspect the App Server startup/exit boundary and Symphony's child-process exit reason; do not relabel the incident as a model rejection.
 
+#### GH-245 manual App Server handshake (2026-10-08)
+
+A first attempt piping `initialize` and `initialized` followed by immediate stdin EOF returned no stdout or stderr and was **inconclusive**: closing stdin immediately allows the stdio server to stop before producing a response. A corrected **model-turn-free** test from the preserved GH-245 workspace held stdin open for five seconds:
+
+```bash
+cd /home/dex/code/rpg-kingdom-symphony-workspaces/GH-245
+{
+  printf '%s\n' '{"method":"initialize","id":1,"params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"symphony-orchestrator","title":"Symphony Orchestrator","version":"0.1.0"}}}'
+  sleep 5
+} | timeout 8s codex \
+  --config 'model="gpt-6-luna"' \
+  --config 'model_reasoning_effort=medium' app-server \
+  2>/tmp/rpgk-init-stderr.log
+cat /tmp/rpgk-init-stderr.log
+```
+
+This returned successful JSON-RPC `{"id":1,"result":{...}}` with user agent `symphony-orchestrator/0.156.0` and `platformFamily: unix`, plus ordinary account status notifications identifying ChatGPT authentication. Stderr was empty. **The basic Codex CLI startup and initialize handshake work in the issue workspace.** The test did *not* send `thread/start`, reproduce Supervisor's full permission/env arguments, or establish a model-backed turn. Investigate the subsequent thread/start/session boundary and actual Supervisor subprocess configuration; do not call the manual handshake proof of a successful GH-245 agent launch.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
