@@ -207,6 +207,10 @@ Local Symphony's `app_server.ex` builds `thread/start` with `approvalPolicy: nev
 
 Next reproduce *both* `skills/extraRoots/set` and `thread/start` with the actual CLI profile arguments in one persistent App Server process, without sending `turn/start`. Ensure each request is answered before sending the next and capture error responses verbatim. A standalone `initialize` success alone does not validate this additional local Symphony integration.
 
+#### GH-245 second protocol handshake succeeds
+
+A manual persistent `codex app-server` invocation from the GH-245 workspace sent JSON-RPC `initialize` (`id:1`), then `initialized`, then `skills/extraRoots/set` (`id:2`, `extraRoots: ["/home/dex/src/RPG-Kingdom-Supervisor/skills"]`). Both `id:1` and `id:2` returned success (`id:2, result: {}`), with no stderr. This validates the **standalone** skills-root registration handshake, not the routed Supervisor process or `thread/start`. GH-245 was initially armed with standard `risk:normal`, `resource:unity-editor`, `validation:unity-required`, and `symphony:ready` labels, rather than a halt recovery `symphony:rearm` transition. Dispatch reaching worker startup makes missing `symphony:ready` an unlikely cause. Continue investigating exact router launch and thread/session creation without rearming blindly.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
