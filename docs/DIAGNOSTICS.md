@@ -201,6 +201,12 @@ This returned successful JSON-RPC `{"id":1,"result":{...}}` with user agent `sym
 
 The installed Supervisor `WORKFLOW.md` specifies `codex.command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"`, `approval_policy: never`, and `permissions: rpgk_supervisor_workspace`. The **local** `~/src/openai-symphony/elixir/lib/symphony_elixir/codex/app_server.ex` `do_start_session` path calls `send_initialize`, then `configure_supervisor_skill_roots`, then `start_thread`; this differs from a public upstream snapshot that calls `start_thread` directly. Inspect the deployed local source, not just upstream. The successful standalone initialize test did **not** reproduce the full router invocation, permission profile, skill-root registration, or `thread/start`. Investigate those boundaries next. Never assume that `permissions: rpgk_supervisor_workspace` is the root cause without a captured error.
 
+#### GH-245 verified local permission and handshake order
+
+Local Symphony's `app_server.ex` builds `thread/start` with `approvalPolicy: never`, `cwd`, `runtimeWorkspaceRoots: [workspace]`, `dynamicTools`, and `permissions: rpgk_supervisor_workspace`. The local `configure_supervisor_skill_roots` sends `skills/extraRoots/set` with `extraRoots: [~/src/RPG-Kingdom-Supervisor/skills]` for a `GH-N` workspace, and requires success before `thread/start`. The profile is constructed dynamically in `scripts/codex-permission-profile.sh`: read-only root, writable workspace/tmp, network enabled, with protected metadata excluded from ordinary worker writes. Not seeing a static profile in `~/.codex/config.toml` is therefore not evidence the profile is missing.
+
+Next reproduce *both* `skills/extraRoots/set` and `thread/start` with the actual CLI profile arguments in one persistent App Server process, without sending `turn/start`. Ensure each request is answered before sending the next and capture error responses verbatim. A standalone `initialize` success alone does not validate this additional local Symphony integration.
+
 **Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
 
 ## Automated review startup failures
