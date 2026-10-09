@@ -160,4 +160,17 @@ set -e
 [[ "$status" -eq 78 ]] || { echo "expected undeclared new-scene requirements to exit 78, got $status" >&2; exit 1; }
 [[ ! -f "$TMP/state/authoring/GH-142.json" ]] || { echo "undeclared new-scene issue must not receive an authoring receipt" >&2; exit 1; }
 
+# Human approval phrased differently from the canonical heading still fails closed
+# when the machine-readable scene-authoring label is missing (GH-250 regression).
+reset_state
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"symphony:rework"}]'
+export FAKE_ISSUE_JSON='{"state":"open","body":"## Scene authority — explicitly approved for this issue\n\nHuman-approved existing-scene composition in PlaytestScene."}'
+set +e
+run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || { echo "expected alternate scene authority heading to fail without grant, got $status" >&2; exit 1; }
+[[ ! -e "$FAKE_RUNNER_CALLS" ]] || { echo "missing repair authoring grant must halt before Unity" >&2; exit 1; }
+[[ ! -f "$TMP/state/authoring/GH-142.json" ]] || { echo "missing grant must not receive receipt" >&2; exit 1; }
+
 echo "structural-authoring-guard-test: PASS"
