@@ -233,7 +233,12 @@ fi
 # label before we spend a Unity smoke or Codex worker lifetime.
 issue_json="$(api GET "/issues/$issue_number")"
 issue_body="$(jq -r '.body // ""' <<<"$issue_json")"
-if (( authoring_count == 0 )) && grep -Fqi '## Production Scene Authoring Authority' <<<"$issue_body"; then
+# Recognize explicit human approval even when the issue uses a descriptive heading.
+# Prose is diagnostic only: it never becomes an executable grant.
+if (( authoring_count == 0 )) && {
+  grep -Eqi '^##[[:space:]]+(Production Scene Authoring Authority|Scene authority.*(approved|authorized))' <<<"$issue_body" ||
+  grep -Eqi '^The project owner expressly authorizes the .*(scene|composition) lane' <<<"$issue_body";
+}; then
   required_label="one matching authoring:scene-* label"
   if grep -Eqi 'explicitly grants[^\n]*Tier 1|Tier 1[^\n]*mechanical production-scene' <<<"$issue_body"; then
     required_label="authoring:scene-mechanical"
