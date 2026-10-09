@@ -67,6 +67,176 @@ A `worker_halt_diagnosed` telemetry event is also emitted. Worker drill-down inc
 
 The operator contract is: when Supervisor stops, the available evidence should answer **what stopped, what remains, whether manual action is required, and what to do next**. Unknown fields remain explicit unknowns.
 
+## Operator runbook: locating logs for a halted issue
+
+Use this runbook before rearming a halted issue. The paths below are **observed on the Dex-GMKTec-Server installation on 2026-10-08**, not portable defaults. Prefer the `RPGK_SUPERVISOR_STATE_ROOT` environment setting where available. The local Symphony/Elixir checkout was `~/src/openai-symphony/elixir`; the Supervisor checkout was `~/src/RPG-Kingdom-Supervisor`; issue workspaces were under `~/code/rpg-kingdom-symphony-workspaces/GH-N`.
+
+### Fast path (replace 245 with the issue number)
+
+```bash
+ISSUE=245
+cd ~/src/RPG-Kingdom-Supervisor
+bash scripts/diagnose-issue.sh "$ISSUE"
+bash scripts/diagnose-issue.sh "$ISSUE" --json
+
+# System services (these were system-wide, not --user units on this host)
+systemctl status rpg-kingdom-supervisor.service rpg-kingdom-diagnostics.service --no-pager
+sudo journalctl -u rpg-kingdom-supervisor.service \
+  --since '2026-10-08 14:25:00' --until '2026-10-08 14:29:00' --no-pager
+sudo journalctl -u rpg-kingdom-diagnostics.service \
+  --since '2026-10-08 14:25:00' --until '2026-10-08 14:29:00' --no-pager
+```
+
+Adjust the journal time window to the incident and check the host timezone. The diagnostics command is read-only; do not treat a summary halt classification as a root cause.
+
+### Symphony orchestrator logs
+
+```bash
+cd ~/src/openai-symphony/elixir
+grep -n -C 12 'GH-245' log/symphony.log* | tail -250
+grep -h -E 'GH-245|worker_lifetime_ended|issue_id=245' log/symphony.log* | tail -120
+```
+
+Rotated logs may appear as `log/symphony.log.2`; the shell glob scans the available files. For unfiltered surrounding events, use the relevant file and line range, e.g. `sed -n '7390,7450p' log/symphony.log.2`. Search for dispatch, `after_create`, `before_run`, router output, `Codex session started`, `after_run`, and completed handoff. Missing `Codex session started` means initialization is **unconfirmed**, not proof of why it failed.
+
+### Supervisor local state and preserved workspace
+
+```bash
+ISSUE=245
+STATE="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+WS="$HOME/code/rpg-kingdom-symphony-workspaces/GH-$ISSUE"
+
+# Metadata, stderr, and failure classification
+for file in \
+  "$STATE/halt-diagnostics/GH-$ISSUE.json" \
+  "$STATE/app-server-stderr/GH-$ISSUE.log" \
+  "$STATE/model-errors/GH-$ISSUE.json" \
+  "$STATE/capabilities/GH-$ISSUE.json"; do
+  if [ -f "$file" ]; then
+    echo "===== $file ====="
+    tail -100 "$file"
+  fi
+done
+
+# Worker lifetime history, model compatibility artifacts, and Unity ownership
+find "$STATE/workers" "$STATE/model-compatibility" "$STATE/unity-broker" "$STATE/locks" \
+  -maxdepth 4 -type f 2>/dev/null | grep -E "GH-$ISSUE|history|status|compatibility|lock" | head -80
+
+git -C "$WS" status --short --branch
+git -C "$WS" log -1 --oneline
+```
+
+`app-server-stderr/GH-N.log` is particularly important if routing succeeded but the App Server did not establish a session. Check `model-compatibility/` and `model-errors/` to distinguish a successful separate compatibility probe from a rejected model. A successful compatibility check **does not prove** the actual App Server worker started. Worker records may live in `workers/history/GH-N-...json` and `workers/history.jsonl`. Unity broker status and issue/CodeX mutation locks reveal resource/preflight boundaries, but a lock file timestamp alone does not prove a lock is currently held.
+
+A time-scoped inventory is useful when the specific evidence filename is unknown:
+
+```bash
+find "$HOME/.local/state/rpg-kingdom-supervisor" -maxdepth 4 -type f \
+  -newermt '2026-10-08 14:25:00' ! -newermt '2026-10-08 14:29:00' \
+  -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort
+```
+
+Review logs for tokens, credentials, and private content before sharing them outside the host.
+
+### Source ownership: where to investigate behavior
+
+- `WORKFLOW.md` defines the Symphony hooks and worker contract.
+- `scripts/codex-app-server-router.sh` and `scripts/routing-policy.sh` choose the model/effort. Compare the router's emitted selection with the dashboard's displayed model and the actual Codex session initialization; these are distinct pieces of evidence.
+- `scripts/codex-model-compatibility.sh` performs a separate model preflight.
+- `scripts/before-run-guard.sh`, `scripts/after-run-guard.sh`, and `scripts/halt-diagnosis.py` enforce lifecycle/rearm and build halt diagnoses.
+- `scripts/supervisor_telemetry.py`, `scripts/supervisor_detail.py`, and `scripts/supervisor_dashboard.py` serve worker history and presentation of routed model/lifecycle.
+- `docs/PHASE3_UNITY_SCHEDULING.md` explains Unity locks and required preflight behavior.
+
+### GH-245 incident evidence (2026-10-08, America/Denver)
+
+- 14:25:50: GH-245 dispatched, worker attempt started.
+- 14:26:18: `before_run` started; 14:26:22: router emitted `GH-245 -> luna (gpt-6-luna, effort=medium, role=implementation)`; capabilities state was written.
+- 14:26:27: `after_run` started; 14:26:37: issue was no longer routed to that worker.
+- GitHub marked the issue `symphony:halted` with `worker_lifetime_ended`; its comment reported no fresh structured task status.
+- Preserved workspace `GH-245` was clean on `main` at `3bff307`, with no observed implementation change. The available Symphony log excerpt had no `Codex session started` event for this attempt.
+- Observed local evidence included `app-server-stderr/GH-245.log`, `halt-diagnostics/GH-245.json`, `workers/history/GH-245-implementation-20261008T212632Z-1334ee4b.json`, `workers/history.jsonl`, and a `model-compatibility/*.json` file. **Their contents had not yet been examined; the root cause remains unknown.**
+- Dashboard displayed `gpt-5.6-luna / medium` while router output selected `gpt-6-luna / medium`. This is an *observed discrepancy*, not yet proof of a stale dashboard label or model execution.
+- System services on this host were `rpg-kingdom-supervisor.service` and `rpg-kingdom-diagnostics.service` (system-level services).
+
+#### GH-245 additional evidence (collected 2026-10-08)
+
+The worker history record `workers/history/GH-245-implementation-20261008T212632Z-1334ee4b.json` identifies `model: gpt-6-luna`, `effort: medium`, `outcome: halted`, and a **5.099111-second** recorded worker lifetime (14:26:32.607–14:26:37.706 MDT). No uniquely attributable Codex tokens were found. Fresh App Server quota snapshots showed 100% remaining in the five-hour window and 53% remaining in the weekly window; the quota percentage-point delta was zero.
+
+The model-compatibility record `model-compatibility/a7a9c339087ff230362bc4ac128a582257b8748cb5a9d1bdcfd28e24a3cbb212.json` reported `status: compatible` for `gpt-6-luna` on `codex-cli 0.156.0` at 14:26:31 MDT. **This verifies the separate compatibility probe only, not a successful App Server session.** The dashboard's `gpt-5.6-luna` display conflicts with both router selection and worker history.
+
+The journal query for `rpg-kingdom-supervisor.service` returned large amounts of per-second terminal-dashboard redraw output (`Agents: 1/1`, `no codex message yet` through 14:26:37, then `Agents: 0/1`). It did not establish a definitive process-level failure. Filter the journal for diagnostic lines to avoid the redraw noise:
+
+```bash
+sudo journalctl -u rpg-kingdom-supervisor.service \
+  --since '2026-10-08 14:25:45' --until '2026-10-08 14:26:45' \
+  --no-pager -o cat | grep -Ei \
+  'GH-245|error|warn|exception|exit|terminated|codex|app.server|failed|halt|router|worker|signal' | tail -160
+```
+
+Check whether the filtered result is still dominated by TUI rows; `log/symphony.log*` may be more useful for application events. Journal grepping may miss stack traces without those keywords; if a process-level failure remains unclear, capture journal output without filtering to a local file and inspect around the relevant event.
+
+The follow-up filtered journal command was executed and returned **only** approximately 47 per-second GH-245 TUI rows (`no codex message yet`), with no exception, exit code, or process reason. On this host, the systemd journal is not an adequate substitute for Symphony's application log or explicit child-process telemetry for this incident. Avoid repeating the same grep. Next inspect Codex/Symphony startup handshake, exit reason, and the process-launch boundary; persist a structured termination reason if missing.
+
+The halt-diagnostics JSON confirmed `attemptBoundary: none`, `modelError: null`, `appServerStderr: null`, `latestTurn: null`, `latestUnity: null`, and a clean `main` workspace. The App Server stderr file itself was empty. These facts **do not establish the root cause**. Next inspect the App Server startup/exit boundary and Symphony's child-process exit reason; do not relabel the incident as a model rejection.
+
+#### GH-245 manual App Server handshake (2026-10-08)
+
+A first attempt piping `initialize` and `initialized` followed by immediate stdin EOF returned no stdout or stderr and was **inconclusive**: closing stdin immediately allows the stdio server to stop before producing a response. A corrected **model-turn-free** test from the preserved GH-245 workspace held stdin open for five seconds:
+
+```bash
+cd /home/dex/code/rpg-kingdom-symphony-workspaces/GH-245
+{
+  printf '%s\n' '{"method":"initialize","id":1,"params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"symphony-orchestrator","title":"Symphony Orchestrator","version":"0.1.0"}}}'
+  sleep 5
+} | timeout 8s codex \
+  --config 'model="gpt-6-luna"' \
+  --config 'model_reasoning_effort=medium' app-server \
+  2>/tmp/rpgk-init-stderr.log
+cat /tmp/rpgk-init-stderr.log
+```
+
+This returned successful JSON-RPC `{"id":1,"result":{...}}` with user agent `symphony-orchestrator/0.156.0` and `platformFamily: unix`, plus ordinary account status notifications identifying ChatGPT authentication. Stderr was empty. **The basic Codex CLI startup and initialize handshake work in the issue workspace.** The test did *not* send `thread/start`, reproduce Supervisor's full permission/env arguments, or establish a model-backed turn. Investigate the subsequent thread/start/session boundary and actual Supervisor subprocess configuration; do not call the manual handshake proof of a successful GH-245 agent launch.
+
+#### GH-245 local Symphony startup path (2026-10-08)
+
+The installed Supervisor `WORKFLOW.md` specifies `codex.command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"`, `approval_policy: never`, and `permissions: rpgk_supervisor_workspace`. The **local** `~/src/openai-symphony/elixir/lib/symphony_elixir/codex/app_server.ex` `do_start_session` path calls `send_initialize`, then `configure_supervisor_skill_roots`, then `start_thread`; this differs from a public upstream snapshot that calls `start_thread` directly. Inspect the deployed local source, not just upstream. The successful standalone initialize test did **not** reproduce the full router invocation, permission profile, skill-root registration, or `thread/start`. Investigate those boundaries next. Never assume that `permissions: rpgk_supervisor_workspace` is the root cause without a captured error.
+
+#### GH-245 verified local permission and handshake order
+
+Local Symphony's `app_server.ex` builds `thread/start` with `approvalPolicy: never`, `cwd`, `runtimeWorkspaceRoots: [workspace]`, `dynamicTools`, and `permissions: rpgk_supervisor_workspace`. The local `configure_supervisor_skill_roots` sends `skills/extraRoots/set` with `extraRoots: [~/src/RPG-Kingdom-Supervisor/skills]` for a `GH-N` workspace, and requires success before `thread/start`. The profile is constructed dynamically in `scripts/codex-permission-profile.sh`: read-only root, writable workspace/tmp, network enabled, with protected metadata excluded from ordinary worker writes. Not seeing a static profile in `~/.codex/config.toml` is therefore not evidence the profile is missing.
+
+Next reproduce *both* `skills/extraRoots/set` and `thread/start` with the actual CLI profile arguments in one persistent App Server process, without sending `turn/start`. Ensure each request is answered before sending the next and capture error responses verbatim. A standalone `initialize` success alone does not validate this additional local Symphony integration.
+
+#### GH-245 second protocol handshake succeeds
+
+A manual persistent `codex app-server` invocation from the GH-245 workspace sent JSON-RPC `initialize` (`id:1`), then `initialized`, then `skills/extraRoots/set` (`id:2`, `extraRoots: ["/home/dex/src/RPG-Kingdom-Supervisor/skills"]`). Both `id:1` and `id:2` returned success (`id:2, result: {}`), with no stderr. This validates the **standalone** skills-root registration handshake, not the routed Supervisor process or `thread/start`. GH-245 was initially armed with standard `risk:normal`, `resource:unity-editor`, `validation:unity-required`, and `symphony:ready` labels, rather than a halt recovery `symphony:rearm` transition. Dispatch reaching worker startup makes missing `symphony:ready` an unlikely cause. Continue investigating exact router launch and thread/session creation without rearming blindly.
+
+#### Avoid copying the router's final `exec codex` command into a shell
+
+A manual reproduction tried the final `exec codex ... --config "model_reasoning_effort=$reasoning_effort" ...` line directly from a normal terminal. It returned `reasoning_effort must not be empty`, alongside an empty-path OS error; this was **not** the captured GH-245 worker exit. `model`, `reasoning_effort`, `RPGK_CODEX_PERMISSION_ARGS`, and `capability_args` are initialized by earlier router steps and may be absent when the final `exec` line is copied. Moreover, `exec` replaces the interactive shell and can close the WSL terminal session. Use a standalone, explicitly parameterized `codex ... app-server` diagnostic instead; do not attribute the manual invalid-configuration output to the original worker. The original router log selected `gpt-6-luna` / `medium` successfully.
+
+#### GH-245 permission probe passes (2026-10-08)
+
+The installed `scripts/codex-app-server-permission-probe.sh` returned `PASS (active=rpgk_supervisor_workspace, workspace_write=ok)`, exit code 0. Its Python implementation initializes a standalone Codex App Server, creates an ephemeral `thread/start` with the named permission profile, confirms `activePermissionProfile.id`, then runs a temporary workspace file-write/delete test through `command/exec`. It never sends `turn/start` and does not touch the GH-245 issue workspace. Together with the independently successful `initialize` and `skills/extraRoots/set` tests, this makes a generic permissions/profile incompatibility less likely but **does not** validate the actual router-launched process, its specific capability args, or lifetime ownership.
+
+The deployed Symphony response handler also logs-and-skips non-JSON response stream lines, using warnings for error-like text and debug otherwise. Accordingly, normal router diagnostic lines on the merged stream do not alone explain the failure. Do not copy the router's final `exec codex` line into an uninitialized interactive shell: missing local `model` and `reasoning_effort` variables cause a manual config error, and `exec` replaces the shell. Neither result is evidence of the original worker's exit.
+
+Next priority: correlate Symphony's actual worker process exit, elapsed time, lifecycle ownership and any startup/hook cancellation around 14:26:32–14:26:38 local. Preserve relevant structured status and exact exit reason before changing issue labels or rearming.
+
+#### GH-245 Symphony application log confirms premature after_run
+
+The actual rotated Symphony application log `log/symphony.log.2` shows: dispatch 14:25:50.778; `after_create` 14:25:50.796; `before_run` 14:26:18.338; router route log `gpt-6-luna / medium` 14:26:22.740; capability output 14:26:22.942; **`after_run` hook starts 14:26:27.944**; and only **later** `Issue no longer routed ... stopping active agent` at 14:26:37.606. No `Codex session started` appeared between those events. The `after_run` event predates the unassignment, so do not attribute the initial worker abort to that later route removal. Compare a successful GH-223 attempt: it reported `thread/started`, Codex messages, and a session completion before `after_run`. Investigate why Symphony transitions to `after_run` roughly 5 s after the last router output, and inspect its error reporting and cleanup path.
+
+#### GH-245 strongest current hypothesis: 5-second App Server response timeout during preflight (unconfirmed)
+
+The deployed `agent_runner.ex` uses a `try ... after Workspace.run_after_run_hook(...)` around `run_codex_turns`; `after_run` therefore also runs after startup errors and is **not** proof that a session completed. The Symphony application log records the last router diagnostic at 14:26:22.942 and `after_run` beginning at 14:26:27.944, a **5.002-second silence**. Separately captured events indicate the model compatibility check was still pending until ~14:26:31 and worker-start telemetry arrived at 14:26:32.607. Symphony may time out waiting for the JSON-RPC `initialize` response while the router's model compatibility preflight blocks launching the actual App Server. Verify effective `codex.read_timeout_ms` (including workflow/default) and its reset semantics against this timeline. If 5000ms, capture `{:error, :response_timeout}` at `start_session` and consider moving slow preflight outside the response window or increasing the startup timeout specifically; don't merely suppress timeout diagnostics. This is a hypothesis until confirmed.
+
+#### GH-245 five-second timeout default confirmed
+
+Local installed Symphony schema has `field(:read_timeout_ms, :integer, default: 5_000)`, and `Codex.AppServer.await_response` calls `with_timeout_response(port, request_id, Config.settings!().codex.read_timeout_ms, "")`. Current Supervisor `WORKFLOW.md` does not specify `read_timeout_ms`; unless another effective config overrides it, a five-second read timeout applies while the *router* is still performing the compatibility probe. In the recorded failure, the router's last diagnostics at 14:26:22.942 and `after_run` at 14:26:27.944 are 5.002 seconds apart. This is compelling evidence for an `initialize` response timeout before Codex itself is launched, though the precise `:response_timeout` return was not recorded. Recommended immediate operational mitigation: add `codex.read_timeout_ms: 120000` in the Supervisor workflow, test configuration, restart Symphony under its normal process management, and only then deliberately rearm. This extends *all* App Server response waits, not just process startup; a targeted startup-specific timeout is a longer-term design fix. Do not suggest retrying with the default five-second setting.
+
+**Recovery gate:** inspect the preserved workspace, App Server stderr, halt diagnosis, worker history, model compatibility records, and system journal before rearming. Per `WORKFLOW.md`, a reviewed continuation uses `symphony:rearm` before `symphony:ready` (or `scripts/rearm-issue.sh`); adding only `symphony:ready` is not a valid rearm. Do not change routing policy or discard the workspace solely on the basis of a generic halt.
+
 ## Automated review startup failures
 
 Independent PR review uses Codex strict structured output. The review verdict schema must therefore stay within the structured-output JSON Schema subset accepted by Codex. Nullable objects use a nullable `type` array rather than composition keywords such as `oneOf`.
