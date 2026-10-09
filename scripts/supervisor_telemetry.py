@@ -62,7 +62,7 @@ def _normalized_key(key: str) -> str:
 def _known_secrets() -> list[str]:
     return [
         value
-        for name in ("SYMPHONY_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY")
+        for name in ("SYMPHONY_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY", "CONTROL_PLANE_API_KEY")
         if (value := os.environ.get(name, ""))
     ]
 

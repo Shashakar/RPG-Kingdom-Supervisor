@@ -30,6 +30,12 @@ Do not add path filters unless it is proven they cannot skip changes to shared s
 
 ## Local verification
 
+The optional MCP observer has real protocol interoperability tests in the
+canonical gate. Prepare a Python venv with `requirements-mcp.txt` and place its
+`bin` directory on `PATH` before running the gate; see
+[MCP_ACCESS.md](MCP_ACCESS.md). CI installs the same requirements. The observer
+dependency is not required to launch Symphony or the existing dashboard.
+
 Before opening or approving a Supervisor PR, operators can run the exact same regression gate locally:
 
 ```bash

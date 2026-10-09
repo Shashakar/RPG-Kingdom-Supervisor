@@ -33,6 +33,7 @@ python3 "$ROOT/tests/codex-concurrent-usage-test.py"
 python3 "$ROOT/tests/operations-dashboard-policy-test.py"
 python3 "$ROOT/tests/dashboard-javascript-syntax-test.py"
 python3 "$ROOT/tests/dashboard-update-test.py"
+python3 "$ROOT/tests/supervisor-mcp-test.py"
 python3 "$ROOT/tests/gh125-policy-test.py"
 bash "$ROOT/tests/worker-lifetime-guard-test.sh" >/dev/null
 bash "$ROOT/tests/after-run-guard-test.sh"
@@ -94,6 +95,7 @@ python3 -m py_compile \
   "$ROOT/scripts/structural-authoring-preflight.py" \
   "$ROOT/scripts/supervisor_activity.py" \
   "$ROOT/scripts/supervisor_dashboard.py" \
+  "$ROOT/scripts/supervisor_mcp.py" \
   "$ROOT/scripts/supervisor_detail.py" \
   "$ROOT/scripts/supervisor_maintenance.py" \
   "$ROOT/scripts/supervisor_telemetry.py" \
@@ -112,6 +114,7 @@ bash -n "$ROOT/scripts/review-worker.sh"
 bash -n "$ROOT/scripts/review-orchestrator-watchdog.sh"
 bash -n "$ROOT/scripts/refresh-rearmed-workspace.sh"
 bash -n "$ROOT/scripts/run-symphony.sh"
+bash -n "$ROOT/scripts/serve-mcp.sh"
 bash -n "$ROOT/scripts/unity-author.sh"
 bash -n "$ROOT/scripts/unity-author-host.sh"
 bash -n "$ROOT/scripts/unity-resource-guard.sh"

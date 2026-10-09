@@ -1,0 +1,2 @@
+# Optional observer only; Symphony/dashboard do not require this dependency.
+mcp==1.30.0
