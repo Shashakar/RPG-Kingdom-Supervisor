@@ -58,11 +58,12 @@ invoke() { bash "$ROOT/scripts/unity-author-host.sh" --project "$GH" --request "
 invoke
 [[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 1 ]] || { echo 'approved request did not reach host runner' >&2; exit 1; }
 deny() {
+  local reason="$1"
   set +e
   invoke
   code=$?
   set -e
-  [[ "$code" -eq 83 ]] || { echo "expected denial 83; got $code" >&2; exit 1; }
+  [[ "$code" -eq 83 ]] || { echo "expected $reason denial 83; got $code" >&2; exit 1; }
   [[ "$(wc -l < "$FAKE_POWERSHELL_CALLS")" -eq 1 ]] || { echo 'denied request launched Windows runner' >&2; exit 1; }
 }
 # Source revision must match host receipt.
@@ -70,7 +71,7 @@ python3 - "$STATE/authoring/GH-255.json" <<'PY'
 import json,sys
 p=sys.argv[1]; x=json.load(open(p)); x["executorRevision"]="0"*40; json.dump(x,open(p,"w"))
 PY
-deny
+deny "wrong revision"
 python3 - "$STATE/authoring/GH-255.json" "$REV" <<'PY'
 import json,sys
 p,rev=sys.argv[1:]; x=json.load(open(p)); x["executorRevision"]=rev; json.dump(x,open(p,"w"))
@@ -78,11 +79,11 @@ PY
 # Worker-supplied scripts are not eligible to run during an approved transaction.
 mkdir -p "$GH/Assets/RPGKingdom/Editor"
 echo 'class Injected {}' > "$GH/Assets/RPGKingdom/Editor/Injected.cs"
-deny
+deny "untracked script"
 rm "$GH/Assets/RPGKingdom/Editor/Injected.cs"
 python3 - "$REQUEST" <<'PY'
 import json,sys
 p=sys.argv[1]; x=json.load(open(p)); x["authoring"]["scene"]="Assets/RPGKingdom/Scenes/Other.unity"; json.dump(x,open(p,"w"))
 PY
-deny
+deny "wrong scene"
 echo "unity-gameplay-transaction-host-test: PASS"
