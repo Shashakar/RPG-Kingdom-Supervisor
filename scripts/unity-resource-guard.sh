@@ -336,6 +336,7 @@ if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" &
     --arg issue "$issue_identifier" \
     --arg workspace "$PWD" \
     --arg branch "$(git branch --show-current)" \
+    --arg executorRevision "$(git rev-parse HEAD)" \
     --arg tier "$authoring_tier" \
     --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \
@@ -343,7 +344,7 @@ if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" &
     --argjson auxiliaryAuthoring "$(jq -c '.authorizedAuxiliaryAuthoring // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
     --argjson protectedCompositionPaths "$(jq -c '.authorizedProtectedCompositionPaths // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
     --argjson allowedRoots "$(jq -c '.authorizedAllowedRoots // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
-    '{protocolVersion:1,issue:$issue,workspace:$workspace,branch:$branch,allowedRoots:$allowedRoots,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,auxiliaryAuthoring:$auxiliaryAuthoring,protectedCompositionPaths:$protectedCompositionPaths,authorizedAt:$authorizedAt}' \
+    '{protocolVersion:1,issue:$issue,workspace:$workspace,branch:$branch,executorRevision:$executorRevision,allowedRoots:$allowedRoots,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,auxiliaryAuthoring:$auxiliaryAuthoring,protectedCompositionPaths:$protectedCompositionPaths,authorizedAt:$authorizedAt}' \
     > "$AUTHORING_MARKER.tmp.$$"
   mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
   echo "RPG Kingdom Unity guard: recorded $authoring_tier scene-authoring authority for $issue_identifier"
