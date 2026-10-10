@@ -204,6 +204,16 @@ bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
 Use only operations documented in `docs/SCENE_AUTHORING.md` and implemented by the reviewed RPG Kingdom executor. Structural authority is bounded: it is not permission for arbitrary reflection, arbitrary component types, transforms, free-form hierarchy editing, prefab surgery, object creation/deletion, or creative composition. Do not hand-edit Unity YAML. If the required structural operation is not explicitly supported, stop and report that missing operation instead of bypassing the seam.
 
 A successful `unity-author.sh` call means the staged Editor mutation was safely copied back into the issue workspace; it is **not validation evidence**. Inspect the resulting source diff and run the narrowest relevant fresh EditMode/PlayMode validation with `unity-runner.sh` before handoff.
+{% elsif issue.labels contains "authoring:scene-gameplay" %}
+This issue carries a **host-attested, single-operation gameplay-scene composition** grant, not a general Unity Editor shell permission. Read `docs/SCENE_AUTHORING.md` and the project-owned authoring capability contract. Use only the exact scene, `opening-encounter-composition` tier, one `compose-authored-opening-encounter` operation, and finite coordinates approved in the issue contract. The project executor owns gameplay component wiring; Supervisor owns scope, immutable source revision, Unity resource lock, staged execution, scene-only publication and rollback.
+
+Do not hand-edit scene YAML, submit C# scripts in an authoring request, mutate the source scene outside the reviewed operation, bypass a failed preflight, or attempt additional operations under this grant. If the source revision changes after dispatch, stop and request a new approval instead of silently rerunning. A successful call is not gameplay validation: run fresh EditMode/PlayMode tests, inspect scene changes, and require human merge.
+
+Invoke only the approved typed request through:
+```bash
+bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-author.sh" apply \
+  --request /tmp/rpgk-authoring.json
+```
 {% elsif issue.labels contains "authoring:scene-existing-composition" %}
 This issue is explicitly authorized for **bounded existing-scene environmental composition** in the exact scene approved by the issue's `symphony-scene-authoring-requirements` contract. RPG Kingdom's checked-in `AGENTS.md`, `docs/SCENE_AUTHORING.md`, and project-side authoring executor remain authoritative for eligible world objects, protected functional subtrees, and supported operations.
 
