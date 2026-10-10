@@ -178,6 +178,61 @@ This exception is intentionally narrow: it exists for reviewed NavMesh/navigatio
 
 This lane is intended for bounded creation/composition of a new authored scene such as `PlaytestScene`. It is not a general-purpose creative RPC, prefab editor, terrain-data generator, or back door for modifying existing production scenes.
 
+### Approved gameplay transaction (opening encounter)
+
+This is a **separate issue-scoped typed lane**, not an expansion of environment-only
+`existing-scene-composition`. It is intended for one already-reviewed Editor
+operation, `compose-authored-opening-encounter`, implemented in RPG Kingdom's
+`SymphonyMechanicalSceneAuthoring`. It does **not** accept worker-provided Editor
+code, an arbitrary method name, or generic property writes.
+
+An authorized issue needs:
+- `resource:unity-editor`, `validation:unity-required`, and
+  `authoring:scene-gameplay` (mutually exclusive with other scene authoring labels).
+- A single `symphony-scene-authoring-requirements` block, **known** mode, exact
+  tier `opening-encounter-composition`, exact
+  `Assets/RPGKingdom/Scenes/PlaytestScene.unity`, and the one approved operation.
+- Nonempty, normalized `allowedRoots`, reflecting the specific newly composed
+  actor/spawn/Encounter and existing targeting/SaveLoad/startup reference owners.
+  This records human-approved scope; the *reviewed project executor* must also
+  enforce actual mutation scope (the receipt list alone does not inspect a Unity diff).
+
+For example:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "opening-encounter-composition",
+  "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+  "operations": ["compose-authored-opening-encounter"],
+  "allowedRoots": [
+    "World/TownArea/PlayerSpawnPoint",
+    "World/TownArea/Enemy_FirstApproach_Scavenger",
+    "Systems/Encounter_FirstApproach",
+    "PlayerCharacter",
+    "Systems/SaveLoadSystem",
+    "Systems"
+  ]
+}
+-->
+```
+
+The host preflight checks this against the **project-owned capability contract**
+and writes a host-owned receipt binding issue, workspace, branch, approved
+Git revision, exact scene, operation and roots. The broker and host independently
+validate this grant, and the Windows runner permits only the exact scene plus
+one typed operation. Scene-only copy-back remains transactional and fails closed
+for unexpected generated assets. The host rejects a changed Git revision or
+uncommitted C#/assembly/host-script modifications during authoring.
+
+**Important limitations:** A Unity Editor process is not a true OS sandbox. The
+safety boundary rests on executing the reviewed, fixed Editor entrypoint with an
+unchanged approved code revision; never reinterpret this lane as permission to
+run agent-provided C#. Scene changed-file manifests do not themselves prove
+unchanged unrelated GameObjects. Review the bounded project executor, fresh Unity
+tests, and resulting scene diff before human merge approval.
+
 ## Worker interface
 
 Create a temporary JSON request outside tracked source files and call:
