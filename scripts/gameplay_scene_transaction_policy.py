@@ -18,6 +18,14 @@ ISSUE = re.compile(r"^GH-[1-9][0-9]*$")
 BRANCH = re.compile(r"^codex/[A-Za-z0-9._/-]+$")
 # Only typed reviewed operations; never an agent-supplied script or command.
 OPERATIONS = frozenset({"compose-authored-opening-encounter"})
+OPENING_ROOTS = frozenset({
+    "World/TownArea/PlayerSpawnPoint",
+    "World/TownArea/Enemy_FirstApproach_Scavenger",
+    "Systems/Encounter_FirstApproach",
+    "PlayerCharacter",
+    "Systems/SaveLoadSystem",
+    "Systems",
+})
 
 
 class AuthorizationError(ValueError):
@@ -76,6 +84,8 @@ def validate(grant: dict[str, Any], request: dict[str, Any], *, issue: str, work
     roots = [_root(root) for root in _array(grant, "allowedRoots")]
     if len(roots) != len(set(roots)):
         raise AuthorizationError("duplicate approved roots")
+    if frozenset(roots) != OPENING_ROOTS:
+        raise AuthorizationError("opening encounter grant has unreviewed or missing hierarchy roots")
     operations = _array(grant, "operations")
     if not all(isinstance(op, str) and op in OPERATIONS for op in operations):
         raise AuthorizationError("grant contains unsupported operation")
