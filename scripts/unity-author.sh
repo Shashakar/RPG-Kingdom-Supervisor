@@ -38,7 +38,7 @@ command -v jq >/dev/null 2>&1 || { echo "RPG Kingdom Unity authoring: jq is requ
 
 if ! jq -e '
   .protocolVersion == 1 and
-  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "existing-scene-composition" or .tier == "new-scene-composition" or .tier == "prefab-derivative") and
+  (.tier == "mechanical" or .tier == "mechanical-structural" or .tier == "existing-scene-composition" or .tier == "new-scene-composition" or .tier == "prefab-derivative" or .tier == "opening-encounter-composition") and
   ((.tier == "prefab-derivative" and ((.scene // "") == "") and (.sourcePrefab | type == "string" and startswith("Assets/") and endswith(".prefab") and (contains("..") | not) and (contains("\\") | not)) and (.destinationPrefab | type == "string" and startswith("Assets/RPGKingdom/Generated/AgentDerivatives/") and endswith(".prefab") and (contains("..") | not) and (contains("\\") | not))) or (.tier != "prefab-derivative" and (.scene | type == "string" and startswith("Assets/") and endswith(".unity") and (contains("..") | not) and (contains("\\") | not)))) and
   ((.sourceScene // "") | type == "string") and
   (((.sourceScene // "") == "") or (((.sourceScene | startswith("Assets/")) and (.sourceScene | endswith(".unity")) and ((.sourceScene | contains("..")) | not) and ((.sourceScene | contains("\\")) | not) and (.sourceScene != .scene)))) and
