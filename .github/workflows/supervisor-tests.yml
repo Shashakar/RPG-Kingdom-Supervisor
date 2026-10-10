@@ -37,6 +37,9 @@ jobs:
           python3 --version
           git --version
 
+      - name: Install MCP observer test dependencies
+        run: python3 -m pip install -r requirements-mcp.txt
+
       - name: Run Supervisor regression suite
         shell: bash
         env:
