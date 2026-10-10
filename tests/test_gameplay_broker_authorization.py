@@ -31,14 +31,14 @@ class GameplayBrokerAuthorizationTests(unittest.TestCase):
         self.authoring = {
             "protocolVersion": 1, "tier": "existing-scene-gameplay",
             "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
-            "operations": [{"kind": "compose-opening-encounter"}],
+            "operations": [{"kind": "compose-authored-opening-encounter"}],
         }
         self.grant = {
             "protocolVersion": 1, "issue": "GH-255", "workspace": str(self.workspace.resolve()),
             "branch": "codex/gh-255-opening", "tier": "existing-scene-gameplay",
             "scene": self.authoring["scene"],
             "allowedRoots": ["World/TownArea", "Systems/Encounter_FirstApproach"],
-            "operations": ["compose-opening-encounter"],
+            "operations": ["compose-authored-opening-encounter"],
         }
 
     def check(self):
