@@ -46,6 +46,7 @@ python3 "$ROOT/tests/review-verdict-schema-test.py"
 bash "$ROOT/tests/review-worker-test.sh"
 bash "$ROOT/tests/unity-resource-policy-test.sh"
 python3 "$ROOT/tests/structural-authoring-preflight-test.py"
+python3 "$ROOT/tests/test_gameplay_scene_transaction_policy.py"
 bash "$ROOT/tests/structural-authoring-guard-test.sh"
 bash "$ROOT/tests/unity-resource-guard-test.sh"
 bash "$ROOT/tests/unity-runner-policy-test.sh"
@@ -92,6 +93,7 @@ python3 -m py_compile \
   "$ROOT/scripts/review-orchestrator-service.py" \
   "$ROOT/scripts/review_state.py" \
   "$ROOT/scripts/structural-authoring-preflight.py" \
+  "$ROOT/scripts/gameplay_scene_transaction_policy.py" \
   "$ROOT/scripts/supervisor_activity.py" \
   "$ROOT/scripts/supervisor_dashboard.py" \
   "$ROOT/scripts/supervisor_detail.py" \
