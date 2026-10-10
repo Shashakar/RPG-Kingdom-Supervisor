@@ -14,8 +14,10 @@ import tempfile
 import time
 from typing import Any
 
+from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
+
 PROTOCOL_VERSION = 1
-SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative"})
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "existing-scene-gameplay"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -208,6 +210,31 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
+    if requested_tier == "existing-scene-gameplay":
+        # The client and Windows runner still reject this tier until independent
+        # project-executor and protected-root validation exist. This check makes
+        # the broker's future host receipt requirements testable now.
+        marker = state_root / "authoring" / f"{workspace.name}.json"
+        try:
+            grant = json.loads(marker.read_text(encoding="utf-8"))
+            branch_result = subprocess.run(
+                ["git", "-C", str(workspace), "branch", "--show-current"],
+                capture_output=True, text=True, check=True, timeout=5,
+            )
+            branch = branch_result.stdout.strip()
+            validate_gameplay_grant(
+                grant, authoring, issue=workspace.name,
+                workspace=str(workspace), branch=branch,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError, AuthorizationError) as exc:
+            return None, None, response(
+                request_id, "rejected", 83,
+                stderr=f"RPG Kingdom Unity authoring broker: invalid gameplay transaction grant: {exc}\\n",
+            )
+        return None, None, response(
+            request_id, "rejected", 83,
+            stderr="RPG Kingdom Unity authoring broker: gameplay transaction execution is disabled pending independently verified Unity executor and host copy-back gates\\n",
+        )
     error = validate_authorization(state_root, workspace, requested_tier, scene, operations, protected_paths)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
