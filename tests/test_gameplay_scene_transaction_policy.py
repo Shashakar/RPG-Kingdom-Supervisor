@@ -15,13 +15,13 @@ class GameplayTransactionTests(unittest.TestCase):
         self.context = dict(issue="GH-255", workspace="/work/GH-255", branch="codex/gh-255-opening")
         self.grant = dict(
             protocolVersion=1, issue="GH-255", workspace="/work/GH-255",
-            branch="codex/gh-255-opening", tier="existing-scene-gameplay",
+            branch="codex/gh-255-opening", tier="opening-encounter-composition",
             scene="Assets/RPGKingdom/Scenes/PlaytestScene.unity",
             allowedRoots=["World/TownArea", "Systems/Encounter_FirstApproach"],
             operations=["compose-authored-opening-encounter"],
         )
         self.request = dict(
-            protocolVersion=1, tier="existing-scene-gameplay",
+            protocolVersion=1, tier="opening-encounter-composition",
             scene=self.grant["scene"],
             operations=[dict(kind="compose-authored-opening-encounter", openingSpawnYaw=0)],
         )
