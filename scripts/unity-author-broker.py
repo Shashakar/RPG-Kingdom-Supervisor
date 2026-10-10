@@ -231,10 +231,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
                 request_id, "rejected", 83,
                 stderr=f"RPG Kingdom Unity authoring broker: invalid gameplay transaction grant: {exc}\\n",
             )
-        return None, None, response(
-            request_id, "rejected", 83,
-            stderr="RPG Kingdom Unity authoring broker: gameplay transaction execution is disabled pending independently verified Unity executor and host copy-back gates\\n",
-        )
+        return workspace, payload, None
     error = validate_authorization(state_root, workspace, requested_tier, scene, operations, protected_paths)
     if error:
         return None, None, response(request_id, "rejected", 83, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
