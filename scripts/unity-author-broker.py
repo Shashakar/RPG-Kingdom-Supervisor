@@ -17,7 +17,7 @@ from typing import Any
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
 
 PROTOCOL_VERSION = 1
-SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "existing-scene-gameplay"})
+SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "opening-encounter-composition"})
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
@@ -210,7 +210,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
-    if requested_tier == "existing-scene-gameplay":
+    if requested_tier == "opening-encounter-composition":
         # The client and Windows runner still reject this tier until independent
         # project-executor and protected-root validation exist. This check makes
         # the broker's future host receipt requirements testable now.
