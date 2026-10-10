@@ -71,6 +71,19 @@ if [[ "$requested_tier" == "opening-encounter-composition" ]]; then
     echo "RPG Kingdom Unity authoring: gameplay transaction target must be the reviewed PlaytestScene" >&2
     exit 83
   }
+  approved_revision="$(jq -r '.executorRevision // empty' "$authorization")"
+  current_revision="$(git -C "$project" rev-parse HEAD)"
+  if [[ ! "$approved_revision" =~ ^[0-9a-f]{40}$ || "$approved_revision" != "$current_revision" ]]; then
+    echo "RPG Kingdom Unity authoring: game Editor source revision no longer matches approved dispatch" >&2
+    exit 83
+  fi
+  # Do not let worker-added Editor/runtime scripts execute inside the stage.
+  # The authoring request is a reviewed operation, never a code-execution RPC.
+  if git -C "$project" status --porcelain --untracked-files=all -- Assets Packages ProjectSettings |
+      grep -Eq '(^|/)[^[:space:]]+\\.(cs|asmdef|asmref|rsp|dll|ps1|sh|py)([[:space:]]|$)'; then
+    echo "RPG Kingdom Unity authoring: worktree includes unreviewed code or assembly changes" >&2
+    exit 83
+  fi
   policy_request="$(mktemp)"
   trap 'rm -f "$policy_request"' EXIT
   jq '.authoring' "$request" > "$policy_request"
