@@ -80,7 +80,7 @@ if [[ "$requested_tier" == "opening-encounter-composition" ]]; then
   # Do not let worker-added Editor/runtime scripts execute inside the stage.
   # The authoring request is a reviewed operation, never a code-execution RPC.
   if git -C "$project" status --porcelain --untracked-files=all -- Assets Packages ProjectSettings |
-      grep -Eq '(^|/)[^[:space:]]+\\.(cs|asmdef|asmref|rsp|dll|ps1|sh|py)([[:space:]]|$)'; then
+      grep -Eq '(^|/)[^[:space:]]+\.(cs|asmdef|asmref|rsp|dll|ps1|sh|py)([[:space:]]|$)'; then
     echo "RPG Kingdom Unity authoring: worktree includes unreviewed code or assembly changes" >&2
     exit 83
   fi
