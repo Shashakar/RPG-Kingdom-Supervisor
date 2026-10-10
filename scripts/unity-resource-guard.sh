@@ -217,12 +217,14 @@ labels="$(jq -r '.[].name' <<<"$labels_json")"
 mechanical_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-mechanical")' <<<"$labels_json")"
 structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-structural")' <<<"$labels_json")"
 existing_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-existing-composition")' <<<"$labels_json")"
+gameplay_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-gameplay")' <<<"$labels_json")"
 new_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-new-composition")' <<<"$labels_json")"
 authoring_count=0
 [[ "$mechanical_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$structural_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$existing_scene_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$new_scene_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
+[[ "$gameplay_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 if (( authoring_count > 1 )); then
   halt_issue "conflicting scene-authoring labels: mechanical, structural, existing-scene composition, and new-scene authority are mutually exclusive"
   exit 75
@@ -252,7 +254,7 @@ fi
 structural_deferred="false"
 mkdir -p "$PREFLIGHT_DIR"
 rm -f -- "$PREFLIGHT_EVIDENCE"
-if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" ]]; then
+if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" || "$gameplay_authoring" == "true" ]]; then
   issue_body_file="$(mktemp)"
   printf '%s\n' "$issue_body" > "$issue_body_file"
   revision="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
@@ -293,6 +295,9 @@ if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true"
     if [[ "$existing_scene_authoring" == "true" ]]; then
       authorization_tier="existing-scene-composition"
       legacy_reason="existing-scene composition requires an explicit symphony-scene-authoring-requirements block"
+    elif [[ "$gameplay_authoring" == "true" ]]; then
+      authorization_tier="opening-encounter-composition"
+      legacy_reason="gameplay scene composition requires exact known requirements"
     elif [[ "$new_scene_authoring" == "true" ]]; then
       authorization_tier="new-scene-composition"
       legacy_reason="new-scene composition requires an explicit symphony-scene-authoring-requirements block"
@@ -308,6 +313,9 @@ if [[ "$structural_authoring" == "true" || "$existing_scene_authoring" == "true"
     if [[ "$existing_scene_authoring" == "true" ]]; then
       halt_issue "existing-scene composition requires explicit supported scene-authoring requirements"
       exit 78
+    elif [[ "$gameplay_authoring" == "true" ]]; then
+      halt_issue "gameplay composition requires explicit supported scene-authoring requirements"
+      exit 78
     elif [[ "$new_scene_authoring" == "true" ]]; then
       halt_issue "new-scene composition requires explicit supported scene-authoring requirements"
       exit 78
@@ -318,21 +326,24 @@ fi
 
 mkdir -p "$AUTHORING_DIR"
 rm -f -- "$AUTHORING_MARKER"
-if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$existing_scene_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$new_scene_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
+if [[ "$mechanical_authoring" == "true" || ( "$structural_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$existing_scene_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$new_scene_authoring" == "true" && "$structural_deferred" != "true" ) || ( "$gameplay_authoring" == "true" && "$structural_deferred" != "true" ) ]]; then
   authoring_tier="mechanical"
   [[ "$structural_authoring" == "true" ]] && authoring_tier="mechanical-structural"
   [[ "$existing_scene_authoring" == "true" ]] && authoring_tier="existing-scene-composition"
   [[ "$new_scene_authoring" == "true" ]] && authoring_tier="new-scene-composition"
+  [[ "$gameplay_authoring" == "true" ]] && authoring_tier="opening-encounter-composition"
   jq -cn \
     --arg issue "$issue_identifier" \
     --arg workspace "$PWD" \
+    --arg branch "$(git branch --show-current)" \
     --arg tier "$authoring_tier" \
     --arg authorizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg scene "$(jq -r '.authorizedScene // empty' "$PREFLIGHT_EVIDENCE" 2>/dev/null || true)" \
     --argjson operations "$(jq -c '.requirements.operations // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
     --argjson auxiliaryAuthoring "$(jq -c '.authorizedAuxiliaryAuthoring // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
     --argjson protectedCompositionPaths "$(jq -c '.authorizedProtectedCompositionPaths // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
-    '{protocolVersion:1,issue:$issue,workspace:$workspace,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,auxiliaryAuthoring:$auxiliaryAuthoring,protectedCompositionPaths:$protectedCompositionPaths,authorizedAt:$authorizedAt}' \
+    --argjson allowedRoots "$(jq -c '.authorizedAllowedRoots // []' "$PREFLIGHT_EVIDENCE" 2>/dev/null || printf '[]')" \
+    '{protocolVersion:1,issue:$issue,workspace:$workspace,branch:$branch,allowedRoots:$allowedRoots,tier:$tier,scene:(if $scene == "" then null else $scene end),operations:$operations,auxiliaryAuthoring:$auxiliaryAuthoring,protectedCompositionPaths:$protectedCompositionPaths,authorizedAt:$authorizedAt}' \
     > "$AUTHORING_MARKER.tmp.$$"
   mv "$AUTHORING_MARKER.tmp.$$" "$AUTHORING_MARKER"
   echo "RPG Kingdom Unity guard: recorded $authoring_tier scene-authoring authority for $issue_identifier"
