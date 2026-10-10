@@ -29,13 +29,13 @@ class GameplayBrokerAuthorizationTests(unittest.TestCase):
         self.request_path = self.requests / "GH-255-test.json"
         self.grant_path = self.state / "authoring" / "GH-255.json"
         self.authoring = {
-            "protocolVersion": 1, "tier": "existing-scene-gameplay",
+            "protocolVersion": 1, "tier": "opening-encounter-composition",
             "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
             "operations": [{"kind": "compose-authored-opening-encounter"}],
         }
         self.grant = {
             "protocolVersion": 1, "issue": "GH-255", "workspace": str(self.workspace.resolve()),
-            "branch": "codex/gh-255-opening", "tier": "existing-scene-gameplay",
+            "branch": "codex/gh-255-opening", "tier": "opening-encounter-composition",
             "scene": self.authoring["scene"],
             "allowedRoots": ["World/TownArea", "Systems/Encounter_FirstApproach"],
             "operations": ["compose-authored-opening-encounter"],
