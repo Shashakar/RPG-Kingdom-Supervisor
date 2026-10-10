@@ -216,7 +216,7 @@ def reconcile_gameplay_authorization(state_root: Path, workspace: Path, branch: 
     try:
         with temp.open("x", encoding="utf-8") as stream:
             json.dump(grant, stream, sort_keys=True)
-            stream.write("\\n")
+            stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, marker)
