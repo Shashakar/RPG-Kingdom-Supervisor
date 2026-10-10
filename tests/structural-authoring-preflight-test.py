@@ -63,6 +63,43 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
             contract_path="Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json",
         )
 
+    def test_gameplay_transaction_requires_explicit_reviewed_scene_and_roots(self):
+        contract = json.loads(json.dumps(CONTRACT))
+        contract["supportedTiers"].append("opening-encounter-composition")
+        contract["operationKindsByTier"].append({
+            "tier": "opening-encounter-composition",
+            "operationKinds": ["compose-authored-opening-encounter"],
+        })
+        body = marker({
+            "mode": "known",
+            "tier": "opening-encounter-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["compose-authored-opening-encounter"],
+            "allowedRoots": ["World/TownArea", "Systems/Encounter_FirstApproach"],
+        })
+        result = self.evaluate(body, contract)
+        self.assertEqual("supported", result["status"])
+        self.assertEqual(["World/TownArea", "Systems/Encounter_FirstApproach"],
+                         result["authorizedAllowedRoots"])
+
+    def test_gameplay_transaction_rejects_broad_and_invalid_scope(self):
+        contract = json.loads(json.dumps(CONTRACT))
+        contract["supportedTiers"].append("opening-encounter-composition")
+        contract["operationKindsByTier"].append({
+            "tier": "opening-encounter-composition",
+            "operationKinds": ["compose-authored-opening-encounter"],
+        })
+        for roots in ([], ["World/../Systems"], ["World/TownArea", "World/TownArea"]):
+            with self.subTest(roots=roots):
+                result = self.evaluate(marker({
+                    "mode": "known",
+                    "tier": "opening-encounter-composition",
+                    "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+                    "operations": ["compose-authored-opening-encounter"],
+                    "allowedRoots": roots,
+                }), contract)
+                self.assertEqual("invalid", result["status"])
+
     def test_supported_known_requirements_authorize_structural_work(self):
         result = self.evaluate(
             marker(

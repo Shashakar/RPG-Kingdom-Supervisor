@@ -55,6 +55,7 @@ def parse_requirements(body: str) -> dict[str, Any] | None:
         "componentAdditions": _strings(raw.get("componentAdditions"), "componentAdditions"),
         "componentRemovals": _strings(raw.get("componentRemovals"), "componentRemovals"),
         "protectedCompositionPaths": _strings(raw.get("protectedCompositionPaths"), "protectedCompositionPaths"),
+        "allowedRoots": _strings(raw.get("allowedRoots"), "allowedRoots"),
         "dependency": str(raw.get("dependency") or "").strip() or None,
         "scene": str(raw.get("scene") or "").strip() or None,
     }
@@ -105,11 +106,25 @@ def evaluate(
     requirements["auxiliaryAuthoring"] = normalized_auxiliary
     base["requirements"] = requirements
     base["authorizationTier"] = requirements["tier"]
-    if requirements["tier"] == "existing-scene-composition":
+    if requirements["tier"] in {"existing-scene-composition", "opening-encounter-composition"}:
         scene = requirements.get("scene")
         if not scene or not scene.startswith("Assets/") or not scene.endswith(".unity") or ".." in scene or "\\\\" in scene:
             return {**base, "status": "invalid", "supported": False, "authoringAuthorized": False, "reason": "existing-scene-composition requires an exact scene Assets/*.unity path"}
         base["authorizedScene"] = scene
+    if requirements["tier"] == "opening-encounter-composition":
+        required_scene = "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
+        roots = requirements["allowedRoots"]
+        if (requirements["scene"] != required_scene
+                or requirements["mode"] != "known"
+                or requirements["operations"] != ["compose-authored-opening-encounter"]
+                or not roots or len(roots) != len(set(roots))
+                or any(not root or root.startswith("/") or root.endswith("/")
+                       or "\\\\" in root or any(part in ("", ".", "..") for part in root.split("/"))
+                       for root in roots)):
+            return {**base, "status": "invalid", "supported": False,
+                    "authoringAuthorized": False,
+                    "reason": "opening encounter requires an exact reviewed scene, operation and normalized allowedRoots"}
+        base["authorizedAllowedRoots"] = roots
     if not isinstance(contract, dict):
         return {
             **base,

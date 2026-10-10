@@ -44,7 +44,7 @@ expected_request_dir="$project/Logs/SymphonyUnity/.author-broker/requests"
 
 requested_tier="$(jq -r '.authoring.tier // empty' "$request")"
 case "$requested_tier" in
-  mechanical|mechanical-structural|existing-scene-composition|new-scene-composition|prefab-derivative) ;;
+  mechanical|mechanical-structural|existing-scene-composition|new-scene-composition|prefab-derivative|opening-encounter-composition) ;;
   *) echo "RPG Kingdom Unity authoring: unsupported requested tier '$requested_tier'" >&2; exit 64 ;;
 esac
 
@@ -54,7 +54,7 @@ requested_protected_paths="$(jq -c '.authoring.protectedCompositionPaths // []' 
 if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier "$requested_tier" --arg scene "$target_scene" --argjson requestedProtected "$requested_protected_paths" '
   .protocolVersion == 1 and .issue == $issue and .workspace == $workspace and
   (
-    (.tier == $tier and ($tier != "existing-scene-composition" or .scene == $scene))
+    (.tier == $tier and (($tier != "existing-scene-composition" and $tier != "opening-encounter-composition") or .scene == $scene))
     or
     ([.auxiliaryAuthoring[]? | select(.tier == $tier)] | length == 1)
   ) and
@@ -64,6 +64,36 @@ if ! jq -e --arg issue "$issue_identifier" --arg workspace "$project" --arg tier
 ' "$authorization" >/dev/null 2>&1; then
   echo "RPG Kingdom Unity authoring: current dispatch is not authorized for requested tier '$requested_tier'" >&2
   exit 83
+fi
+
+if [[ "$requested_tier" == "opening-encounter-composition" ]]; then
+  [[ "$target_scene" == "Assets/RPGKingdom/Scenes/PlaytestScene.unity" ]] || {
+    echo "RPG Kingdom Unity authoring: gameplay transaction target must be the reviewed PlaytestScene" >&2
+    exit 83
+  }
+  approved_revision="$(jq -r '.executorRevision // empty' "$authorization")"
+  current_revision="$(git -C "$project" rev-parse HEAD)"
+  if [[ ! "$approved_revision" =~ ^[0-9a-f]{40}$ || "$approved_revision" != "$current_revision" ]]; then
+    echo "RPG Kingdom Unity authoring: game Editor source revision no longer matches approved dispatch" >&2
+    exit 83
+  fi
+  # Do not let worker-added Editor/runtime scripts execute inside the stage.
+  # The authoring request is a reviewed operation, never a code-execution RPC.
+  if git -C "$project" status --porcelain --untracked-files=all -- Assets Packages ProjectSettings |
+      grep -Eq '(^|/)[^[:space:]]+\.(cs|asmdef|asmref|rsp|dll|ps1|sh|py)([[:space:]]|$)'; then
+    echo "RPG Kingdom Unity authoring: worktree includes unreviewed code or assembly changes" >&2
+    exit 83
+  fi
+  policy_request="$(mktemp)"
+  trap 'rm -f "$policy_request"' EXIT
+  jq '.authoring' "$request" > "$policy_request"
+  python3 "$ROOT/scripts/gameplay_scene_transaction_policy.py" \
+    --grant "$authorization" --request "$policy_request" \
+    --issue "$issue_identifier" --workspace "$project" \
+    --branch "$(git -C "$project" branch --show-current)" >/dev/null || {
+      echo "RPG Kingdom Unity authoring: gameplay transaction grant validation failed" >&2
+      exit 83
+    }
 fi
 
 composition_mode=""

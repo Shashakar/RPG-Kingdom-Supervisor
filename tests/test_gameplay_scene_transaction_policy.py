@@ -15,15 +15,20 @@ class GameplayTransactionTests(unittest.TestCase):
         self.context = dict(issue="GH-255", workspace="/work/GH-255", branch="codex/gh-255-opening")
         self.grant = dict(
             protocolVersion=1, issue="GH-255", workspace="/work/GH-255",
-            branch="codex/gh-255-opening", tier="existing-scene-gameplay",
+            branch="codex/gh-255-opening", tier="opening-encounter-composition",
             scene="Assets/RPGKingdom/Scenes/PlaytestScene.unity",
-            allowedRoots=["World/TownArea", "Systems/Encounter_FirstApproach"],
-            operations=["compose-opening-encounter"],
+            allowedRoots=[
+                "World/TownArea/PlayerSpawnPoint",
+                "World/TownArea/Enemy_FirstApproach_Scavenger",
+                "Systems/Encounter_FirstApproach",
+                "PlayerCharacter", "Systems/SaveLoadSystem", "Systems",
+            ],
+            operations=["compose-authored-opening-encounter"],
         )
         self.request = dict(
-            protocolVersion=1, tier="existing-scene-gameplay",
+            protocolVersion=1, tier="opening-encounter-composition",
             scene=self.grant["scene"],
-            operations=[dict(kind="compose-opening-encounter", openingSpawnYaw=0)],
+            operations=[dict(kind="compose-authored-opening-encounter", openingSpawnYaw=0)],
         )
 
     def denied(self, mutate):
@@ -33,7 +38,7 @@ class GameplayTransactionTests(unittest.TestCase):
 
     def test_valid_scoped_request(self):
         result = scope.validate(self.grant, self.request, **self.context)
-        self.assertEqual(result["operation"], "compose-opening-encounter")
+        self.assertEqual(result["operation"], "compose-authored-opening-encounter")
         self.assertEqual(result["allowedRoots"], self.grant["allowedRoots"])
 
     def test_wrong_issue(self): self.denied(lambda: self.grant.update(issue="GH-256"))
@@ -42,7 +47,7 @@ class GameplayTransactionTests(unittest.TestCase):
     def test_wrong_scene(self): self.denied(lambda: self.request.update(scene="Assets/Other.unity"))
     def test_traversal_scene(self): self.denied(lambda: self.grant.update(scene="Assets/../Other.unity"))
     def test_unsupported_operation(self): self.denied(lambda: self.request["operations"][0].update(kind="delete-object"))
-    def test_multiple_operations(self): self.denied(lambda: self.request["operations"].append(dict(kind="compose-opening-encounter")))
+    def test_multiple_operations(self): self.denied(lambda: self.request["operations"].append(dict(kind="compose-authored-opening-encounter")))
     def test_arbitrary_editor_command(self): self.denied(lambda: self.request.update(executeMethod="Dangerous.Entry"))
     def test_arbitrary_field_write(self): self.denied(lambda: self.request["operations"][0].update(propertyPath="enemyState.characterState"))
     def test_self_authorized_scope(self): self.denied(lambda: self.request.update(protectedCompositionPaths=["World"]))
