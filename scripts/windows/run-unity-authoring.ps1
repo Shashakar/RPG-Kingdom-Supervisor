@@ -203,7 +203,7 @@ if ($null -eq $authoring -or [int]$authoring.protocolVersion -ne 1) {
     Fail-Authoring "unsupported authoring protocol" 64
 }
 $tier = [string]$authoring.tier
-if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "existing-scene-composition" -and $tier -ne "new-scene-composition" -and $tier -ne "prefab-derivative") {
+if ($tier -ne "mechanical" -and $tier -ne "mechanical-structural" -and $tier -ne "existing-scene-composition" -and $tier -ne "new-scene-composition" -and $tier -ne "prefab-derivative" -and $tier -ne "opening-encounter-composition") {
     Fail-Authoring "unsupported authoring tier '$tier'" 64
 }
 $IsPrefabDerivative = $tier -eq "prefab-derivative"
@@ -227,6 +227,14 @@ if ($IsPrefabDerivative -and (@($authoring.operations).Count -ne 1 -or [string]$
 
 $IsNewSceneComposition = $tier -eq "new-scene-composition"
 $IsExistingSceneComposition = $tier -eq "existing-scene-composition"
+$IsOpeningEncounterComposition = $tier -eq "opening-encounter-composition"
+if ($IsOpeningEncounterComposition) {
+    if ($scene -ne "Assets/RPGKingdom/Scenes/PlaytestScene.unity" -or
+        @($authoring.operations).Count -ne 1 -or
+        [string]$authoring.operations[0].kind -ne "compose-authored-opening-encounter") {
+        Fail-Authoring "gameplay transaction must target exact reviewed scene and operation" 83
+    }
+}
 $DerivativeRequests = @()
 if ($null -ne $authoring.derivativeOutputs) {
     $DerivativeRequests = @($authoring.derivativeOutputs)
