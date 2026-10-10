@@ -13,7 +13,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 
-TIERS = frozenset({"existing-scene-gameplay"})
+TIERS = frozenset({"opening-encounter-composition"})
 ISSUE = re.compile(r"^GH-[1-9][0-9]*$")
 BRANCH = re.compile(r"^codex/[A-Za-z0-9._/-]+$")
 # Only typed reviewed operations; never an agent-supplied script or command.
