@@ -182,6 +182,49 @@ def prepare_branch(workspace: Path, branch: str) -> dict[str, Any]:
     return {"branch": branch, "head": run_git(workspace, "rev-parse", "HEAD").stdout.strip(), "created": created}
 
 
+
+def reconcile_gameplay_authorization(state_root: Path, workspace: Path, branch: str, head: str) -> bool:
+    """Bind preflight's main-branch gameplay grant to host-prepared codex branch.
+
+    Never create a grant, change approved operation/scope, or rebind a grant
+    from another codex branch. The reviewed source revision must be unchanged.
+    """
+    marker = state_root / "authoring" / f"{workspace.name}.json"
+    if not marker.exists():
+        return False
+    try:
+        grant = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HandoffError(f"invalid scene authorization receipt: {exc}", code=83, status="InvalidAuthoringGrant") from exc
+    if not isinstance(grant, dict) or grant.get("tier") != "opening-encounter-composition":
+        return False
+    validate_branch(branch)
+    if (grant.get("protocolVersion") != 1
+            or grant.get("issue") != workspace.name
+            or grant.get("workspace") != str(workspace)
+            or grant.get("executorRevision") != head
+            or not re.fullmatch(r"[0-9a-f]{40}", head)):
+        raise HandoffError("gameplay receipt identity or reviewed source revision differs from host prepare", code=83, status="InvalidAuthoringGrant")
+    original_branch = grant.get("branch")
+    if original_branch == branch:
+        return False
+    if original_branch != "main":
+        raise HandoffError("gameplay receipt cannot be rebound from an unrelated branch", code=83, status="InvalidAuthoringGrant")
+    # Strictly one host-verified change to the immutable preflight receipt.
+    grant["branch"] = branch
+    temp = marker.with_name(f".{marker.name}.{os.getpid()}.tmp")
+    try:
+        with temp.open("x", encoding="utf-8") as stream:
+            json.dump(grant, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, marker)
+    finally:
+        temp.unlink(missing_ok=True)
+    return True
+
+
 def api_request(
     api_root: str,
     token: str,
@@ -503,6 +546,7 @@ def main() -> int:
 
         if operation == "prepare":
             result = prepare_branch(workspace, branch)
+            reconcile_gameplay_authorization(state_root, workspace, branch, result["head"])
             emit({"status": "completed", "exitCode": 0, "operation": operation, "issue": issue_number, **result})
             return 0
 
