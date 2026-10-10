@@ -52,12 +52,11 @@ class GameplayBrokerAuthorizationTests(unittest.TestCase):
         ):
             return broker.validate_request(self.request_path, self.workspaces.resolve(), self.state)
 
-    def test_valid_receipt_still_does_not_enable_execution(self):
+    def test_valid_receipt_permits_broker_forwarding(self):
         workspace, payload, error = self.check()
-        self.assertIsNone(workspace)
-        self.assertIsNone(payload)
-        self.assertEqual(error["exitCode"], 83)
-        self.assertIn("execution is disabled", error["stderr"])
+        self.assertEqual(workspace, self.workspace.resolve())
+        self.assertEqual(payload["authoring"], self.authoring)
+        self.assertIsNone(error)
 
     def test_missing_grant_denied(self):
         self.grant["issue"] = "GH-123"
