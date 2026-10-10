@@ -10,7 +10,7 @@ tier or authorize any production scene editing.
   agree with a host-owned grant. Workers must not write their own grants.
 - Exact Unity scene asset path, nonempty authorized hierarchy roots, and a
   finite reviewed operation set.
-- Only one `compose-opening-encounter` transaction operation is accepted.
+- Only one `compose-authored-opening-encounter` transaction operation is accepted.
   Requests carrying arbitrary script/method/command execution, broad source
   scenes, or a self-declared hierarchy exception are rejected.
 - Validation is a separate gate from gameplay correctness, Unity validation,
