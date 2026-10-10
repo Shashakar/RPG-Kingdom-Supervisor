@@ -17,7 +17,12 @@ class GameplayTransactionTests(unittest.TestCase):
             protocolVersion=1, issue="GH-255", workspace="/work/GH-255",
             branch="codex/gh-255-opening", tier="opening-encounter-composition",
             scene="Assets/RPGKingdom/Scenes/PlaytestScene.unity",
-            allowedRoots=["World/TownArea", "Systems/Encounter_FirstApproach"],
+            allowedRoots=[
+                "World/TownArea/PlayerSpawnPoint",
+                "World/TownArea/Enemy_FirstApproach_Scavenger",
+                "Systems/Encounter_FirstApproach",
+                "PlayerCharacter", "Systems/SaveLoadSystem", "Systems",
+            ],
             operations=["compose-authored-opening-encounter"],
         )
         self.request = dict(
