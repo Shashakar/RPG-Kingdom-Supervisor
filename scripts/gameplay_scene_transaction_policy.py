@@ -17,7 +17,7 @@ TIERS = frozenset({"existing-scene-gameplay"})
 ISSUE = re.compile(r"^GH-[1-9][0-9]*$")
 BRANCH = re.compile(r"^codex/[A-Za-z0-9._/-]+$")
 # Only typed reviewed operations; never an agent-supplied script or command.
-OPERATIONS = frozenset({"compose-opening-encounter"})
+OPERATIONS = frozenset({"compose-authored-opening-encounter"})
 
 
 class AuthorizationError(ValueError):
