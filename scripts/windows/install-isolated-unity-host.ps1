@@ -153,7 +153,7 @@ if ($Action -eq "install") {
   AclOnly $stage $account[1] $account[2] "Modify" "FullControl"
   AclOnly $queue $account[1] $account[2] "Modify" "FullControl"
   AclOnly $requests $account[1] $account[2] "ReadAndExecute" "Modify"
-  AclOnly $responses $account[1] $account[2] "Modify" "ReadAndExecute"
+  AclOnly $responses $account[1] $account[2] "Modify" "Modify"
   $taskName="RPGK-Unity-"+$id
   $exe=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
   $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $agent + '" -ConfigPath "' + $config + '"'
