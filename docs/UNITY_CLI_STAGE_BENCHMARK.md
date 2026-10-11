@@ -1,6 +1,6 @@
 # Stage C2a: fixed, stage-only Unity scene benchmark (Supervisor #209)
 
-**Status: draft / not host validated.** This stacks on read-only Stage C1 PR #210,
+**Status: draft / fixed-operation Windows host acceptance verified on October 11, 2026.** This stacks on read-only Stage C1 PR #210,
 which stacks on Stage B PR #208. This is NOT arbitrary Editor authoring.
 
 ## Purpose and scope
@@ -75,6 +75,30 @@ host-only grant with `unity-cli-stage-benchmark.py grant --workspace ...`
 and `--session-windows ...`; default is **off**, and the grant is never
 automatically added. To revoke use `unity-cli-stage-benchmark.py revoke`.
 Do not enable this lane against a halted/dirty GH-260 workspace.
+
+## Verified Windows host acceptance — October 11, 2026
+
+The operator used the Stage C2a branch in the WSL Supervisor pilot checkout with the
+existing Stage B disposable Editor session `pilot-51ed865d003844629683ec72ba0125db`.
+
+- `python3 tests/unity-cli-stage-benchmark-test.py` — **7 tests passed**.
+- `RPGK_UNITY_CLI_EXE=... bash scripts/unity-cli-stage-benchmark-smoke.sh --session-windows ...`
+  — **PASS**, using a **temporary synthetic GH-999999** issue/workspace and
+  host-owned broker, not a dispatched model worker.
+- The broker returned a successful `editor-stage-benchmark` operation:
+  source scene `Assets/RPGKingdom/Scenes/PlaytestScene.unity`,
+  source count **12,087 GameObjects**, generated scene
+  `Assets/RPGKingdom/Generated/AgentBenchmarks/SupervisorCliBenchmark.unity`.
+- The generated scene SHA-256 was
+  `3048af4219fa920aafa8e1b1867ce17bfd65f6b8bfa0f6778f2e876c6f78f625`.
+- The receipt confirmed `protectedFilesUnchanged=true`,
+  `originalSceneHashUnchanged=true`, `copyback=false`,
+  `stageOnly=true`, and `requiresHumanReview=true`.
+
+This verifies live broker-mediated **fixed** Editor scene writing in a disposable
+Windows stage and file-preservation checks. It does **not** prove that arbitrary
+model-authored C# is sandboxed, that a real Codex worker can operate safely,
+or that copyback and formal scene/terrain validation are complete.
 
 ## Security and remaining #209 gates
 
