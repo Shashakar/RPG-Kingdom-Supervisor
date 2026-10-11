@@ -58,6 +58,8 @@ class IsolatedBridgeTests(unittest.TestCase):
             "status": "denial-probes-passed", "sandboxSid": self.sid,
             "readProbeCount": 2, "writeProbeCount": 1,
             "readyForArbitraryEval": False, "readyForCopyback": False,
+            "configAndAgentWriteDenied": True, "operatorRequestWriteDenied": True,
+            "stageWriteConfirmed": True,
         }))
         (self.queue / "editor.json").write_text(json.dumps({
             "status": "launched", "sandboxSid": self.sid,
@@ -208,6 +210,8 @@ class IsolatedBridgeTests(unittest.TestCase):
         self.assertIn("Set-Acl", install)
         self.assertIn("IsReadDenied", worker)
         self.assertIn("IsWriteDenied", worker)
+        self.assertIn("IsFileWriteDenied", worker)
+        self.assertIn("IsStageWritable", worker)
         self.assertIn("get_scene_hierarchy", worker)
         # One trusted, constant Editor command opens the pinned scene at startup;
         # the mailbox accepts only read-only hierarchy inspection.
