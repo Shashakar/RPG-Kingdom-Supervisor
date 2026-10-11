@@ -20,14 +20,20 @@ function FindCli {
   return $cli.Source
 }
 function ExecuteCli($exe, $commandArgs, $dir, $id, $seconds) {
+  # A boolean alone hid the Windows process exit code and saved log location.
+  # These diagnostics are host-local; never send raw CLI output to worker JSON.
+  $script:LastCliExitCode = $null
+  $script:LastCliTimedOut = $false
   $out = Join-Path $dir ($id + ".out.txt")
   $err = Join-Path $dir ($id + ".err.txt")
   $p = Start-Process -FilePath $exe -ArgumentList $commandArgs -PassThru -WorkingDirectory $dir -RedirectStandardOutput $out -RedirectStandardError $err
   if (-not $p.WaitForExit($seconds * 1000)) {
+    $script:LastCliTimedOut = $true
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     $p.WaitForExit()
     return $false
   }
+  $script:LastCliExitCode = $p.ExitCode
   return ($p.ExitCode -eq 0)
 }
 function ReadSession {
@@ -81,7 +87,14 @@ if ($Action -eq "start") {
   if (@(Get-Process -Name Unity -ErrorAction SilentlyContinue).Count -gt 0) {
     Deny "Another Unity.exe exists; exclusive host pilot must not interfere" 22
   }
-  if (-not (ExecuteCli $cli @("--version") $env:TEMP "rpgk-cli-version" 15)) { Deny "CLI version command failed" 23 }
+  if (-not (ExecuteCli $cli @("--version") $env:TEMP "rpgk-cli-version" 15)) {
+    $detail = if ($script:LastCliTimedOut) { "timed out after 15 seconds" }
+              elseif ($null -eq $script:LastCliExitCode) { "exit code not available" }
+              else { "exit code " + $script:LastCliExitCode }
+    $logs = Join-Path $env:TEMP "rpgk-cli-version"
+    Deny ("Unity CLI --version failed (" + $detail + "). Resolved executable: " + $cli +
+          ". Inspect " + $logs + ".out.txt and " + $logs + ".err.txt on Windows.") 23
+  }
   $id = "pilot-" + [guid]::NewGuid().ToString("N")
   $stage = Join-Path $Root $id
   New-Item -ItemType Directory -Path $stage -Force | Out-Null
