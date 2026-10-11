@@ -169,6 +169,7 @@ public static class SupervisorSceneInspection
         File.WriteAllText(output, JsonUtility.ToJson(report, true));
         Debug.Log("SupervisorSceneInspection: inspected " + report.objectCount +
                   " objects, " + report.terrains.Count + " terrains and " + report.navigation.Count + " navigation surfaces.");
+        EditorApplication.Exit(0);
     }
 
     private static string PathFor(Transform current)
