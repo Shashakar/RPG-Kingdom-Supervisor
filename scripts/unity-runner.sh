@@ -132,8 +132,8 @@ elif [[ -n "$scene_path" || -n "$camera_path" ]]; then
 fi
 
 if [[ "$command" == "editor-staged-code" ]]; then
-  [[ "$script_path" =~ ^AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs$ ]] || {
-    echo "RPG Kingdom Unity runner: --script must be AgentScripts/NAME.cs" >&2
+  [[ "$script_path" =~ ^(AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs$ ]] || {
+    echo "RPG Kingdom Unity runner: --script must be AgentScripts/NAME.cs or Logs/SymphonyUnity/AgentScripts/NAME.cs" >&2
     exit 64
   }
 elif [[ -n "$script_path" ]]; then
