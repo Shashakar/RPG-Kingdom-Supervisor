@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$RunId,
     [Parameter(Mandatory = $true)][string]$ScenePath,
     [string]$CameraPath = "",
+    [switch]$InspectOnly,
     [string]$ViewName = "",
     [string]$CameraPosition = "",
     [string]$CameraRotation = "",
@@ -156,6 +157,7 @@ New-Item -ItemType Directory -Force -Path $SourceOutput | Out-Null
 $PngPath = Join-Path $StageOutput "scene.png"
 $ManifestPath = Join-Path $StageOutput "manifest.json"
 $DiagnosticsPath = Join-Path $StageOutput "visual-diagnostics.json"
+$InspectionPath = Join-Path $StageOutput "inspection.json"
 $ShaderLogPath = Join-Path $StageOutput "shader-log.txt"
 $LogPath = Join-Path $StageOutput "Editor.log"
 $SourceLogPath = Join-Path $SourceOutput "Editor.log"
@@ -563,14 +565,20 @@ public static class SupervisorVisualCapture
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($HelperScript, $helperSource, $utf8NoBom)
+if ($InspectOnly) {
+    $InspectorSource = Join-Path $PSScriptRoot "SupervisorSceneInspection.cs"
+    if (-not (Test-Path -LiteralPath $InspectorSource -PathType Leaf)) { Fail-Runner "missing trusted read-only inspector source" 86 }
+    Copy-Item -LiteralPath $InspectorSource -Destination (Join-Path $HelperEditor "SupervisorSceneInspection.cs") -Force
+}
 
 $unityArgs = @(
     "-batchmode", "-accept-apiupdate",
     "-projectPath", $StageProject,
-    "-executeMethod", "SupervisorVisualCapture.Capture",
+    "-executeMethod", $(if ($InspectOnly) { "SupervisorSceneInspection.Inspect" } else { "SupervisorVisualCapture.Capture" }),
     "-logFile", $LogPath,
     "-rpgkScene", $ScenePath,
     "-rpgkOutput", $PngPath,
+    "-rpgkInspection", $InspectionPath,
     "-rpgkManifest", $ManifestPath,
     "-rpgkDiagnostics", $DiagnosticsPath,
     "-rpgkFieldOfView", $FieldOfView.ToString([System.Globalization.CultureInfo]::InvariantCulture),
@@ -626,7 +634,26 @@ $unityExitCode = $unityProcess.ExitCode
 if (Test-Path -LiteralPath $LogPath -PathType Leaf) { Copy-Item -LiteralPath $LogPath -Destination $SourceLogPath -Force }
 
 if ($cancelled) { Fail-Runner "request-owned Unity process was cancelled" 91 }
-if ($unityExitCode -ne 0) { Fail-Runner "Unity exited with code $unityExitCode during scene capture. Inspect '$SourceLogPath'." 87 }
+if ($unityExitCode -ne 0) { Fail-Runner "Unity exited with code $unityExitCode during scene inspection/capture. Inspect '$SourceLogPath'." 87 }
+if ($InspectOnly) {
+    if (-not (Test-Path -LiteralPath $InspectionPath -PathType Leaf)) { Fail-Runner "Unity completed without inspection.json" 87 }
+    $inspected = Get-Content -LiteralPath $InspectionPath -Raw | ConvertFrom-Json
+    if ([string]$inspected.scene -ne $ScenePath -or [int]$inspected.protocolVersion -ne 1) { Fail-Runner "inspection result does not match the requested scene/protocol" 87 }
+    Copy-Item -LiteralPath $InspectionPath -Destination (Join-Path $SourceOutput "inspection.json") -Force
+    $summary = [ordered]@{
+        result = "Inspected"; runId = $RunId; scene = $ScenePath
+        objectCount = [int]$inspected.objectCount
+        terrainCount = @($inspected.terrains).Count
+        navigationSurfaceCount = @($inspected.navigation).Count
+        truncated = [bool]$inspected.truncated
+        inspection = "inspection.json"; artifactPath = $SourceOutput; unityVersion = $UnityVersion
+    }
+    $summaryJson = $summary | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText((Join-Path $SourceOutput "summary.json"), $summaryJson, $utf8NoBom)
+    Write-ProgressState -Phase "completed" -UnityPid $unityProcess.Id -EditorLogBytes $lastLogLength -SummaryPresent $true
+    $summaryJson | Write-Output
+    exit 0
+}
 if (-not (Test-Path -LiteralPath $PngPath -PathType Leaf)) { Fail-Runner "Unity completed without producing scene.png" 87 }
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { Fail-Runner "Unity completed without producing manifest.json" 87 }
 if (-not (Test-Path -LiteralPath $DiagnosticsPath -PathType Leaf)) { Fail-Runner "Unity completed without producing visual-diagnostics.json" 87 }
