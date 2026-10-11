@@ -44,7 +44,7 @@ class IsolatedBridgeTests(unittest.TestCase):
         self.id = "isolated-" + "a" * 32
         self.host = self.root / self.id
         self.queue = self.host / "queue"
-        for name in ("requests", "responses"):
+        for name in ("requests", "responses", "status"):
             (self.queue / name).mkdir(parents=True)
         self.host_win = r"C:\ProgramData\RPGKingdomSupervisor\IsolatedUnity\\".rstrip("\\") + "\\" + self.id
         self.config = {
@@ -54,18 +54,18 @@ class IsolatedBridgeTests(unittest.TestCase):
             "QueueRoot": self.host_win + r"\queue", "AllowedScene": bridge.SCENE,
         }
         (self.host / "config.json").write_text(json.dumps(self.config))
-        (self.queue / "probes.json").write_text(json.dumps({
+        (self.queue / "status/probes.json").write_text(json.dumps({
             "status": "denial-probes-passed", "sandboxSid": self.sid,
             "readProbeCount": 2, "writeProbeCount": 1,
             "readyForArbitraryEval": False, "readyForCopyback": False,
             "configAndAgentWriteDenied": True, "operatorRequestWriteDenied": True,
             "stageWriteConfirmed": True,
         }))
-        (self.queue / "editor.json").write_text(json.dumps({
+        (self.queue / "status/editor.json").write_text(json.dumps({
             "status": "launched", "sandboxSid": self.sid,
             "stagePath": self.config["StagePath"], "unityPid": 123,
         }))
-        (self.queue / "ready.json").write_text(json.dumps({
+        (self.queue / "status/ready.json").write_text(json.dumps({
             "schemaVersion": 1, "status": "scene-opened", "sandboxSid": self.sid,
             "scenePath": bridge.SCENE, "unityPid": 123,
             "readyForArbitraryEval": False, "readyForCopyback": False,
@@ -114,18 +114,18 @@ class IsolatedBridgeTests(unittest.TestCase):
         self.assertIn("disabled by default", err)
 
     def test_probe_receipt_mismatch_and_changed_editor_denied(self):
-        bad = json.loads((self.queue / "probes.json").read_text())
+        bad = json.loads((self.queue / "status/probes.json").read_text())
         bad["sandboxSid"] = "S-1-5-21-4-5-6-1001"
-        (self.queue / "probes.json").write_text(json.dumps(bad))
+        (self.queue / "status/probes.json").write_text(json.dumps(bad))
         code, _, err = self.invoke("grant", "--host-dir-windows", self.host_win)
         self.assertEqual(code, 82)
         self.assertIn("not acceptable", err)
         bad["sandboxSid"] = self.sid
-        (self.queue / "probes.json").write_text(json.dumps(bad))
+        (self.queue / "status/probes.json").write_text(json.dumps(bad))
         self.grant()
-        receipt = json.loads((self.queue / "editor.json").read_text())
+        receipt = json.loads((self.queue / "status/editor.json").read_text())
         receipt["unityPid"] = 124
-        (self.queue / "editor.json").write_text(json.dumps(receipt))
+        (self.queue / "status/editor.json").write_text(json.dumps(receipt))
         code, _, err = self.invoke("run")
         self.assertEqual(code, 82)
         self.assertIn("not acceptable", err)
