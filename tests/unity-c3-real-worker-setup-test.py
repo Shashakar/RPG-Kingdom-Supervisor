@@ -103,7 +103,9 @@ class RealIssueSetupTests(unittest.TestCase):
         self.assertEqual(data["status"], "ready-to-arm")
         self.assertFalse(data["copyback"])
         self.assertEqual(data["revision"], self.rev)
-        self.assertEqual(runner.call_args.kwargs["env"]["RPGK_UNITY_STAGED_CODE_ENABLED"], "1")
+        grants = [call for call in runner.call_args_list if "env" in call.kwargs]
+        self.assertEqual(len(grants), 1)
+        self.assertEqual(grants[0].kwargs["env"]["RPGK_UNITY_STAGED_CODE_ENABLED"], "1")
 
 
 if __name__ == "__main__":
