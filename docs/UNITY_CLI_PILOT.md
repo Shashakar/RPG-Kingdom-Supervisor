@@ -1,3 +1,7 @@
+## Stage B: disposable Editor host trial
+
+The operator-only NTFS stage lifecycle is documented in [UNITY_CLI_STAGE.md](UNITY_CLI_STAGE.md). It adds a separately controlled start/status/discover/install-pipeline/stop sequence, with no Codex worker dispatch integration and no source project copyback. Real Windows verification is still required before enabling the interactive broker lane.
+
 # Official Unity CLI/Pipeline pilot (Supervisor #205)
 
 **Status: design plus read-only operator diagnostic, NOT live Unity integration.**
