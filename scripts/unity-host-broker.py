@@ -243,7 +243,7 @@ def prepare_request(
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
         if operation == "editor-staged-code":
-            if not re.fullmatch(r"AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs", script_path):
+            if not re.fullmatch(r"(?:AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs", script_path):
                 raise ValueError("editor-staged-code requires AgentScripts/<name>.cs")
         elif script_path:
             raise ValueError("scriptPath may be supplied only for editor-staged-code")
