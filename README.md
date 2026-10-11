@@ -147,6 +147,9 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — worker-facing broker client for Unity health/EditMode/PlayMode validation and bounded visual capture.
 - [`scripts/visual-review-pr.sh`](scripts/visual-review-pr.sh) — host-owned one-shot capture + image-aware review for an existing PR already at the human-review gate.
 - [`scripts/unity-host-broker.py`](scripts/unity-host-broker.py) — host-owned typed Unity request broker and structured status producer.
+- [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
+- [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
+
 - [`scripts/unity-runner-host.sh`](scripts/unity-runner-host.sh) — host-only direct WSL/Windows adapter used by the broker.
 - [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, progress reporting, request-owned cancellation, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.

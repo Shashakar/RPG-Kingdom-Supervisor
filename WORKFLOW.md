@@ -239,7 +239,11 @@ Rules:
 - For **read-only** scene inspection, only when the host operator has issued a matching issue/workspace/revision/scene grant and enabled the lane, use:
   `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-scene-summary --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
   This returns a compact summary of the live staged Editor scene. Never call `unity.exe`, `unity eval`, a Pipeline API URL, or the operator grant script directly. A denied grant means stop and request operator authorization; do not bypass.
-- The new persistent-Editor CLI lane is **read-only**. It does not provide any Editor mutation, scene saves, terrain sculpting, asset copyback, or validation evidence. Existing `unity-runner.sh` test and `unity-author.sh` policies still apply.
+- The new persistent-Editor CLI lane is **read-only**. It does not provide any Editor mutation, scene saves, terrain sculpting, asset copyback, or validation evidence.
+- An **operator-granted stage-only benchmark** is available through the existing Unity host broker:
+  `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-stage-benchmark --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
+  This is a fixed-code creation of a disposable benchmark scene, with no worker-provided C#, no selectable output, and no source copyback. It is disabled by default, may be run only after a separate operator benchmark grant/host flag, and must never be used as approval to modify the production scene. Do not attempt the benchmark after it already succeeded on that stage; the target intentionally cannot be overwritten.
+ Existing `unity-runner.sh` test and `unity-author.sh` policies still apply.
 - Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/` or `Logs/SymphonyUnityAuthoring/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
