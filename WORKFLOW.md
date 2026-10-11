@@ -240,6 +240,9 @@ Rules:
   `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-scene-summary --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
   This returns a compact summary of the live staged Editor scene. Never call `unity.exe`, `unity eval`, a Pipeline API URL, or the operator grant script directly. A denied grant means stop and request operator authorization; do not bypass.
 - The new persistent-Editor CLI lane is **read-only**. It does not provide any Editor mutation, scene saves, terrain sculpting, asset copyback, or validation evidence.
+- An **isolated Windows task read-only bridge** is separately gated and not enabled by default. A worker may use only
+  `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" isolated-scene-summary --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
+  after an operator grants the exact issue/workspace revision and the host-owned sandbox task is running. The worker must never launch the Windows task, access its mailbox directly, request a user credential, provide arbitrary C#, invoke a shell or mutate the scene. An "isolation probe passed" receipt is not permission for arbitrary Editor code or copyback.
 - An **operator-granted stage-only benchmark** is available through the existing Unity host broker:
   `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-stage-benchmark --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
   This is a fixed-code creation of a disposable benchmark scene, with no worker-provided C#, no selectable output, and no source copyback. It is disabled by default, may be run only after a separate operator benchmark grant/host flag, and must never be used as approval to modify the production scene. Do not attempt the benchmark after it already succeeded on that stage; the target intentionally cannot be overwritten.
