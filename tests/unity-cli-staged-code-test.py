@@ -111,6 +111,36 @@ class CodeTests(unittest.TestCase):
         with self.assertRaises(code.ro.Denied):
             code.code_path(self.ws, "AgentScripts/Test.cs")
 
+    def test_ignored_report_only_script_and_broker_request(self):
+        folder = self.ws / "Logs/SymphonyUnity/AgentScripts"
+        folder.mkdir(parents=True)
+        path = folder / "RealProof.cs"
+        path.write_text("return 42;")
+        self.assertEqual(code.code_path(self.ws, "Logs/SymphonyUnity/AgentScripts/RealProof.cs"), path)
+        requests = self.ws / "Logs/SymphonyUnity/.broker/requests"
+        requests.mkdir(parents=True)
+        request = requests / "real.json"
+        request.write_text(json.dumps({
+            "protocolVersion": 1, "operation": "editor-staged-code",
+            "scenePath": code.SCENE,
+            "scriptPath": "Logs/SymphonyUnity/AgentScripts/RealProof.cs",
+        }))
+        lock = self.state / "locks/unity-editor.lock"
+        lock.mkdir(parents=True)
+        (lock / "owner").write_text("GH-999999")
+        (lock / "workspace").write_text(str(self.ws))
+        spec = broker.prepare_request(request, self.workspaces, self.state)
+        self.assertIsInstance(spec, broker.RequestSpec)
+        self.assertEqual(spec.script_path, "Logs/SymphonyUnity/AgentScripts/RealProof.cs")
+        with patch.object(broker.subprocess, "Popen") as popen:
+            active = broker.start_operation(spec, self.state, self.root / "legacy")
+            self.assertIn("Logs/SymphonyUnity/AgentScripts/RealProof.cs", popen.call_args.args[0])
+            broker.close_operation(active)
+        path.unlink()
+        path.symlink_to(self.stage / code.SCENE)
+        with self.assertRaises(code.ro.Denied):
+            code.code_path(self.ws, "Logs/SymphonyUnity/AgentScripts/RealProof.cs")
+
     def test_run_can_iterate_on_stage_scene_and_reports_changes(self):
         payload = {"success": True, "data": {"result": {
             "sceneName": "PlaytestScene", "scenePath": code.SCENE,
