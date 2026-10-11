@@ -149,6 +149,9 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-host-broker.py`](scripts/unity-host-broker.py) — host-owned typed Unity request broker and structured status producer.
 - [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
 - [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
+- [`scripts/unity-cli-c2b-audit.py`](scripts/unity-cli-c2b-audit.py) — operator-only clean Git worktree vs staged Unity file-hash attestation and **dry-run** stage asset delta audit (no copyback).
+- [`scripts/windows/check-unity-cli-isolation.ps1`](scripts/windows/check-unity-cli-isolation.ps1) — operator-only Windows process owner SID inspection; deliberately does not declare a secure sandbox without a separate identity and denial tests. See [`docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md`](docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md).
+
 
 - [`scripts/unity-runner-host.sh`](scripts/unity-runner-host.sh) — host-only direct WSL/Windows adapter used by the broker.
 - [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, progress reporting, request-owned cancellation, and artifact return bridge.
