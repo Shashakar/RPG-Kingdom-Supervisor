@@ -12,6 +12,7 @@ Usage:
   unity-runner.sh health [--project PATH]
   unity-runner.sh editmode [--project PATH] [--filter FILTER]
   unity-runner.sh playmode [--project PATH] [--filter FILTER]
+  unity-runner.sh inspect [--project PATH] --scene ASSET_PATH
   unity-runner.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--reuse-stage-library] [--width PX] [--height PX]
 
 Environment overrides:
@@ -92,7 +93,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$command" in
-  health|editmode|playmode|capture) ;;
+  health|editmode|playmode|capture|inspect) ;;
   *)
     echo "Unknown Unity runner command: $command" >&2
     usage
@@ -100,7 +101,10 @@ case "$command" in
     ;;
 esac
 
-if [[ "$command" == "capture" ]]; then
+if [[ "$command" == "capture" || "$command" == "inspect" ]]; then
+  if [[ "$command" == "inspect" && ( -n "$camera_path" || -n "$view_name" || -n "$camera_position" || -n "$camera_rotation" || -n "$look_at_path" ) ]]; then
+    echo "RPG Kingdom Unity runner: inspect is read-only and does not accept camera pose arguments" >&2; exit 64
+  fi
   [[ -n "$scene_path" ]] || { echo "RPG Kingdom Unity runner: capture requires --scene" >&2; exit 64; }
   [[ "$scene_path" == Assets/*.unity ]] || { echo "RPG Kingdom Unity runner: --scene must be an Assets/*.unity path" >&2; exit 64; }
   [[ "$capture_width" =~ ^[0-9]+$ && "$capture_height" =~ ^[0-9]+$ ]] || { echo "RPG Kingdom Unity runner: capture dimensions must be integers" >&2; exit 64; }
