@@ -80,9 +80,9 @@ def trusted_config(host: Path) -> dict:
 
 def health(host: Path, cfg: dict) -> int:
     try:
-        proof = json.loads((host / "queue/probes.json").read_text(encoding="utf-8-sig"))
-        editor = json.loads((host / "queue/editor.json").read_text(encoding="utf-8-sig"))
-        ready = json.loads((host / "queue/ready.json").read_text(encoding="utf-8-sig"))
+        proof = json.loads((host / "queue/status/probes.json").read_text(encoding="utf-8-sig"))
+        editor = json.loads((host / "queue/status/editor.json").read_text(encoding="utf-8-sig"))
+        ready = json.loads((host / "queue/status/ready.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ro.Denied("Windows agent has no valid denial-probe/Editor receipts") from exc
     if (proof.get("status") != "denial-probes-passed"
