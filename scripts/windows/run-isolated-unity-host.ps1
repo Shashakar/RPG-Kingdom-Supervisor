@@ -34,6 +34,30 @@ function IsWriteDenied([string]$Directory) {
     throw "Write probe inconclusive: only explicit access denied is accepted"
   }
 }
+function IsFileWriteDenied([string]$Path) {
+  try {
+    $s=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+    $s.Dispose()
+    # FileMode.Open does not truncate; simply obtaining write access is failure.
+    return $false
+  } catch [UnauthorizedAccessException] {
+    return $true
+  } catch {
+    throw "Agent/config write probe inconclusive"
+  }
+}
+function IsStageWritable([string]$Directory) {
+  $marker=Join-Path $Directory ("rpgk-stage-probe-" + [guid]::NewGuid().ToString("N"))
+  try {
+    $s=[IO.File]::Open($marker,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $s.Dispose()
+    return $true
+  } catch {
+    return $false
+  } finally {
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+  }
+}
 function CliJson([string[]]$CliArgs) {
   $tmp = Join-Path $cfg.QueueRoot ("cli-" + [guid]::NewGuid().ToString("N"))
   $stdout=$tmp+".out"; $stderr=$tmp+".err"
@@ -68,8 +92,17 @@ foreach ($f in @($cfg.ForbiddenReadFiles)) {
 foreach ($d in @($cfg.ForbiddenWriteDirectories)) {
   if (-not (IsWriteDenied ([string]$d))) { throw "Nonstage directory was writable" }
 }
+# If the account can rewrite its own task code/config or spoof operator requests,
+# it can bypass future capability limits. Refuse to launch even the read-only lane.
+if (-not (IsFileWriteDenied $ConfigPath)) { throw "Sandbox can modify trusted configuration" }
+if (-not (IsFileWriteDenied $PSCommandPath)) { throw "Sandbox can modify trusted task code" }
+if (-not (IsWriteDenied (Join-Path $cfg.QueueRoot "requests"))) {
+  throw "Sandbox can spoof operator mailbox requests"
+}
+if (-not (IsStageWritable $cfg.StagePath)) { throw "Sandbox cannot write its private Unity stage" }
 AtomicJson (Join-Path $cfg.QueueRoot "probes.json") ([ordered]@{
   schemaVersion=1;status="denial-probes-passed";sandboxSid=$sid
+  configAndAgentWriteDenied=$true;operatorRequestWriteDenied=$true;stageWriteConfirmed=$true
   readProbeCount=@($cfg.ForbiddenReadFiles).Count
   writeProbeCount=@($cfg.ForbiddenWriteDirectories).Count
   fullIsolationProven=$false;readyForArbitraryEval=$false;readyForCopyback=$false
