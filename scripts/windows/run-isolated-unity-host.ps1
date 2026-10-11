@@ -83,6 +83,31 @@ AtomicJson (Join-Path $cfg.QueueRoot "editor.json") ([ordered]@{
   schemaVersion=1;status="launched";sandboxSid=$sid;unityPid=$editor.Id
   stagePath=$cfg.StagePath;startedAtUtc=[DateTime]::UtcNow.ToString("o")
 })
+# Startup uses one fixed Editor API expression to open the approved stage scene.
+# This is trusted host-authored code, not request-supplied or generic eval.
+# It runs only AFTER the negative access probes have passed.
+$sceneCode = 'return UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/RPGKingdom/Scenes/PlaytestScene.unity").path;'
+$quotedCode = '"' + $sceneCode.Replace('"','\"') + '"'
+$opened = $false
+for ($attempt = 0; $attempt -lt 40; $attempt++) {
+  if ($editor.HasExited) { throw "Sandbox Unity Editor exited before scene load" }
+  try {
+    $result = CliJson @("command","eval","--code",$quotedCode,
+      "--project-path",('"' + $cfg.StagePath + '"'),"--format","json")
+    if ($result.success -eq $true) {
+      $opened = $true
+      break
+    }
+  } catch {
+    Start-Sleep -Seconds 5
+  }
+}
+if (-not $opened) { throw "Fixed stage scene open was unavailable; no mailbox service enabled" }
+AtomicJson (Join-Path $cfg.QueueRoot "ready.json") ([ordered]@{
+  schemaVersion=1;status="scene-opened";sandboxSid=$sid
+  unityPid=$editor.Id;scenePath=$cfg.AllowedScene
+  readyForArbitraryEval=$false;readyForCopyback=$false
+})
 try {
   while (-not $editor.HasExited) {
     $pending = @(Get-ChildItem -LiteralPath (Join-Path $cfg.QueueRoot "requests") -Filter "*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name)
