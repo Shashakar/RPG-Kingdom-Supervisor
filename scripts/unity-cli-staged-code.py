@@ -28,7 +28,7 @@ spec.loader.exec_module(ro)
 FLAG = "RPGK_UNITY_STAGED_CODE_ENABLED"
 SCENE = "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
 MAX_CODE = 65536
-SCRIPT = re.compile(r"AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs\Z")
+SCRIPT = re.compile(r"(?:AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs\Z")
 CHECKED = ("Packages/manifest.json", "ProjectSettings/ProjectVersion.txt")
 IGNORED_DIRS = (".git", "Library", "Logs", "Temp", "Obj", "Build", "Builds")
 
@@ -82,11 +82,14 @@ def candidate(stage: Path) -> dict:
 
 def code_path(workspace: Path, rel: str) -> Path:
     if not SCRIPT.fullmatch(rel):
-        deny("script must be AgentScripts/<name>.cs within issue workspace")
-    folder = workspace / "AgentScripts"
-    if folder.is_symlink() or not folder.is_dir():
-        deny("missing or linked AgentScripts directory")
-    path = folder / rel.split("/")[1]
+        deny("script must be AgentScripts/NAME.cs or Logs/SymphonyUnity/AgentScripts/NAME.cs")
+    parts = rel.split("/")
+    folder = workspace
+    for component in parts[:-1]:
+        folder = folder / component
+        if folder.is_symlink() or not folder.is_dir():
+            deny("script parent missing or linked")
+    path = folder / parts[-1]
     if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_CODE:
         deny("script missing, linked, or exceeds 64 KiB")
     if path.resolve(strict=True).parent != folder.resolve(strict=True):
