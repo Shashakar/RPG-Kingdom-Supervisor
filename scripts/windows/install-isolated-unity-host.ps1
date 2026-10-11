@@ -38,7 +38,7 @@ function AclOnly([string]$Path, [string]$SandboxSid, [string]$UserSid, [string]$
     @("S-1-5-18","FullControl"), @("S-1-5-32-544","FullControl"),
     @($SandboxSid,$SandboxRight), @($UserSid,$OperatorRight))) {
     $sid = New-Object Security.Principal.SecurityIdentifier($entry[0])
-    $right = [Security.AccessControl.FileSystemRights]::$($entry[1])
+    $right = [Enum]::Parse([Security.AccessControl.FileSystemRights], [string]$entry[1])
     $ace = New-Object Security.AccessControl.FileSystemAccessRule($sid,$right,$inherit,$none,$allow)
     $acl.AddAccessRule($ace)
   }
@@ -142,7 +142,7 @@ if ($Action -eq "install") {
   $taskAction=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $host
   $taskSettings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 8) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $cred=Get-Credential -UserName $account[0] -Message "Enter password for existing non-admin Unity sandbox account. Stored only by Windows Task Scheduler."
-  if (-not $cred -or $cred.UserName -ne $account[0]) { Fail "Account credential mismatch or cancelled" }
+  if (-not $cred -or (AccountSid $cred.UserName) -ne $account[1]) { Fail "Account credential mismatch or cancelled" }
   $password=[Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred.Password))
   try {
     Register-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -Action $taskAction -Settings $taskSettings -User $account[0] -Password $password -RunLevel Limited -Description "Operator-owned fixed read-only RPG Kingdom Unity stage (no code evaluation)" -ErrorAction Stop | Out-Null
@@ -172,6 +172,6 @@ $queue=Join-Path (Join-Path $Root $HostId) "queue"
 $editorFile=Join-Path $queue "editor.json"
 $probeFile=Join-Path $queue "probes.json"
 Emit ([ordered]@{schemaVersion=1;action="status";taskState=[string]$task.State;hostId=$HostId
-  editor=(if (Test-Path -LiteralPath $editorFile) { Get-Content -LiteralPath $editorFile -Raw | ConvertFrom-Json } else { $null })
-  probes=(if (Test-Path -LiteralPath $probeFile) { Get-Content -LiteralPath $probeFile -Raw | ConvertFrom-Json } else { $null })
+  editor=$(if (Test-Path -LiteralPath $editorFile) { Get-Content -LiteralPath $editorFile -Raw | ConvertFrom-Json } else { $null })
+  probes=$(if (Test-Path -LiteralPath $probeFile) { Get-Content -LiteralPath $probeFile -Raw | ConvertFrom-Json } else { $null })
   readyForArbitraryEval=$false;readyForCopyback=$false})
