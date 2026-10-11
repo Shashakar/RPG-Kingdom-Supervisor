@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture"}
+ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
@@ -224,15 +224,17 @@ def prepare_request(
         reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
-        if operation == "capture":
+        if operation in {"capture", "inspect"}:
             if not scene_path.startswith("Assets/") or not scene_path.endswith(".unity"):
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
-            if capture_width < 320 or capture_width > 4096 or capture_height < 180 or capture_height > 4096:
+            if operation == "capture" and (capture_width < 320 or capture_width > 4096 or capture_height < 180 or capture_height > 4096):
                 raise ValueError("capture dimensions are outside supported bounds")
-            if field_of_view <= 1.0 or field_of_view >= 179.0:
+            if operation == "capture" and (field_of_view <= 1.0 or field_of_view >= 179.0):
                 raise ValueError("capture fieldOfView is outside supported bounds")
             if camera_rotation and look_at_path:
                 raise ValueError("capture may specify cameraRotation or lookAtPath, not both")
+            if operation == "inspect" and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
+                raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
         raw_client_pid = request.get("clientPid")
@@ -317,7 +319,7 @@ def start_operation(
     command = ["bash", str(host_runner), spec.operation, "--project", str(spec.workspace)]
     if spec.test_filter:
         command.extend(["--filter", spec.test_filter])
-    if spec.operation == "capture":
+    if spec.operation in {"capture", "inspect"}:
         command.extend([
             "--scene", spec.scene_path,
             "--width", str(spec.capture_width),
