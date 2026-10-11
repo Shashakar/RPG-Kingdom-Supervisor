@@ -179,7 +179,7 @@ run_readiness_smoke() {
   return 0
 }
 
-acquire_lock() {
+acquire_lock_serialized() {
   local attempt owner recovery_status
 
   for attempt in 1 2; do
@@ -209,6 +209,29 @@ acquire_lock() {
   [[ -f "$LOCK_DIR/owner" ]] && owner="$(cat "$LOCK_DIR/owner")"
   LOCK_BLOCKING_OWNER="$owner"
   return 1
+}
+
+# Serialize BOTH stale-lock recovery and fresh acquisition under a stable
+# sidecar file lock. Atomic mkdir alone is insufficient: two contenders can
+# both observe a stale directory and rename a newer owner's lock away during
+# API-driven stale-state checks. The sidecar is never renamed or deleted.
+acquire_lock() {
+  local fd result=1
+  command -v flock >/dev/null 2>&1 || {
+    echo "RPG Kingdom Unity guard: flock unavailable; refusing unsafe lock acquisition" >&2
+    return 1
+  }
+  exec {fd}>"$STATE_ROOT/locks/unity-editor.acquire.guard" || return 1
+  if flock -x -w 30 "$fd"; then
+    if acquire_lock_serialized; then
+      result=0
+    fi
+    flock -u "$fd" || true
+  else
+    echo "RPG Kingdom Unity guard: exclusive acquisition gate unavailable" >&2
+  fi
+  exec {fd}>&-
+  return "$result"
 }
 
 labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
