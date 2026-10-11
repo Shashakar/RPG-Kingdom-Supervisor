@@ -47,6 +47,22 @@ The worker may invoke only project Editor operations included in that reviewed c
 
 For the first-session #258 geography, the design target is an enclosed starting pocket with one exit, a winding 30–50-metre route wide enough for future tree/rock decoration, and an existing village enclosure retaining only its original entrance. These are design goals, not arbitrary additional mutation authority. Author terrain on an isolated `codex/` branch; inspect staged scene differences and run Unity validation before a human-approved scene merge.
 
+## Read-only Unity scene inspection
+
+Before a terrain or environment composition transaction, Codex may inspect the **current exact scene** using the locked host runner:
+
+```bash
+bash ~/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh inspect \
+  --project ~/code/rpg-kingdom-symphony-workspaces/GH-260 \
+  --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
+```
+
+`inspect` uses the same GH workspace, exclusive Unity resource ownership, broker, Windows project mirroring and cancellation/process supervision as `capture`. It runs reviewed **host-owned read-only Editor code** in a temporary staged project; no source project .unity/.asset is written or copied back. It requires an exact `Assets/*.unity` scene, cannot request arbitrary Editor methods or pass camera/pose controls, and writes `inspection.json` and `summary.json` under the request's `Logs/SymphonyUnity/<runId>/`. No external server or dashboard port is involved.
+
+Inspection JSON includes the hierarchy of GameObject paths, active state, world transform, component types and renderer bounds (up to 12,000 scene objects; the result flags truncation); each Terrain's hierarchy path, TerrainData asset path/ownership, bounds, size, 9x9 height samples and min/max height, collider match, vegetation counts and resolution; all scene Collider bounds; and matching `NavMeshSurface` components with their linked navigation assets when available. Height samples are **metres relative to the terrain object's origin**. Combined with its world position, the report supports placement decisions without guessing geography. A NavMeshSurface presence is not proof of connected walkability: use final bake plus path samples and playtest.
+
+The `inspect` mode is **not** a terrain mutation authorization. Authoring still requires `authoring:scene-existing-composition`, project capability preflight, exact scene grant and review. A scene inspection report is provisional until its source branch/scene version is verified and may need refreshing after sculpt operations.
+
 ## Structural capability preflight
 
 RPG Kingdom owns the reviewed capability surface in:
