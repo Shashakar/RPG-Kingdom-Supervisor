@@ -89,12 +89,16 @@ class RealIssueSetupTests(unittest.TestCase):
             "scenePath": setup.SCENE, "sceneName": "PlaytestScene",
             "isDirty": False, "roots": []
         }}}
+        real_run = subprocess.run
+        def fake_run(args, **kwargs):
+            if args[0] == "git":
+                return real_run(args, **kwargs)
+            return subprocess.CompletedProcess(args, 0, '{"status":"granted"}', "")
         with patch.object(setup, "valid_stage", return_value=(self.stage, self.receipt)), \
              patch.object(setup.ro, "cli_path", return_value="fake"), \
              patch.object(setup.ro, "verify_pipeline"), \
              patch.object(setup.ro, "cli_json", return_value=hierarchy), \
-             patch.object(setup.subprocess, "run",
-                          return_value=subprocess.CompletedProcess([], 0, '{"status":"granted"}', "")) as runner:
+             patch.object(setup.subprocess, "run", side_effect=fake_run) as runner:
             data = setup.grant(self.ws, self.session, self.root / "state")
         self.assertEqual(data["status"], "ready-to-arm")
         self.assertFalse(data["copyback"])
