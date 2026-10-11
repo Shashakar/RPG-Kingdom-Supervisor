@@ -18,6 +18,9 @@ acceptance. It is deliberately isolated until actual Windows testing passes.
   ProjectSettings plus a fresh Unity Library and imported assets.
 - No Unity.exe running for `start`; a preexisting user's Editor is never
   terminated to obtain the resource.
+- The WSL wrapper refuses operation while Supervisor's `unity-editor` lock
+  exists. This is only a conservative operator preflight; the future worker
+  implementation must use a durable broker-managed lease.
 
 The pilot creates a **new, random, disposable stage** under the executing
 Windows account's `%LOCALAPPDATA%\RPGKingdomSupervisor\UnityCliPilots\`.
