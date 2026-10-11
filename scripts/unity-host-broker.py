@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary"}
+ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary", "editor-stage-benchmark"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
@@ -224,7 +224,7 @@ def prepare_request(
         reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
-        if operation in {"capture", "inspect", "editor-scene-summary"}:
+        if operation in {"capture", "inspect", "editor-scene-summary", "editor-stage-benchmark"}:
             if (not scene_path.startswith("Assets/") or not scene_path.endswith(".unity")
                     or "\\" in scene_path or any(part in ("", ".", "..") for part in scene_path.split("/"))):
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
@@ -234,9 +234,9 @@ def prepare_request(
                 raise ValueError("capture fieldOfView is outside supported bounds")
             if camera_rotation and look_at_path:
                 raise ValueError("capture may specify cameraRotation or lookAtPath, not both")
-            if operation in {"inspect", "editor-scene-summary"} and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
+            if operation in {"inspect", "editor-scene-summary", "editor-stage-benchmark"} and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
                 raise ValueError("read-only inspection does not accept camera pose arguments")
-            if operation == "editor-scene-summary" and test_filter:
+            if operation in {"editor-scene-summary", "editor-stage-benchmark"} and test_filter:
                 raise ValueError("editor-scene-summary does not accept testFilter")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
@@ -319,7 +319,14 @@ def start_operation(
     state_root: Path,
     host_runner: Path,
 ) -> ActiveOperation:
-    if spec.operation == "editor-scene-summary":
+    if spec.operation == "editor-stage-benchmark":
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().parent / "unity-cli-stage-benchmark.py"),
+            "run", "--workspace", str(spec.workspace),
+            "--state-root", str(state_root), "--scene", spec.scene_path,
+        ]
+    elif spec.operation == "editor-scene-summary":
         # Only the host broker selects the Windows CLI session from an operator
         # grant outside the GH issue workspace. No worker-supplied stage or code.
         command = [
