@@ -191,8 +191,8 @@ if ($Action -eq "start") {
 $task=Get-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -ErrorAction SilentlyContinue
 if (-not $task) { Fail "Task not registered" }
 $queue=Join-Path (Join-Path $Root $HostId) "queue"
-$editorFile=Join-Path $queue "editor.json"
-$probeFile=Join-Path $queue "probes.json"
+$editorFile=Join-Path (Join-Path $queue "status") "editor.json"
+$probeFile=Join-Path (Join-Path $queue "status") "probes.json"
 Emit ([ordered]@{schemaVersion=1;action="status";taskState=[string]$task.State;hostId=$HostId
   editor=$(if (Test-Path -LiteralPath $editorFile) { Get-Content -LiteralPath $editorFile -Raw | ConvertFrom-Json } else { $null })
   probes=$(if (Test-Path -LiteralPath $probeFile) { Get-Content -LiteralPath $probeFile -Raw | ConvertFrom-Json } else { $null })
@@ -311,8 +311,8 @@ if ($Action -eq "start") {
 $task=Get-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -ErrorAction SilentlyContinue
 if (-not $task) { Fail "Task not registered" }
 $queue=Join-Path (Join-Path $Root $HostId) "queue"
-$editorFile=Join-Path $queue "editor.json"
-$probeFile=Join-Path $queue "probes.json"
+$editorFile=Join-Path (Join-Path $queue "status") "editor.json"
+$probeFile=Join-Path (Join-Path $queue "status") "probes.json"
 Emit ([ordered]@{schemaVersion=1;action="status";taskState=[string]$task.State;hostId=$HostId
   editor=$(if (Test-Path -LiteralPath $editorFile) { Get-Content -LiteralPath $editorFile -Raw | ConvertFrom-Json } else { $null })
   probes=$(if (Test-Path -LiteralPath $probeFile) { Get-Content -LiteralPath $probeFile -Raw | ConvertFrom-Json } else { $null })
