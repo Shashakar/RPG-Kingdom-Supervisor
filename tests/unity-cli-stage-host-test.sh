@@ -29,6 +29,9 @@ grep -Fxq '<start>' "$temp/arguments"
 grep -Fxq '<-SourceProjectPath>' "$temp/arguments"
 grep -Fxq '<C:\NTFS Pilot\Project>' "$temp/arguments"
 ! grep -Fxq '<-SessionPath>' "$temp/arguments"
+bash "$WRAPPER" start --source "$temp/src" --editor-windows 'D:\\Unity\\Hub\\Editor\\6000.3.10f1\\Editor\\Unity.exe' >/dev/null
+grep -Fxq '<-EditorPath>' "$temp/arguments"
+grep -Fxq '<D:\\Unity\\Hub\\Editor\\6000.3.10f1\\Editor\\Unity.exe>' "$temp/arguments"
 
 for action in status discover install-pipeline stop; do
   bash "$WRAPPER" "$action" --session-windows 'C:\Users\Tester\AppData\Local\RPGKingdomSupervisor\UnityCliPilots\pilot-123' >/dev/null
@@ -51,6 +54,7 @@ expect_failure start --source "$temp/src" --session-windows 'C:\Temp\stage'
 expect_failure install-pipeline --session-windows '\\wsl.localhost\Ubuntu\project'
 expect_failure discover --source "$temp/src" --session-windows 'C:\Temp\stage'
 expect_failure stop --session-windows 'C:\Temp\stage' --unsafe
+expect_failure discover --session-windows 'C:\Temp\stage' --editor-windows 'D:\Unity\Editor\Unity.exe'
 expect_failure start --source "$temp/nope"
 export RPGK_SUPERVISOR_STATE_ROOT="$temp/supervisor-state"
 mkdir -p "$RPGK_SUPERVISOR_STATE_ROOT/locks/unity-editor.lock"
