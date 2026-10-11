@@ -217,4 +217,4 @@ Prefab derivative authoring is separately authorized and bounded to `create-pref
 
 ## Unity CLI / Pipeline exploration
 
-A feature-gated migration is being evaluated in [docs/UNITY_CLI_PILOT.md](docs/UNITY_CLI_PILOT.md). The initial implementation is **operator-only, read-only diagnostics** via `bash scripts/unity-cli-pilot.sh`; it does not enable Unity CLI or arbitrary Editor C# for Codex workers, alter the Unity staging/authoring runner, or relax human scene-merge approval. The current brokered Unity path remains authoritative.
+A feature-gated migration is being evaluated in [docs/UNITY_CLI_PILOT.md](docs/UNITY_CLI_PILOT.md). The initial implementation is **operator-only, read-only diagnostics** via `bash scripts/unity-cli-pilot.sh`; it does not enable Unity CLI or arbitrary Editor C# for Codex workers, alter the Unity staging/authoring runner, or relax human scene-merge approval. Stage B adds an opt-in, operator-only disposable NTFS project session; see [docs/UNITY_CLI_STAGE.md](docs/UNITY_CLI_STAGE.md). The current brokered Unity path remains authoritative.
