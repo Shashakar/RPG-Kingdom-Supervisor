@@ -93,6 +93,133 @@ if ($Action -eq "install") {
   foreach ($folder in @("Assets","Packages","ProjectSettings")) {
     $null=ValidateRootPath (Join-Path $source $folder) "Source project folder"
   }
+  # A stage is eligible only when it originates from a real clean checkout.
+  # Never trust a dirty halted GH issue workspace or an arbitrary folder copy.
+  if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) {
+    Fail "Git for Windows is required to verify the source revision"
+  }
+  $head=& git.exe -C $source rev-parse HEAD
+  if ($LASTEXITCODE -ne 0 -or ($head -notmatch '^[a-f0-9]{40}
+  foreach ($path in @($EditorPath,$CliPath)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Pinned Editor/CLI executable missing" }
+  }
+  $projectVersion=Get-Content -LiteralPath (Join-Path $source "ProjectSettings\ProjectVersion.txt") -Raw
+  if ($projectVersion -notmatch '(?m)^m_EditorVersion:\s*6000\.3\.10f1\s*$') { Fail "Project Editor version is not pinned 6000.3.10f1" }
+  # Never copy an existing modified pilot; require the operator to provide an
+  # independently reviewed CLEAN game checkout, followed by C2b attestation.
+  if (Test-Path -LiteralPath $Root) { Fail "Isolated host root already exists; do not overwrite operator state" }
+  $id="isolated-"+[guid]::NewGuid().ToString("N")
+  $host=Join-Path $Root $id
+  $stage=Join-Path $host "project"
+  $queue=Join-Path $host "queue"
+  $requests=Join-Path $queue "requests"
+  $responses=Join-Path $queue "responses"
+  foreach ($path in @($Root,$host,$stage,$queue,$requests,$responses)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
+  # Source permissions are never edited, only destination ACLs.
+  foreach ($folder in @("Assets","Packages","ProjectSettings")) {
+    $dest=Join-Path $stage $folder
+    New-Item -ItemType Directory -Path $dest | Out-Null
+    & robocopy.exe (Join-Path $source $folder) $dest /E /XJ /COPY:DAT /DCOPY:DAT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Fail "Stage-only robocopy failed; abort without launching Editor" }
+  }
+  # Install ONLY the pinned experimental Pipeline package into the private
+  # project clone; the source checkout is never mutated.
+  $manifest=Join-Path $stage "Packages\manifest.json"
+  $manifestObject=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+  if (-not $manifestObject.dependencies) { Fail "Invalid Unity manifest dependencies" }
+  $current=$manifestObject.dependencies.PSObject.Properties["com.unity.pipeline"]
+  if ($current -and $current.Value -ne "0.8.0-exp.1") { Fail "Unsupported Pipeline version in stage" }
+  if (-not $current) {
+    $manifestObject.dependencies | Add-Member -MemberType NoteProperty -Name "com.unity.pipeline" -Value "0.8.0-exp.1"
+    $manifestObject | ConvertTo-Json -Depth 64 | Set-Content -LiteralPath $manifest -Encoding UTF8
+  }
+  $agentSource=Join-Path $PSScriptRoot "run-isolated-unity-host.ps1"
+  $agent=Join-Path $host "agent.ps1"
+  Copy-Item -LiteralPath $agentSource -Destination $agent -ErrorAction Stop
+  $config=Join-Path $host "config.json"
+  $cfg=[ordered]@{
+    schemaVersion=1;enabled=$true;mode="isolated-readonly";SandboxSid=$account[1]
+    SourceProjectPath=$source;SourceGitHead=[string]$head;StagePath=$stage;QueueRoot=$queue
+    EditorExe=[IO.Path]::GetFullPath($EditorPath);CliExe=[IO.Path]::GetFullPath($CliPath)
+    AllowedScene="Assets/RPGKingdom/Scenes/PlaytestScene.unity"
+    ForbiddenReadFiles=@($ForbiddenReadFiles);ForbiddenWriteDirectories=@($ForbiddenWriteDirectories)
+    hostId=$id
+  }
+  $cfg | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $config -Encoding UTF8
+  # The sandbox can only read the agent/config, mutate its staged project,
+  # read requests, and write responses/heartbeat. It cannot modify the agent.
+  AclOnly $Root $account[1] $account[2] "ReadAndExecute" "FullControl"
+  AclOnly $host $account[1] $account[2] "ReadAndExecute" "FullControl"
+  AclOnly $stage $account[1] $account[2] "Modify" "FullControl"
+  AclOnly $queue $account[1] $account[2] "Modify" "FullControl"
+  AclOnly $requests $account[1] $account[2] "ReadAndExecute" "Modify"
+  AclOnly $responses $account[1] $account[2] "Modify" "ReadAndExecute"
+  $taskName="RPGK-Unity-"+$id
+  $exe=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+  $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $agent + '" -ConfigPath "' + $config + '"'
+  $taskAction=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $host
+  $taskSettings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 8) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  $cred=Get-Credential -UserName $account[0] -Message "Enter password for existing non-admin Unity sandbox account. Stored only by Windows Task Scheduler."
+  if (-not $cred -or (AccountSid $cred.UserName) -ne $account[1]) { Fail "Account credential mismatch or cancelled" }
+  $password=[Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred.Password))
+  try {
+    Register-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -Action $taskAction -Settings $taskSettings -User $account[0] -Password $password -RunLevel Limited -Description "Operator-owned fixed read-only RPG Kingdom Unity stage (no code evaluation)" -ErrorAction Stop | Out-Null
+  } finally {
+    $password=$null; Remove-Variable cred -ErrorAction SilentlyContinue
+  }
+  Emit ([ordered]@{schemaVersion=1;action="install";status="registered-not-started"
+    taskName=$taskName;taskPath=$TaskFolder;stagePath=$stage;hostId=$id
+    sandboxSid=$account[1];readyForArbitraryEval=$false;readyForCopyback=$false})
+  exit 0
+}
+
+$taskName=TaskName
+if ($Action -eq "start") {
+  if (@(Get-Process -Name Unity -ErrorAction SilentlyContinue).Count -gt 0) { Fail "Another Unity Editor is running; no concurrent Editor allowed" }
+  $task=Get-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -ErrorAction SilentlyContinue
+  if (-not $task -or $task.Settings.MultipleInstances -ne "IgnoreNew") { Fail "Unregistered or altered task" }
+  if ($task.State -eq "Running") { Fail "Editor task already running" }
+  Start-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -ErrorAction Stop
+  Emit ([ordered]@{schemaVersion=1;action="start";status="start-requested";hostId=$HostId
+    readyForArbitraryEval=$false;readyForCopyback=$false})
+  exit 0
+}
+$task=Get-ScheduledTask -TaskName $taskName -TaskPath $TaskFolder -ErrorAction SilentlyContinue
+if (-not $task) { Fail "Task not registered" }
+$queue=Join-Path (Join-Path $Root $HostId) "queue"
+$editorFile=Join-Path $queue "editor.json"
+$probeFile=Join-Path $queue "probes.json"
+Emit ([ordered]@{schemaVersion=1;action="status";taskState=[string]$task.State;hostId=$HostId
+  editor=$(if (Test-Path -LiteralPath $editorFile) { Get-Content -LiteralPath $editorFile -Raw | ConvertFrom-Json } else { $null })
+  probes=$(if (Test-Path -LiteralPath $probeFile) { Get-Content -LiteralPath $probeFile -Raw | ConvertFrom-Json } else { $null })
+  readyForArbitraryEval=$false;readyForCopyback=$false})
+)) {
+    Fail "Source project does not have a valid Git HEAD"
+  }
+  $dirty=@(& git.exe -C $source status --porcelain --untracked-files=all)
+  if ($LASTEXITCODE -ne 0 -or @($dirty | Where-Object { $_ -and $_.Trim() }).Count -gt 0) {
+    Fail "Source project must be a clean Git checkout"
+  }
+  # Robocopy /XJ alone is insufficient for arbitrary file symlinks. Deny
+  # all nested source reparse points BEFORE copying any assets or scripts.
+  $visited=0
+  foreach ($folder in @("Assets","Packages","ProjectSettings")) {
+    $nodes = New-Object System.Collections.Stack
+    $nodes.Push((Join-Path $source $folder))
+    while ($nodes.Count -gt 0) {
+      $directory=[string]$nodes.Pop()
+      foreach ($child in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+        $visited++
+        if ($visited -gt 250000) { Fail "Source stage exceeds file inventory limit" }
+        $attr=[IO.File]::GetAttributes($child)
+        if (($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+          Fail "Source project contains symlinks or junctions"
+        }
+        if (($attr -band [IO.FileAttributes]::Directory) -ne 0) { $nodes.Push($child) }
+      }
+    }
+  }
+
   foreach ($path in @($EditorPath,$CliPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Pinned Editor/CLI executable missing" }
   }
