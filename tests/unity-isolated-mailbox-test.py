@@ -63,6 +63,11 @@ class IsolatedBridgeTests(unittest.TestCase):
             "status": "launched", "sandboxSid": self.sid,
             "stagePath": self.config["StagePath"], "unityPid": 123,
         }))
+        (self.queue / "ready.json").write_text(json.dumps({
+            "schemaVersion": 1, "status": "scene-opened", "sandboxSid": self.sid,
+            "scenePath": bridge.SCENE, "unityPid": 123,
+            "readyForArbitraryEval": False, "readyForCopyback": False,
+        }))
         self.env = patch.dict(os.environ, {
             "RPGK_UNITY_ISOLATED_READONLY_ENABLED": "1",
             "RPGK_SYMPHONY_WORKSPACE_ROOT": str(self.workspaces),
