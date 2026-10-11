@@ -127,12 +127,7 @@ def grant(workspace: Path, stage_windows: str, state: Path) -> dict:
         deny("source scene unexpectedly changed during Editor open")
     env = os.environ.copy()
     env["RPGK_UNITY_STAGED_CODE_ENABLED"] = "1"
-    output = call([
-        sys.executable, str(ROOT / "unity-cli-staged-code.py"), "grant",
-        "--workspace", str(workspace),
-        "--state-root", str(state), "--session-windows", stage_windows,
-        "--scene", SCENE,
-    ], timeout=120) if os.environ.get("RPGK_UNITY_STAGED_CODE_ENABLED") == "1" else subprocess.run(
+    output = subprocess.run(
         [sys.executable, str(ROOT / "unity-cli-staged-code.py"), "grant",
          "--workspace", str(workspace), "--state-root", str(state),
          "--session-windows", stage_windows, "--scene", SCENE],
