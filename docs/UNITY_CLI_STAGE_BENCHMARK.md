@@ -104,3 +104,14 @@ The fake CLI/Editor tests prove grant/pin denial, stage-path and worktree
 binding, protected hashes and fixed output restrictions, broker issue locks,
 and refusal of pose/filter arguments. Live Windows acceptance must be run
 separately and cannot be inferred from Linux CI.
+
+## Rollback / operator stop
+
+The entire Stage C2a path remains disabled unless the host starts with
+`RPGK_UNITY_CLI_BENCHMARK_ENABLED=1` **and** has a separate issue-bound
+benchmark grant. Operators may revoke through `unity-cli-stage-benchmark.py
+revoke --workspace <GH-N>` and unset the environment flag; a new request
+will then be rejected. Do not reset, delete or recreate Stage B's NTFS
+project while its Editor is running. Any previously created benchmark scene
+is deliberately retained within the disposable stage for inspection and is
+never promoted automatically.
