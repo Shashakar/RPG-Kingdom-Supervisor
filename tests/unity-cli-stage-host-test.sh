@@ -52,6 +52,11 @@ expect_failure install-pipeline --session-windows '\\wsl.localhost\Ubuntu\projec
 expect_failure discover --source "$temp/src" --session-windows 'C:\Temp\stage'
 expect_failure stop --session-windows 'C:\Temp\stage' --unsafe
 expect_failure start --source "$temp/nope"
+export RPGK_SUPERVISOR_STATE_ROOT="$temp/supervisor-state"
+mkdir -p "$RPGK_SUPERVISOR_STATE_ROOT/locks/unity-editor.lock"
+expect_failure start --source "$temp/src"
+expect_failure discover --session-windows 'C:\\NTFS Pilot\\pilot-123'
+rm -rf "$RPGK_SUPERVISOR_STATE_ROOT/locks/unity-editor.lock"
 
 # Pin explicit host execution boundaries; Stage B never becomes a worker
 # generic command, copyback path or arbitrary scene/C# authoring service.
