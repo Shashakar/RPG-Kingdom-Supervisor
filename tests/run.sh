@@ -79,6 +79,9 @@ python3 "$ROOT/tests/unity-cli-readonly-test.py"
 python3 "$ROOT/tests/unity-cli-stage-benchmark-test.py"
 python3 "$ROOT/tests/unity-cli-c2b-audit-test.py"
 python3 "$ROOT/tests/unity-isolated-mailbox-test.py"
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File "$ROOT/tests/unity-isolated-powershell-parse-test.ps1"
+fi
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
