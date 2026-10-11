@@ -88,6 +88,7 @@ try {
     $pending = @(Get-ChildItem -LiteralPath (Join-Path $cfg.QueueRoot "requests") -Filter "*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name)
     foreach ($requestFile in $pending) {
       $id = $requestFile.BaseName
+      if (Test-Path -LiteralPath (Join-Path (Join-Path $cfg.QueueRoot "responses") ($id+".json"))) { continue }
       if ($id -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{5,79}$') { continue }
       $response = [ordered]@{schemaVersion=1;requestId=$id;success=$false;operation="denied"}
       try {
@@ -124,7 +125,8 @@ try {
         $response.error="denied-or-editor-unavailable"
       }
       AtomicJson (Join-Path (Join-Path $cfg.QueueRoot "responses") ($id+".json")) $response
-      Remove-Item -LiteralPath $requestFile.FullName -Force -ErrorAction SilentlyContinue
+      # Request inbox is operator-write-only: sandbox cannot delete requests.
+      # The trusted host broker removes completed request/response pairs.
     }
     Start-Sleep -Milliseconds 400
     $editor.Refresh()
