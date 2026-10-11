@@ -225,7 +225,8 @@ def prepare_request(
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
         if operation in {"capture", "inspect"}:
-            if not scene_path.startswith("Assets/") or not scene_path.endswith(".unity"):
+            if (not scene_path.startswith("Assets/") or not scene_path.endswith(".unity")
+                    or "\\\\" in scene_path or any(part in ("", ".", "..") for part in scene_path.split("/"))):
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
             if operation == "capture" and (capture_width < 320 or capture_width > 4096 or capture_height < 180 or capture_height > 4096):
                 raise ValueError("capture dimensions are outside supported bounds")
