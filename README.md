@@ -176,11 +176,17 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 
 ## Regression gate
 
-`bash tests/run.sh` is the canonical deterministic Supervisor regression gate. Developers and operators run that command locally, and GitHub Actions runs the same command for pull requests targeting `main` and pushes to `main`. The CI job is named `supervisor-tests` so it can be made a required branch-protection check later.
+`bash tests/run.sh` is the canonical deterministic Supervisor regression gate. Install `requirements-mcp.txt` in a venv and run the gate with that venv on `PATH` (see [docs/MCP_ACCESS.md](docs/MCP_ACCESS.md)); this enables actual MCP protocol checks. Developers and operators run the same gate locally, and GitHub Actions runs it for pull requests targeting `main` and pushes to `main`. The CI job is named `supervisor-tests` so it can be made a required branch-protection check later.
 
 CI does not run live Symphony/Codex workers or Unity and does not require Supervisor account secrets. See [`docs/CI.md`](docs/CI.md) for the exact CI boundary and clean-environment expectations.
 
 ## Diagnostics quick start
+
+For direct read-only status queries from ChatGPT or a local Codex operator,
+Supervisor provides a separate MCP observer over the existing diagnostics.
+It supports stdio and private loopback Streamable HTTP, with bounded/redacted
+results and no operator mutation tools. See [docs/MCP_ACCESS.md](docs/MCP_ACCESS.md)
+for installation, the private ChatGPT tunnel connection, and verification.
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor

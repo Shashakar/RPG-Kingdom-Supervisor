@@ -17,3 +17,6 @@ Thumbs.db
 # Python runtime caches
 __pycache__/
 *.py[cod]
+
+# Optional MCP observer runtime
+.venv-mcp/

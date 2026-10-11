@@ -203,6 +203,13 @@ These controls are host-side. The narrow Symphony tracker credential is not plac
 
 ## Authentication boundary
 
+The optional operator MCP observer wraps the existing read-only collectors.
+It runs outside the worker loop and exposes no dashboard operator actions or
+host-command capabilities. Stdio is private to the local operator or an
+OpenAI Secure MCP Tunnel restricted to the intended workspace. Optional HTTP
+binds only to loopback and is not a public authenticated endpoint. See
+[MCP_ACCESS.md](MCP_ACCESS.md) for the deployment and evidence boundaries.
+
 Symphony's tracker PAT is stored in `SYMPHONY_GITHUB_TOKEN` in the operator environment/secrets file. The host Git broker inherits that credential for GitHub REST and authenticated Git transport. Its workspace-local request/response files never contain the token.
 
 A generated host-side `GIT_ASKPASS` helper reads the token from the host process environment; the token value is not written into the helper file.
