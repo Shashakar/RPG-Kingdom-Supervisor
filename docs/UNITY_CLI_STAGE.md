@@ -129,6 +129,9 @@ https://discussions.unity.com/t/heads-up-upcoming-com-unity-pipeline-0-9-0-relea
   A CLI version command that fails directly is a Windows CLI install/path/runtime
   issue; a direct success with a failed Start-Process preflight identifies a
   host subprocess handling bug. Do not remove the `--version` gate blindly.
+  Windows PowerShell can return a null `Start-Process` exit code when output
+  is redirected; Stage B caches the process handle before `WaitForExit` as a
+  workaround. See https://github.com/PowerShell/PowerShell/issues/5421.
 - A stale or substituted PID, malformed session receipt, or wrong project path
   fails closed; the `stop` action must never target another Editor.
 - The existing Supervisor test runner has a host-wide no-existing-Unity rule.
