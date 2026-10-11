@@ -5,7 +5,8 @@ param(
   [string]$Action,
   [string]$SourceProjectPath = "",
   [string]$SessionPath = "",
-  [string]$CliPath = "unity"
+  [string]$CliPath = "unity",
+  [string]$EditorPath = ""
 )
 $ErrorActionPreference = "Stop"
 $Root = Join-Path $env:LOCALAPPDATA "RPGKingdomSupervisor\UnityCliPilots"
@@ -74,7 +75,7 @@ if ($Action -eq "start") {
   $m = [regex]::Match((Get-Content -LiteralPath $versionPath -Raw),'(?m)^m_EditorVersion:\s*(6000\.\d+\.\d+[a-z]\d+)\s*$')
   if (-not $m.Success) { Deny "Unity 6 project version not recognized" 64 }
   $version = $m.Groups[1].Value
-  $unityExe = Join-Path $env:ProgramFiles ("Unity\Hub\Editor\" + $version + "\Editor\Unity.exe")
+  $unityExe = if ($EditorPath) { [IO.Path]::GetFullPath($EditorPath) } else { Join-Path $env:ProgramFiles ("Unity\Hub\Editor\" + $version + "\Editor\Unity.exe") }
   if (-not (Test-Path -LiteralPath $unityExe -PathType Leaf)) { Deny "Matching Unity Editor executable missing" 21 }
   $cli = FindCli
   if (@(Get-Process -Name Unity -ErrorAction SilentlyContinue).Count -gt 0) {
