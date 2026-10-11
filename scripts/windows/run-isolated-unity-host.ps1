@@ -59,7 +59,7 @@ function IsStageWritable([string]$Directory) {
   }
 }
 function CliJson([string[]]$CliArgs) {
-  $tmp = Join-Path $cfg.QueueRoot ("cli-" + [guid]::NewGuid().ToString("N"))
+  $tmp = Join-Path (Join-Path $cfg.QueueRoot "status") ("cli-" + [guid]::NewGuid().ToString("N"))
   $stdout=$tmp+".out"; $stderr=$tmp+".err"
   try {
     $p = Start-Process -FilePath $cfg.CliExe -WorkingDirectory $cfg.StagePath -ArgumentList $CliArgs -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
@@ -100,7 +100,7 @@ if (-not (IsWriteDenied (Join-Path $cfg.QueueRoot "requests"))) {
   throw "Sandbox can spoof operator mailbox requests"
 }
 if (-not (IsStageWritable $cfg.StagePath)) { throw "Sandbox cannot write its private Unity stage" }
-AtomicJson (Join-Path $cfg.QueueRoot "probes.json") ([ordered]@{
+AtomicJson (Join-Path (Join-Path $cfg.QueueRoot "status") "probes.json") ([ordered]@{
   schemaVersion=1;status="denial-probes-passed";sandboxSid=$sid
   configAndAgentWriteDenied=$true;operatorRequestWriteDenied=$true;stageWriteConfirmed=$true
   readProbeCount=@($cfg.ForbiddenReadFiles).Count
@@ -112,7 +112,7 @@ foreach ($path in @($cfg.StagePath,$cfg.EditorExe,$cfg.CliExe)) {
 }
 $editorLog = Join-Path $cfg.StagePath "IsolatedEditor.log"
 $editor = Start-Process -FilePath $cfg.EditorExe -WorkingDirectory $cfg.StagePath -ArgumentList @("-projectPath",('"' + $cfg.StagePath + '"'),"-logFile",('"' + $editorLog + '"')) -PassThru
-AtomicJson (Join-Path $cfg.QueueRoot "editor.json") ([ordered]@{
+AtomicJson (Join-Path (Join-Path $cfg.QueueRoot "status") "editor.json") ([ordered]@{
   schemaVersion=1;status="launched";sandboxSid=$sid;unityPid=$editor.Id
   stagePath=$cfg.StagePath;startedAtUtc=[DateTime]::UtcNow.ToString("o")
 })
@@ -136,7 +136,7 @@ for ($attempt = 0; $attempt -lt 40; $attempt++) {
   }
 }
 if (-not $opened) { throw "Fixed stage scene open was unavailable; no mailbox service enabled" }
-AtomicJson (Join-Path $cfg.QueueRoot "ready.json") ([ordered]@{
+AtomicJson (Join-Path (Join-Path $cfg.QueueRoot "status") "ready.json") ([ordered]@{
   schemaVersion=1;status="scene-opened";sandboxSid=$sid
   unityPid=$editor.Id;scenePath=$cfg.AllowedScene
   readyForArbitraryEval=$false;readyForCopyback=$false
@@ -190,7 +190,7 @@ try {
     $editor.Refresh()
   }
 } finally {
-  AtomicJson (Join-Path $cfg.QueueRoot "editor.json") ([ordered]@{
+  AtomicJson (Join-Path (Join-Path $cfg.QueueRoot "status") "editor.json") ([ordered]@{
     schemaVersion=1;status="stopped";sandboxSid=$sid;unityPid=$editor.Id
     stagePath=$cfg.StagePath;stoppedAtUtc=[DateTime]::UtcNow.ToString("o")
   })
