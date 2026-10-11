@@ -31,7 +31,7 @@ CONTRACT = {
         },
         {
             "tier": "existing-scene-composition",
-            "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "set-terrain-layer", "bake-navmesh"],
+            "operationKinds": ["set-transform", "reparent-object", "instantiate-existing-prefab", "create-heightfield-ground", "edit-terrain", "delete-terrain", "set-terrain-layer", "bake-navmesh"],
         },
         {
             "tier": "prefab-derivative",
@@ -126,6 +126,45 @@ class StructuralAuthoringPreflightTests(unittest.TestCase):
         self.assertEqual("supported", result["status"])
         self.assertTrue(result["authoringAuthorized"])
         self.assertEqual("Assets/RPGKingdom/Scenes/PlaytestScene.unity", result["authorizedScene"])
+
+    def test_existing_scene_terrain_create_edit_delete_are_authorized_only_for_exact_scene(self):
+        operations = ["create-heightfield-ground", "edit-terrain", "delete-terrain", "bake-navmesh"]
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": operations,
+        }))
+        self.assertEqual("supported", result["status"])
+        self.assertTrue(result["authoringAuthorized"])
+        self.assertEqual("Assets/RPGKingdom/Scenes/PlaytestScene.unity", result["authorizedScene"])
+        self.assertEqual(operations, result["requirements"]["operations"])
+
+        no_scene = self.evaluate(marker({
+            "mode": "known", "tier": "existing-scene-composition", "operations": operations,
+        }))
+        self.assertEqual("invalid", no_scene["status"])
+
+        wrong_tier = self.evaluate(marker({
+            "mode": "known", "tier": "mechanical-structural",
+            "operations": ["edit-terrain", "delete-terrain"],
+        }))
+        self.assertEqual("unsupported", wrong_tier["status"])
+        self.assertIn({"kind": "operation", "value": "edit-terrain"}, wrong_tier["unsupported"])
+        self.assertIn({"kind": "operation", "value": "delete-terrain"}, wrong_tier["unsupported"])
+
+    def test_terrain_edit_requires_project_contract_support(self):
+        outdated = json.loads(json.dumps(CONTRACT))
+        for tier in outdated["operationKindsByTier"]:
+            if tier["tier"] == "existing-scene-composition":
+                tier["operationKinds"].remove("edit-terrain")
+        result = self.evaluate(marker({
+            "mode": "known",
+            "tier": "existing-scene-composition",
+            "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+            "operations": ["edit-terrain"],
+        }), outdated)
+        self.assertEqual("unsupported", result["status"])
 
     def test_existing_scene_can_authorize_exact_protected_composition_paths(self):
         result = self.evaluate(marker({

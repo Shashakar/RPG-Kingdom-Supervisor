@@ -24,6 +24,29 @@ Scene-authoring authority is never inferred from issue prose, model intent, or p
 
 To prevent an explicit human authorization from being silently lost during dispatch, the Unity preflight also checks for the standard `## Production Scene Authoring Authority` issue section. If that section is present but no `authoring:scene-*` label exists, dispatch halts before Unity readiness work or Codex launch and names the missing authorization label when it can determine the tier. The prose still does not grant authority; it only makes the configuration mismatch fail early and visibly.
 
+## Unity Terrain editing under the existing-scene lane
+
+RPG Kingdom capability schema 15 exposes three terrain lifecycle operations using the **existing** issue-scoped `authoring:scene-existing-composition` label. `create-heightfield-ground` creates a new scene-owned Terrain patch, `edit-terrain` changes an existing TerrainData heightmap, and `delete-terrain` removes an eligible Terrain GameObject. Do **not** combine this label with `authoring:scene-gameplay`: the latter is reserved for the separate narrowly typed player/scavenger/Encounter wiring operation.
+
+No new Supervisor host permission tier is needed. The existing preflight loads the project-owned capability snapshot and checks the declared operation names; the broker and host bind the exact approved scene; the Windows runner stages Unity, compares attested `changedAssets`, and copies back only the authorized scene and explicitly listed generated navigation/TerrainLayer outputs. The project Editor executor operates on scene-local TerrainData. If an existing Terrain references external `Assets/*.asset` data, the executor copies it into the staged scene before sculpting. Deleting a Terrain never deletes the external asset. A request that claims or modifies unrelated assets must fail; don't relax the existing copy-back checks.
+
+An approved terrain pass uses an issue body with a clear affected scene and the operations required for its intended work:
+
+```markdown
+<!-- symphony-scene-authoring-requirements
+{
+  "mode": "known",
+  "tier": "existing-scene-composition",
+  "scene": "Assets/RPGKingdom/Scenes/PlaytestScene.unity",
+  "operations": ["create-heightfield-ground", "edit-terrain", "delete-terrain", "bake-navmesh"]
+}
+-->
+```
+
+The worker may invoke only project Editor operations included in that reviewed capability contract. `edit-terrain` uses exact hierarchy paths and a finite array of smooth elevation patches; `delete-terrain` requires one eligible isolated Terrain object. Refer to RPG Kingdom's `docs/SCENE_AUTHORING.md` for JSON shapes and collision/ownership constraints. New sculpted terrain requires a fresh NavMesh bake and Unity visual/playable review.
+
+For the first-session #258 geography, the design target is an enclosed starting pocket with one exit, a winding 30–50-metre route wide enough for future tree/rock decoration, and an existing village enclosure retaining only its original entrance. These are design goals, not arbitrary additional mutation authority. Author terrain on an isolated `codex/` branch; inspect staged scene differences and run Unity validation before a human-approved scene merge.
+
 ## Structural capability preflight
 
 RPG Kingdom owns the reviewed capability surface in:
