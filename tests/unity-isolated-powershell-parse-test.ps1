@@ -11,7 +11,7 @@ foreach ($file in $files) {
   $errors = $null
   [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
   if (@($errors).Count -gt 0) {
-    foreach ($e in $errors) { Write-Error ("PowerShell parse error in " + $file + ": " + $e.Message) }
+    foreach ($e in $errors) { Write-Output ("PowerShell parse error: " + $file + ":" + $e.Extent.StartLineNumber + " near " + $e.Extent.Text + " - " + $e.Message) }
     throw "Windows isolated-host PowerShell script contains parse errors"
   }
 }
