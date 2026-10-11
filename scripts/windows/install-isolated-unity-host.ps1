@@ -23,7 +23,7 @@ function Emit([object]$payload) {
   $payload | ConvertTo-Json -Compress -Depth 5
 }
 function AccountSid([string]$Name) {
-  try { return (New-Object Security.Principal.NTAccount($Name)).Translate([Security.Principal.SecurityIdentifier]).Value }
+  try { return ([Security.Principal.NTAccount]::new($Name)).Translate([Security.Principal.SecurityIdentifier]).Value }
   catch { Fail "Dedicated local account missing: operator must provision a standard Windows account first" }
 }
 function AclOnly([string]$Path, [string]$SandboxSid, [string]$UserSid, [string]$SandboxRight, [string]$OperatorRight) {
@@ -37,9 +37,9 @@ function AclOnly([string]$Path, [string]$SandboxSid, [string]$UserSid, [string]$
   foreach ($entry in @(
     @("S-1-5-18","FullControl"), @("S-1-5-32-544","FullControl"),
     @($SandboxSid,$SandboxRight), @($UserSid,$OperatorRight))) {
-    $sid = New-Object Security.Principal.SecurityIdentifier($entry[0])
+    $sid = [Security.Principal.SecurityIdentifier]::new([string]$entry[0])
     $right = [Enum]::Parse([Security.AccessControl.FileSystemRights], [string]$entry[1])
-    $ace = New-Object Security.AccessControl.FileSystemAccessRule($sid,$right,$inherit,$none,$allow)
+    $ace = [Security.AccessControl.FileSystemAccessRule]::new($sid,$right,$inherit,$none,$allow)
     $acl.AddAccessRule($ace)
   }
   Set-Acl -LiteralPath $Path -AclObject $acl
@@ -77,7 +77,7 @@ if ($Action -eq "plan") {
 
 if ($Action -eq "install") {
   $me=[Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal=New-Object Security.Principal.WindowsPrincipal($me)
+  $principal=[Security.Principal.WindowsPrincipal]::new($me)
   if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Fail "Run install in an explicitly elevated operator PowerShell"
   }
