@@ -114,7 +114,7 @@ if ($Action -eq "start") {
   $owned = Start-Process -FilePath $unityExe -ArgumentList @("-projectPath",('"' + $stage + '"'),"-logFile",('"' + $log + '"')) -WorkingDirectory $stage -PassThru
   $receipt = [ordered]@{
     schemaVersion=1;sessionId=$id;stagePath=$stage;unityVersion=$version
-    unityExe=$unityExe;unityPid=$owned.Id;createdAtUtc=[DateTime]::UtcNow.ToString("o")
+    unityExe=$unityExe;unityPid=$owned.Id;sourceProjectPath=$source;createdAtUtc=[DateTime]::UtcNow.ToString("o")
   }
   $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage "session.json") -Encoding UTF8
   @{schemaVersion=1;action=$Action;status="started";sessionPath=$stage;unityPid=$owned.Id;unityVersion=$version} | ConvertTo-Json -Compress
