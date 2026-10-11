@@ -83,7 +83,7 @@ $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 if ($cfg.schemaVersion -ne 1 -or $cfg.enabled -ne $true -or $cfg.mode -ne "isolated-readonly" -or -not $cfg.StagePath -or -not $cfg.QueueRoot) { throw "Configuration disabled or invalid" }
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($sid -ne $cfg.SandboxSid) { throw "Task identity does not match configured sandbox SID" }
-$p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+$p = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if ($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Editor identity must not be an administrator" }
 if (@($cfg.ForbiddenReadFiles).Count -lt 2 -or @($cfg.ForbiddenWriteDirectories).Count -lt 1) { throw "Insufficient independent negative probes" }
 foreach ($f in @($cfg.ForbiddenReadFiles)) {
