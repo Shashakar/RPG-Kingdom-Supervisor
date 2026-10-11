@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - codex/207-unity-cli-staged-pilot
   push:
     branches:
       - main
