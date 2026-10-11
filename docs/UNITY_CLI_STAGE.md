@@ -10,7 +10,10 @@ acceptance. It is deliberately isolated until actual Windows testing passes.
 - Windows host with Unity 6000.3.10f1 installed by Unity Hub (exact version
   is resolved from `ProjectSettings/ProjectVersion.txt`, not guessed).
 - Windows Unity CLI installed and available as `unity` or supplied with
-  `--cli-windows`. CLI remains **experimental**.
+  `--cli-windows`.
+- The default Unity Editor path is the Unity Hub location under Program Files;
+  for a custom Editor installation pass `--editor-windows 'D:\\...\\Unity.exe'`
+  on the `start` call only. CLI remains **experimental**.
 - WSL with `powershell.exe`, `wslpath`, and the game project available.
 - Windows PowerShell launched from **the operator account**, not the Codex
   permission/sandbox profile; the script is not added to `WORKFLOW.md`.
