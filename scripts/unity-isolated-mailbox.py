@@ -91,6 +91,9 @@ def health(host: Path, cfg: dict) -> int:
             or proof.get("writeProbeCount", 0) < 1
             or proof.get("readyForArbitraryEval") is not False
             or proof.get("readyForCopyback") is not False
+            or proof.get("configAndAgentWriteDenied") is not True
+            or proof.get("operatorRequestWriteDenied") is not True
+            or proof.get("stageWriteConfirmed") is not True
             or ready.get("status") != "scene-opened"
             or ready.get("sandboxSid") != cfg["SandboxSid"]
             or ready.get("scenePath") != SCENE
