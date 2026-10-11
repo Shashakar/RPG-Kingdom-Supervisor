@@ -20,6 +20,7 @@ Usage:
   unity-runner-host.sh health [--project PATH]
   unity-runner-host.sh editmode [--project PATH] [--filter FILTER]
   unity-runner-host.sh playmode [--project PATH] [--filter FILTER]
+  unity-runner-host.sh inspect [--project PATH] --scene ASSET_PATH
   unity-runner-host.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--reuse-stage-library] [--width PX] [--height PX]
 
 Environment overrides:
@@ -106,7 +107,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$command" in
-  health|editmode|playmode|capture) ;;
+  health|editmode|playmode|capture|inspect) ;;
   *)
     echo "Unknown Unity runner command: $command" >&2
     usage
@@ -128,7 +129,7 @@ project="$(cd "$project" && pwd)"
 unity_version="$(rpgk_project_unity_version "$project")"
 unity_editor_windows="${RPGK_UNITY_EDITOR_WINDOWS:-$(rpgk_default_unity_editor_windows "$unity_version")}" 
 source_project_windows="$(wslpath -w "$project")"
-if [[ "$command" == "capture" ]]; then
+if [[ "$command" == "capture" || "$command" == "inspect" ]]; then
   runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-capture.ps1")"
 else
   runner_windows="$(wslpath -w "$ROOT/scripts/windows/run-unity-tests.ps1")"
@@ -187,7 +188,7 @@ fi
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${command}-$$"
 
-if [[ "$command" == "capture" ]]; then
+if [[ "$command" == "capture" || "$command" == "inspect" ]]; then
   [[ -n "$scene_path" && "$scene_path" == Assets/*.unity ]] || {
     echo "RPG Kingdom Unity runner: capture requires an Assets/*.unity --scene path" >&2
     exit 64
@@ -203,6 +204,9 @@ if [[ "$command" == "capture" ]]; then
     -LookAtPath "$look_at_path"
     -FieldOfView "$field_of_view"
   )
+  if [[ "$command" == "inspect" ]]; then
+    powershell_args+=( -InspectOnly )
+  fi
   if [[ -n "$camera_path" ]]; then
     powershell_args+=( -CameraPath "$camera_path" )
   fi
