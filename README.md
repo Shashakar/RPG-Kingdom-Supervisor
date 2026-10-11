@@ -150,6 +150,9 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
 - [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
 - [`scripts/unity-cli-c2b-audit.py`](scripts/unity-cli-c2b-audit.py) — operator-only clean Git worktree vs staged Unity file-hash attestation and **dry-run** stage asset delta audit (no copyback).
+- [`scripts/windows/install-isolated-unity-host.ps1`](scripts/windows/install-isolated-unity-host.ps1) and [`scripts/windows/run-isolated-unity-host.ps1`](scripts/windows/run-isolated-unity-host.ps1) — operator-managed on-demand Windows task under a separate non-admin identity with negative filesystem probes and a fixed read-only mailbox. **Experimental, disabled until actual Windows tests.**
+- [`scripts/unity-isolated-mailbox.py`](scripts/unity-isolated-mailbox.py) — typed host-broker-to-Windows mailbox adapter with issue/revision grant; **no arbitrary Editor code or promotion**. Setup/gates: [`docs/UNITY_CLI_C2C_ISOLATED_HOST.md`](docs/UNITY_CLI_C2C_ISOLATED_HOST.md).
+
 - [`scripts/windows/check-unity-cli-isolation.ps1`](scripts/windows/check-unity-cli-isolation.ps1) — operator-only Windows process owner SID inspection; deliberately does not declare a secure sandbox without a separate identity and denial tests. See [`docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md`](docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md).
 
 
