@@ -8,6 +8,7 @@ action=""
 source_project=""
 session_windows=""
 cli_windows=""
+editor_windows=""
 
 usage() {
   cat <<'EOF'
@@ -43,6 +44,11 @@ while [[ $# -gt 0 ]]; do
       session_windows="$2"
       shift 2
       ;;
+    --editor-windows)
+      [[ $# -ge 2 && -n "$2" ]] || exit 64
+      editor_windows="$2"
+      shift 2
+      ;;
     --cli-windows)
       [[ $# -ge 2 && -n "$2" ]] || exit 64
       cli_windows="$2"
@@ -72,6 +78,10 @@ if [[ -d "$STATE_ROOT/locks/unity-editor.lock" ]]; then
   exit 82
 fi
 
+if [[ -n "$editor_windows" && ( "$action" != "start" || ! "$editor_windows" =~ ^[A-Za-z]:[\\/] ) ]]; then
+  echo "--editor-windows is only valid for start and requires a Windows executable" >&2
+  exit 64
+fi
 if [[ -n "$cli_windows" && ! "$cli_windows" =~ ^[A-Za-z]:[\\/] ]]; then
   echo "--cli-windows must identify a Windows executable" >&2
   exit 64
@@ -88,5 +98,8 @@ else
 fi
 if [[ -n "$cli_windows" ]]; then
   args+=(-CliPath "$cli_windows")
+fi
+if [[ -n "$editor_windows" ]]; then
+  args+=(-EditorPath "$editor_windows")
 fi
 "$POWERSHELL_EXE" "${args[@]}"
