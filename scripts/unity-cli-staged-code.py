@@ -29,10 +29,7 @@ FLAG = "RPGK_UNITY_STAGED_CODE_ENABLED"
 SCENE = "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
 MAX_CODE = 65536
 SCRIPT = re.compile(r"AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs\Z")
-CHECKED = (
-    SCENE, SCENE + ".meta", "Packages/manifest.json",
-    "ProjectSettings/ProjectVersion.txt",
-)
+CHECKED = ("Packages/manifest.json", "ProjectSettings/ProjectVersion.txt")
 IGNORED_DIRS = (".git", "Library", "Logs", "Temp", "Obj", "Build", "Builds")
 
 
@@ -55,7 +52,7 @@ def protected(stage: Path) -> dict:
         if item.is_symlink() or (item.exists() and not item.is_file()):
             deny("invalid protected stage path: " + rel)
         found[rel] = hash_file(item) if item.is_file() else None
-    if not found[SCENE] or not found["Packages/manifest.json"]:
+    if not (stage / SCENE).is_file() or not found["Packages/manifest.json"]:
         deny("missing staged scene/project baseline")
     return found
 
@@ -149,9 +146,9 @@ def run_code(stage: Path, receipt: dict, code: str, script: str, exe: str, befor
     removed = sorted(started_assets.keys() - after_assets.keys())
     modified = sorted(k for k in started_assets.keys() & after_assets.keys()
                       if started_assets[k] != after_assets[k])
-    # Return a report even if the code changed the staged source scene. That
-    # flags review and blocks subsequent commands on this grant; there is no
-    # automatic copyback or corrective mutation.
+    # Source scene edits are permitted *inside the disposable stage* and
+    # reported like any other asset. Only project configuration is pinned.
+    # This permits iterative terrain/scene authoring without regranting.
     return {
         "success": not modified_protected,
         "operation": "editor-staged-code",
@@ -226,10 +223,10 @@ def main() -> int:
         code = file.read_text(encoding="utf-8-sig")
         if not code.strip() or len(code.encode("utf-8")) > MAX_CODE:
             deny("script empty or exceeds 64 KiB")
-        print(json.dumps(run_code(stage, receipt, code, args.script,
-                                  ro.cli_path(), grant["protectedBaseline"]),
-                         separators=(",", ":")))
-        return 0
+        result = run_code(stage, receipt, code, args.script,
+                          ro.cli_path(), grant["protectedBaseline"])
+        print(json.dumps(result, separators=(",", ":")))
+        return 0 if result["success"] else 82
     except (ro.Denied, OSError, ValueError, subprocess.SubprocessError) as exc:
         print("Unity staged code: blocked: " + str(exc), file=sys.stderr)
         return 82
