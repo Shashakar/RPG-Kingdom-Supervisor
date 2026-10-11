@@ -110,6 +110,25 @@ https://discussions.unity.com/t/heads-up-upcoming-com-unity-pipeline-0-9-0-relea
 
 - A failed copy or Editor start does not change the source game repo. The
   disposable stage may need manual removal **only after Editor exits**.
+- If `start` fails with a **Unity CLI --version** diagnostic, staging has
+  not started. The Windows host stores diagnostic files at
+  `$env:TEMP\rpgk-cli-version.out.txt` and `$env:TEMP\rpgk-cli-version.err.txt`.
+  From WSL, invoke:
+  
+  ```bash
+  powershell.exe -NoProfile -Command '
+    $cmd = Get-Command unity -CommandType Application -ErrorAction SilentlyContinue
+    if ($cmd) { "CLI path: $($cmd.Source)"; & $cmd.Source --version; "Direct exit: $LASTEXITCODE" }
+    else { "No Windows Unity CLI application resolved" }
+    foreach ($suffix in @("out","err")) {
+      "=== Staged preflight $suffix ==="
+      Get-Content -LiteralPath (Join-Path $env:TEMP ("rpgk-cli-version."+$suffix+".txt")) -ErrorAction SilentlyContinue
+    }
+  '
+  ```
+  A CLI version command that fails directly is a Windows CLI install/path/runtime
+  issue; a direct success with a failed Start-Process preflight identifies a
+  host subprocess handling bug. Do not remove the `--version` gate blindly.
 - A stale or substituted PID, malformed session receipt, or wrong project path
   fails closed; the `stop` action must never target another Editor.
 - The existing Supervisor test runner has a host-wide no-existing-Unity rule.
