@@ -27,14 +27,20 @@ function ExecuteCli($exe, $commandArgs, $dir, $id, $seconds) {
   $out = Join-Path $dir ($id + ".out.txt")
   $err = Join-Path $dir ($id + ".err.txt")
   $p = Start-Process -FilePath $exe -ArgumentList $commandArgs -PassThru -WorkingDirectory $dir -RedirectStandardOutput $out -RedirectStandardError $err
+  # Windows PowerShell can return a null ExitCode after Start-Process with
+  # redirected stdout/stderr, even if WaitForExit succeeds (PowerShell #5421).
+  # Access the OS process handle BEFORE waiting so it stays available.
+  $processHandle = $p.Handle
   if (-not $p.WaitForExit($seconds * 1000)) {
     $script:LastCliTimedOut = $true
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     $p.WaitForExit()
     return $false
   }
-  $script:LastCliExitCode = $p.ExitCode
-  return ($p.ExitCode -eq 0)
+  $p.Refresh()
+  $exitCode = $p.ExitCode
+  $script:LastCliExitCode = $exitCode
+  return ($null -ne $exitCode -and $exitCode -eq 0)
 }
 function ReadSession {
   if (-not $SessionPath) { Deny "SessionPath required" 64 }
