@@ -83,7 +83,7 @@ this from the new Supervisor checkout on WSL (only after reviewing the script):
 ```bash
 RPGK_UNITY_CLI_EXE=/mnt/c/Users/Dex/AppData/Local/Unity/bin/unity.exe \
   bash scripts/unity-cli-broker-smoke.sh \
-  --session-windows 'C:\\Users\\Dex\\AppData\\Local\\RPGKingdomSupervisor\\UnityCliPilots\\pilot-REPLACE_WITH_EXISTING_ID'
+  --session-windows 'C:\Users\Dex\AppData\Local\RPGKingdomSupervisor\UnityCliPilots\pilot-REPLACE_WITH_EXISTING_ID'
 ```
 
 This spins up a *temporary broker and synthetic GH-999999 workspace* in a
@@ -93,9 +93,8 @@ scene file did not change, and deletes only its own temporary WSL files.
 **It never stops the live Editor, accesses halted GH-260, or dispatches Codex.**
 This verifies transport/policy end to end; it does not validate real issue
 workspace baseline equivalence or allow Editor writing.
- Run a separate
-real-Windows test through the **broker client**, not only a direct CLI call,
-before marking this capability host-verified.
+
+Mark the lane host-verified only after an actual broker-client smoke passes.
 
 Important: operator grants are *policy* checks, not an OS sandbox. A model
 worker capable of arbitrary host filesystem access might bypass host-owned
