@@ -72,6 +72,14 @@ grep -Fq 'Another Unity.exe exists' "$WINDOWS"
 grep -Fq 'robocopy.exe' "$WINDOWS"
 grep -Fq '"pipeline","install","--project-path"' "$WINDOWS"
 grep -Fq 'LastCliExitCode' "$WINDOWS"
+# PowerShell on Windows can drop redirected Start-Process ExitCode unless
+# the process handle is accessed before WaitForExit (PowerShell #5421).
+grep -Fq '$processHandle = $p.Handle' "$WINDOWS"
+awk '
+  /\$processHandle = \$p.Handle/ {handle = NR}
+  /if \(-not \$p.WaitForExit/ {wait = NR}
+  END {exit !(handle > 0 && wait > handle)}
+' "$WINDOWS"
 grep -Fq 'rpgk-cli-version' "$WINDOWS"
 ! grep -Fq 'git push' "$WINDOWS"
 ! grep -Fq 'Copy-Item -Destination $SourceProjectPath' "$WINDOWS"
