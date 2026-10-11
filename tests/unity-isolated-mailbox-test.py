@@ -126,7 +126,7 @@ class IsolatedBridgeTests(unittest.TestCase):
         (self.queue / "editor.json").write_text(json.dumps(receipt))
         code, _, err = self.invoke("run")
         self.assertEqual(code, 82)
-        self.assertIn("Editor PID changed", err)
+        self.assertIn("not acceptable", err)
 
     def test_revision_binding_and_revoke(self):
         self.grant()
@@ -209,7 +209,12 @@ class IsolatedBridgeTests(unittest.TestCase):
         self.assertIn("IsReadDenied", worker)
         self.assertIn("IsWriteDenied", worker)
         self.assertIn("get_scene_hierarchy", worker)
-        self.assertNotIn('command","eval"', worker)
+        # One trusted, constant Editor command opens the pinned scene at startup;
+        # the mailbox accepts only read-only hierarchy inspection.
+        self.assertEqual(worker.count('CliJson @("command","eval"'), 1)
+        self.assertIn("$sceneCode = 'return UnityEditor.SceneManagement.EditorSceneManager.OpenScene", worker)
+        self.assertIn('$req.operation -eq "get_scene_hierarchy"', worker)
+        self.assertIn('@($req.PSObject.Properties.Name).Count -eq 4', worker)
         self.assertNotIn("Invoke-Expression", worker)
         self.assertNotIn("scriptBlock", worker)
 
