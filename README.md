@@ -150,6 +150,8 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
 - [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
 - [`scripts/unity-cli-c2b-audit.py`](scripts/unity-cli-c2b-audit.py) — operator-only clean Git worktree vs staged Unity file-hash attestation and **dry-run** stage asset delta audit (no copyback).
+- [`scripts/unity-cli-staged-code.py`](scripts/unity-cli-staged-code.py) — operator-approved existing-Windows-account C# Editor scripts through the issue-owned Supervisor broker, limited to the disposable Unity stage **as a workflow contract**, with asset-change receipts and **no automatic source copyback**. The separate Windows account is optional/deferred. See [`docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md`](docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md).
+
 - [`scripts/windows/check-unity-cli-isolation.ps1`](scripts/windows/check-unity-cli-isolation.ps1) — operator-only Windows process owner SID inspection; deliberately does not declare a secure sandbox without a separate identity and denial tests. See [`docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md`](docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md).
 
 
