@@ -82,6 +82,7 @@ def health(host: Path, cfg: dict) -> int:
     try:
         proof = json.loads((host / "queue/probes.json").read_text(encoding="utf-8-sig"))
         editor = json.loads((host / "queue/editor.json").read_text(encoding="utf-8-sig"))
+        ready = json.loads((host / "queue/ready.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ro.Denied("Windows agent has no valid denial-probe/Editor receipts") from exc
     if (proof.get("status") != "denial-probes-passed"
@@ -90,6 +91,12 @@ def health(host: Path, cfg: dict) -> int:
             or proof.get("writeProbeCount", 0) < 1
             or proof.get("readyForArbitraryEval") is not False
             or proof.get("readyForCopyback") is not False
+            or ready.get("status") != "scene-opened"
+            or ready.get("sandboxSid") != cfg["SandboxSid"]
+            or ready.get("scenePath") != SCENE
+            or ready.get("unityPid") != editor.get("unityPid")
+            or ready.get("readyForArbitraryEval") is not False
+            or ready.get("readyForCopyback") is not False
             or editor.get("status") != "launched"
             or editor.get("sandboxSid") != cfg["SandboxSid"]
             or editor.get("stagePath") != cfg["StagePath"]
