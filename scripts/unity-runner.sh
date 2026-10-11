@@ -106,7 +106,7 @@ if [[ "$command" == "capture" || "$command" == "inspect" || "$command" == "edito
   if [[ ( "$command" == "inspect" || "$command" == "editor-scene-summary" ) && ( -n "$camera_path" || -n "$view_name" || -n "$camera_position" || -n "$camera_rotation" || -n "$look_at_path" ) ]]; then
     echo "RPG Kingdom Unity runner: inspect is read-only and does not accept camera pose arguments" >&2; exit 64
   fi
-  [[ -n "$scene_path" ]] || { echo "RPG Kingdom Unity runner: operation requires --scene" >&2; exit 64; }
+  [[ -n "$scene_path" ]] || { echo "RPG Kingdom Unity runner: $([[ "$command" == "capture" ]] && echo "capture requires" || echo "operation requires") --scene" >&2; exit 64; }
   if [[ "$command" == "editor-scene-summary" && -n "$test_filter" ]]; then
     echo "RPG Kingdom Unity runner: editor-scene-summary does not accept --filter" >&2; exit 64
   fi
