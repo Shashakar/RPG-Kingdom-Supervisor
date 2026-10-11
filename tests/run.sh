@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Validate the new isolated-host bridge and Windows grammar before longer suites.
+python3 "$ROOT/tests/unity-isolated-mailbox-test.py"
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File "$ROOT/tests/unity-isolated-powershell-parse-test.ps1"
+fi
+
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/workflow-policy-alignment-test.sh"
 bash "$ROOT/tests/codex-router-test.sh" >/dev/null
@@ -78,10 +84,6 @@ bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 "$ROOT/tests/unity-cli-readonly-test.py"
 python3 "$ROOT/tests/unity-cli-stage-benchmark-test.py"
 python3 "$ROOT/tests/unity-cli-c2b-audit-test.py"
-python3 "$ROOT/tests/unity-isolated-mailbox-test.py"
-if command -v pwsh >/dev/null 2>&1; then
-  pwsh -NoProfile -File "$ROOT/tests/unity-isolated-powershell-parse-test.ps1"
-fi
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
