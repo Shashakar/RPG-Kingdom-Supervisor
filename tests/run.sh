@@ -77,6 +77,7 @@ bash "$ROOT/tests/continuation-context-auth-test.sh"
 bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 "$ROOT/tests/unity-cli-readonly-test.py"
 python3 "$ROOT/tests/unity-cli-stage-benchmark-test.py"
+python3 "$ROOT/tests/unity-cli-c2b-audit-test.py"
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
@@ -111,6 +112,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-author-broker.py" \
   "$ROOT/scripts/unity-cli-readonly.py" \
   "$ROOT/scripts/unity-cli-stage-benchmark.py" \
+  "$ROOT/scripts/unity-cli-c2b-audit.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
