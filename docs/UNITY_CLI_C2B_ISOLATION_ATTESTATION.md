@@ -4,6 +4,25 @@
 no new write capability, no stage-to-workspace copyback**. Depends on Stage C2a
 PR #211, Stage C1 PR #210 and Stage B PR #208. Keep this PR draft.
 
+## Real Windows-host diagnostic — October 11, 2026
+
+The operator checked out `codex/209-unity-cli-c2b-isolation-attestation` in
+`~/src/RPG-Kingdom-Supervisor-UnityPilot` and reported:
+
+- `python3 tests/unity-cli-c2b-audit-test.py`: **10 tests passed** (`Ran 10 tests in 0.320s; OK`).
+- `check-unity-cli-isolation.ps1` against the existing disposable pilot
+  `pilot-51ed865d003844629683ec72ba0125db` returned:
+  `status=not-isolated`, `verifiedEditorOwnership=true`,
+  `editorSidSeparated=false`, `filesystemDenyProbePassed=false`,
+  `readyForArbitraryEval=false` and `readyForCopyback=false`.
+
+This confirms that the guard correctly refuses to treat the operator-owned
+Windows Unity Editor as a secure sandbox. **It does not demonstrate a sandboxed
+Editor or successful C2b source/stage equivalence.** The latter still requires
+a separate *fresh* stage from the exact clean issue worktree, before any
+benchmark output is created. No permission, Windows identity, ACL or game
+source has been changed by this diagnostic.
+
 ## Motivation
 
 Stage C2a proved that a host-brokered fixed C# operation can create one Unity
