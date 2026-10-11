@@ -159,6 +159,8 @@ def run_code(stage: Path, receipt: dict, code: str, script: str, exe: str, befor
         "addedAssets": added[:100],
         "removedAssets": removed[:100],
         "modifiedAssets": modified[:100],
+        "addedAssetHashes": {k: after_assets[k] for k in added[:100]},
+        "modifiedAssetHashes": {k: after_assets[k] for k in modified[:100]},
         "assetCounts": {"added": len(added), "removed": len(removed), "modified": len(modified)},
         "protectedChanges": modified_protected,
         "requiresReview": True,
