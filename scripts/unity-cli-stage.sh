@@ -64,6 +64,14 @@ else
     echo "$action requires a Windows drive --session-windows and no --source" >&2; exit 64;
   }
 fi
+# Do not overlap the operator pilot with a Supervisor-owned Unity lease.
+# This is a conservative preflight, not a substitute for the Stage C broker.
+STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+if [[ -d "$STATE_ROOT/locks/unity-editor.lock" ]]; then
+  echo "Supervisor currently holds the unity-editor lock; stop or finish that job first" >&2
+  exit 82
+fi
+
 if [[ -n "$cli_windows" && ! "$cli_windows" =~ ^[A-Za-z]:[\\/] ]]; then
   echo "--cli-windows must identify a Windows executable" >&2
   exit 64
