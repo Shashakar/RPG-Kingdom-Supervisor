@@ -49,7 +49,9 @@ default Windows installation directory:
 
 The installed stage gets the *sandbox SID* Modify access; the pinned copied
 agent/config are read-only to that identity. Requests are operator-writable
-and sandbox-readable, responses are sandbox-writable. Task registration
+and sandbox-readable, responses are sandbox-writable. Sandbox-writable
+telemetry resides under a separate `queue/status/` directory; the mailbox
+parent and operator request inbox are not sandbox-writable. Task registration
 uses `Get-Credential` in elevated PowerShell and hands the password only to
 Windows Task Scheduler, not a Supervisor worker. Task is **on demand**,
 limited privilege and bounded to eight hours. No model can register,
@@ -118,12 +120,14 @@ powershell.exe -NoProfile -File .\scripts\windows\install-isolated-unity-host.ps
 powershell.exe -NoProfile -File .\scripts\windows\install-isolated-unity-host.ps1 -Action status -HostId isolated-<id>
 ```
 
-The Windows task starts under its registered restricted account, performs
+The Windows task starts under its registered restricted account, first verifies
+it cannot modify its trusted task/configuration or the operator request inbox,
+confirms it can write only to its own stage and status/response folders, and performs
 negative **read** probes against protected operator canaries and negative
 **write** probes against an operator directory. It fails closed if a probe
 succeeds or produces an inconclusive IO error. Only then does it start Unity.
 It attempts to open the pinned PlaytestScene and publishes
-`queue/probes.json`, `queue/editor.json` and `queue/ready.json` in
+`queue/status/probes.json`, `queue/status/editor.json` and `queue/status/ready.json` in
 ProgramData. The host grants no mailbox capability until all these exist
 and identify the pinned sandbox SID/Unity PID/scene.
 
