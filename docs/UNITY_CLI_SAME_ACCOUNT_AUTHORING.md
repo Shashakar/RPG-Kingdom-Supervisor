@@ -119,6 +119,38 @@ The script cleans its temporary WSL state; the generated Unity asset remains
 inside the disposable stage for visual inspection. Do not run it twice
 against the same stage.
 
+## Windows acceptance — passed on October 11, 2026
+
+The operator checked out `codex/209-unity-staged-editor-code` in the WSL
+Supervisor pilot checkout and tested the already-running Stage B disposable
+Windows Editor session
+`pilot-51ed865d003844629683ec72ba0125db`.
+
+- `python3 tests/unity-cli-staged-code-test.py`: **6 tests passed** (`Ran 6 tests in 0.104s; OK`).
+- `RPGK_UNITY_CLI_EXE=... bash scripts/unity-cli-staged-code-smoke.sh
+  --session-windows ...`: **PASS**, with a temporary synthetic issue
+  (`GH-999999`), host broker and operator-account Unity CLI/Pipeline.
+- Returned `success=true`, `operation=editor-staged-code`,
+  `scriptPath=AgentScripts/Smoke.cs`, `stageOnly=true`,
+  `copyback=false`, `assetCounts={added:2,removed:0,modified:0}`.
+- Added only
+  `Assets/RPGKingdom/Generated/AgentBenchmarks/SupervisorCodeSmoke.unity`
+  and its accompanying `.unity.meta` file within the disposable stage.
+- `originalStageSceneUnchanged=true`: the staged `PlaytestScene.unity`
+  SHA-256 was identical before and after the operation. No game repository
+  checkout files were copied, committed or merged.
+- Terminal confirmation:
+  `PASS: synthetic GH issue -> Supervisor broker -> agent C# -> staged scene; no copyback`.
+
+**Interpretation:** Same-account broker-mediated C# script execution and
+additive scene creation are verified on the actual Windows host. This smoke
+does **not** demonstrate an autonomous dispatched Codex worker, iterative
+modifications of the original staged terrain, Unity compilation/PlayMode
+results, screenshot/geometry validation or selective source promotion.
+It also does not provide Windows identity/filesystem sandboxing, which the
+operator elected to defer. The smoke scene is intentionally retained
+in the disposable stage; do not rerun the one-time smoke in that stage.
+
 ## Follow-up after read/write acceptance
 
 1. Integrate the operation into a real, issue-owned Supervisor Codex task
