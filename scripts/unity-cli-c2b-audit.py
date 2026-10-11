@@ -111,9 +111,6 @@ def canonical_json(path: Path) -> dict:
 
 def compare_packages(workspace: Path, stage: Path, ws: dict, staged: dict) -> None:
     """Allow only Unity Pipeline's *known* package addition to manifest/lock."""
-    for rel in ROOTS:
-        if rel not in ROOTS:
-            deny("impossible root mismatch")
     wskeys = set(ws)
     stkeys = set(staged)
     if wskeys != stkeys:
@@ -170,9 +167,9 @@ def baseline(workspace: Path, revision: str, state: Path, stage_windows: str) ->
         deny("stage does not contain expected scene")
     source_files, source_bytes = inventory(workspace)
     staged_files, staged_bytes = inventory(stage)
-    compare_packages(workspace, stage, source_files, staged_files)
     if CANDIDATE in staged_files:
         deny("benchmark output already exists; require fresh source stage for C2b baseline")
+    compare_packages(workspace, stage, source_files, staged_files)
     record = {
         "schemaVersion": PROTOCOL, "status": "baseline-attested",
         "issue": workspace.name, "workspace": str(workspace),
