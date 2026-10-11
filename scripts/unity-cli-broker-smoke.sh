@@ -18,6 +18,12 @@ while (($#)); do
   esac
 done
 [[ "$STAGE" =~ ^[A-Za-z]:\\ && -n "$SCENE" ]] || { usage; exit 64; }
+# Never compete with an already-owned production Supervisor Unity lease.
+REAL_STATE="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
+if [[ -d "$REAL_STATE/locks/unity-editor.lock" ]]; then
+  echo "Real Supervisor owns the Unity resource; do not run pilot smoke concurrently" >&2
+  exit 82
+fi
 [[ -n "${RPGK_UNITY_CLI_EXE:-}" && -f "$RPGK_UNITY_CLI_EXE" ]] || {
   echo "Set RPGK_UNITY_CLI_EXE to the WSL-accessible Windows unity.exe" >&2; exit 64;
 }
