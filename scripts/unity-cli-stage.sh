@@ -20,6 +20,7 @@ Usage:
   bash scripts/unity-cli-stage.sh stop --session-windows 'C:\...\UnityCliPilots\pilot-...'
 
 Optional: --cli-windows 'C:\path\to\unity.exe'.
+For start only: --editor-windows 'D:\Unity\Hub\Editor\6000.3.10f1\Editor\Unity.exe'.
 Operator-only disposable NTFS Editor lifecycle. 'install-pipeline' explicitly
 modifies the staged project's package manifest; it NEVER writes back to source.
 EOF
