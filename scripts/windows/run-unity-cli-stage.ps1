@@ -18,10 +18,10 @@ function FindCli {
   if (-not $cli) { Deny "Unity CLI not installed on Windows or -CliPath invalid" 20 }
   return $cli.Source
 }
-function ExecuteCli($exe, $args, $dir, $id, $seconds) {
+function ExecuteCli($exe, $commandArgs, $dir, $id, $seconds) {
   $out = Join-Path $dir ($id + ".out.txt")
   $err = Join-Path $dir ($id + ".err.txt")
-  $p = Start-Process -FilePath $exe -ArgumentList $args -PassThru -WorkingDirectory $dir -RedirectStandardOutput $out -RedirectStandardError $err
+  $p = Start-Process -FilePath $exe -ArgumentList $commandArgs -PassThru -WorkingDirectory $dir -RedirectStandardOutput $out -RedirectStandardError $err
   if (-not $p.WaitForExit($seconds * 1000)) {
     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     $p.WaitForExit()
