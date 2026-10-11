@@ -114,7 +114,8 @@ if ($Action -eq "install") {
   $queue=Join-Path $host "queue"
   $requests=Join-Path $queue "requests"
   $responses=Join-Path $queue "responses"
-  foreach ($path in @($Root,$host,$stage,$queue,$requests,$responses)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
+  $status=Join-Path $queue "status"
+  foreach ($path in @($Root,$host,$stage,$queue,$requests,$responses,$status)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
   # Source permissions are never edited, only destination ACLs.
   foreach ($folder in @("Assets","Packages","ProjectSettings")) {
     $dest=Join-Path $stage $folder
@@ -151,9 +152,12 @@ if ($Action -eq "install") {
   AclOnly $Root $account[1] $account[2] "ReadAndExecute" "FullControl"
   AclOnly $host $account[1] $account[2] "ReadAndExecute" "FullControl"
   AclOnly $stage $account[1] $account[2] "Modify" "FullControl"
-  AclOnly $queue $account[1] $account[2] "Modify" "FullControl"
+  # Do not grant sandbox delete/create rights on the parent of requests.
+  # Otherwise it could replace the trusted inbox despite its own restrictive ACL.
+  AclOnly $queue $account[1] $account[2] "ReadAndExecute" "FullControl"
   AclOnly $requests $account[1] $account[2] "ReadAndExecute" "Modify"
   AclOnly $responses $account[1] $account[2] "Modify" "Modify"
+  AclOnly $status $account[1] $account[2] "Modify" "FullControl"
   $taskName="RPGK-Unity-"+$id
   $exe=Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
   $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $agent + '" -ConfigPath "' + $config + '"'
