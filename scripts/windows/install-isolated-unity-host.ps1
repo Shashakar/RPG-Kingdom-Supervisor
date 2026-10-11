@@ -115,6 +115,17 @@ if ($Action -eq "install") {
     & robocopy.exe (Join-Path $source $folder) $dest /E /XJ /COPY:DAT /DCOPY:DAT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Fail "Stage-only robocopy failed; abort without launching Editor" }
   }
+  # Install ONLY the pinned experimental Pipeline package into the private
+  # project clone; the source checkout is never mutated.
+  $manifest=Join-Path $stage "Packages\manifest.json"
+  $manifestObject=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+  if (-not $manifestObject.dependencies) { Fail "Invalid Unity manifest dependencies" }
+  $current=$manifestObject.dependencies.PSObject.Properties["com.unity.pipeline"]
+  if ($current -and $current.Value -ne "0.8.0-exp.1") { Fail "Unsupported Pipeline version in stage" }
+  if (-not $current) {
+    $manifestObject.dependencies | Add-Member -MemberType NoteProperty -Name "com.unity.pipeline" -Value "0.8.0-exp.1"
+    $manifestObject | ConvertTo-Json -Depth 64 | Set-Content -LiteralPath $manifest -Encoding UTF8
+  }
   $agentSource=Join-Path $PSScriptRoot "run-isolated-unity-host.ps1"
   $agent=Join-Path $host "agent.ps1"
   Copy-Item -LiteralPath $agentSource -Destination $agent -ErrorAction Stop
