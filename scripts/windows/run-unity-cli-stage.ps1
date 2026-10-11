@@ -9,9 +9,6 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Join-Path $env:LOCALAPPDATA "RPGKingdomSupervisor\UnityCliPilots"
-function Emit($status, $details) {
-  ([ordered]@{schemaVersion=1;action=$Action;status=$status} + $details) | ConvertTo-Json -Compress -Depth 5
-}
 function Deny($reason, $code) {
   @{schemaVersion=1;action=$Action;status="blocked";reason=$reason} | ConvertTo-Json -Compress
   exit $code
