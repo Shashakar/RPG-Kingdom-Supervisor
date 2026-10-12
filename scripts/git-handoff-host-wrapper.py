@@ -374,6 +374,27 @@ def main() -> int:
     branch = str(payload.get("branch", "")) if isinstance(payload, dict) else ""
     completion_mode = str(payload.get("completionMode", "")) if isinstance(payload, dict) else ""
 
+    if operation == "stage-copyback":
+        # Client supplies only the issue's already-prepared branch. Host-selected
+        # stage and exact approved hashes are read from host-only state.
+        match = re.fullmatch(r"GH-([0-9]+)", workspace.name)
+        if match is None:
+            return emit_error("InvalidWorkspace", 81, "copyback requires GH-N workspace", operation=operation)
+        if any(key in payload for key in ("stagePath", "selectedPaths", "selectedHashes", "approvalFile")):
+            return emit_error("InvalidRequest", 64, "client may not select stage or copied files", operation=operation)
+        script = Path(__file__).with_name("git-stage-copyback-host.py")
+        state_root = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT",
+                                        str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
+        command = [sys.executable, str(script), "--workspace", str(workspace),
+                   "--workspace-root", str(workspace.parent), "--state-root", str(state_root),
+                   "--branch", branch, "--issue", match.group(1)]
+        result = subprocess.run(command, cwd=workspace, text=True, capture_output=True)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        if result.stdout:
+            print(result.stdout, end="")
+        return result.returncode
+
     if operation == "sync-main":
         if not (workspace / ATTEMPT_MARKER).exists():
             return emit_error("InvalidRequest", 64, "sync-main is only allowed for a reviewed rearm workspace", operation=operation)

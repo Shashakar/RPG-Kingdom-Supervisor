@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "sync-main", "prepare", "handoff"}
+ALLOWED_OPERATIONS = {"health", "sync-main", "prepare", "handoff", "stage-copyback"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 
