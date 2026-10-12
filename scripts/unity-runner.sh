@@ -16,6 +16,7 @@ Usage:
   unity-runner.sh editor-scene-summary [--project PATH] --scene ASSET_PATH  # explicitly granted, read-only
   unity-runner.sh editor-stage-benchmark [--project PATH] --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity  # stage-only, fixed action
   unity-runner.sh editor-staged-code [--project PATH] --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --script AgentScripts/NAME.cs
+  unity-runner.sh editor-staged-preflight [--project PATH] --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity  # read-only host preflight, no worker Windows access
   unity-runner.sh capture [--project PATH] --scene ASSET_PATH [--camera HIERARCHY_PATH] [--view-name NAME] [--position X,Y,Z] [--rotation X,Y,Z | --look-at HIERARCHY_PATH] [--fov DEGREES] [--reuse-stage-library] [--width PX] [--height PX]
 
 Environment overrides:
@@ -102,7 +103,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$command" in
-  health|editmode|playmode|capture|inspect|editor-scene-summary|editor-stage-benchmark|editor-staged-code) ;;
+  health|editmode|playmode|capture|inspect|editor-scene-summary|editor-stage-benchmark|editor-staged-code|editor-staged-preflight) ;;
   *)
     echo "Unknown Unity runner command: $command" >&2
     usage
@@ -110,12 +111,12 @@ case "$command" in
     ;;
 esac
 
-if [[ "$command" == "capture" || "$command" == "inspect" || "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" ]]; then
-  if [[ ( "$command" == "inspect" || "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" ) && ( -n "$camera_path" || -n "$view_name" || -n "$camera_position" || -n "$camera_rotation" || -n "$look_at_path" ) ]]; then
+if [[ "$command" == "capture" || "$command" == "inspect" || "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" || "$command" == "editor-staged-preflight" ]]; then
+  if [[ ( "$command" == "inspect" || "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" || "$command" == "editor-staged-preflight" ) && ( -n "$camera_path" || -n "$view_name" || -n "$camera_position" || -n "$camera_rotation" || -n "$look_at_path" ) ]]; then
     echo "RPG Kingdom Unity runner: inspect is read-only and does not accept camera pose arguments" >&2; exit 64
   fi
   [[ -n "$scene_path" ]] || { echo "RPG Kingdom Unity runner: $([[ "$command" == "capture" ]] && echo "capture requires" || echo "operation requires") --scene" >&2; exit 64; }
-  if [[ ( "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" ) && -n "$test_filter" ]]; then
+  if [[ ( "$command" == "editor-scene-summary" || "$command" == "editor-stage-benchmark" || "$command" == "editor-staged-code" || "$command" == "editor-staged-preflight" ) && -n "$test_filter" ]]; then
     echo "RPG Kingdom Unity runner: editor-scene-summary does not accept --filter" >&2; exit 64
   fi
   [[ "$scene_path" == Assets/*.unity ]] || { echo "RPG Kingdom Unity runner: --scene must be an Assets/*.unity path" >&2; exit 64; }
@@ -128,6 +129,11 @@ if [[ "$command" == "capture" || "$command" == "inspect" || "$command" == "edito
   }
 elif [[ -n "$scene_path" || -n "$camera_path" ]]; then
   echo "RPG Kingdom Unity runner: --scene/--camera are valid only for capture" >&2
+  exit 64
+fi
+
+if [[ "$command" == "editor-staged-preflight" && "$scene_path" != "Assets/RPGKingdom/Scenes/PlaytestScene.unity" ]]; then
+  echo "RPG Kingdom Unity runner: persistent preflight requires the fixed PlaytestScene" >&2
   exit 64
 fi
 
