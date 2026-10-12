@@ -76,6 +76,7 @@ takes the same POSIX flock used by the WSL Unity broker before it launches a
 Unity request. With that lock held, it rechecks broker idle, absent Unity
 resource lease, grant revision/PID/stage and full stage-manifest digest before
 writing a private, persistent "draining" marker to the WSL host state root.
+New Unity resource-lease admissions also check the same WSL gate lock.
 All subsequent broker requests (including health and preflight) receive
 StageDraining, and broker status eventually reports "draining".
 The C5e inspection also rejects the marker immediately, before status refresh.
