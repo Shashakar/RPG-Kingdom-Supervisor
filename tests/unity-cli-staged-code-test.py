@@ -195,6 +195,33 @@ class CodeTests(unittest.TestCase):
         with self.assertRaises(code.ro.Denied):
             code.code_path(self.ws, "AgentScripts/Test.cs")
 
+    def test_host_broker_preflight_does_not_require_lease_or_accept_scripts(self):
+        requests = self.ws / "Logs/SymphonyUnity/.broker/requests"
+        requests.mkdir(parents=True)
+        req = requests / "preflight.json"
+        base = {"protocolVersion": 1, "requestId": "preflight",
+                "operation": "editor-staged-preflight", "scenePath": code.SCENE}
+        req.write_text(json.dumps(base))
+        # Preflight runs BEFORE the guard has acquired an issue-specific lease.
+        self.assertFalse((self.state / "locks/unity-editor.lock").exists())
+        spec = broker.prepare_request(req, self.workspaces, self.state)
+        self.assertIsInstance(spec, broker.RequestSpec)
+        with patch.object(broker.subprocess, "Popen") as popen:
+            active = broker.start_operation(spec, self.state, self.root / "unused-host")
+            cmd = popen.call_args.args[0]
+            self.assertIn("unity-cli-staged-code.py", cmd[1])
+            self.assertIn("preflight", cmd)
+            self.assertNotIn("run", cmd)
+            broker.close_operation(active)
+        req.write_text(json.dumps(dict(base, scriptPath="AgentScripts/Test.cs")))
+        denied = broker.prepare_request(req, self.workspaces, self.state)
+        self.assertIsInstance(denied, dict)
+        self.assertNotEqual(denied.get("status"), "succeeded")
+        req.write_text(json.dumps(dict(base, scenePath="Assets/OtherScene.unity")))
+        denied = broker.prepare_request(req, self.workspaces, self.state)
+        self.assertIsInstance(denied, dict)
+        self.assertNotEqual(denied.get("status"), "succeeded")
+
     def test_ignored_report_only_script_and_broker_request(self):
         folder = self.ws / "Logs/SymphonyUnity/AgentScripts"
         folder.mkdir(parents=True)
