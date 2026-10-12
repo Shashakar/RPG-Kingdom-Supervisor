@@ -15,7 +15,7 @@ Unity executes worker-authored C# as the normal Windows user. The protective bou
 - scripts/windows/Test-C5hSnapshotGuardian.ps1
 - scripts/windows/Test-C5hWorkerDenied.ps1
 
-Copy the reviewed C# source and installer to the dedicated trusted-source directory. The parent and source directory must have disabled ACL inheritance, only SYSTEM/Administrators allowed, and BUILTIN\Administrators as OWNER. Files must also be SYSTEM/Administrators-owned. A suitable administrative **preparation example** is:
+Copy the reviewed C# source, installer, privileged audit, and unelevated worker test (all four files) to the dedicated trusted-source directory. The parent and source directory must have disabled ACL inheritance, only SYSTEM/Administrators allowed, and BUILTIN\Administrators as OWNER. Files must also be SYSTEM/Administrators-owned. A suitable administrative **preparation example** is:
 
     $base = Join-Path $env:ProgramData 'RPGKingdomSupervisor\C5h'
     $trusted = Join-Path $base 'trusted-source'
@@ -28,6 +28,8 @@ Copy the reviewed C# source and installer to the dedicated trusted-source direct
     # Copy vetted exact source and installer into $trusted from trusted storage.
     icacls.exe (Join-Path $trusted 'C5hSnapshotGuardian.cs') /setowner '*S-1-5-32-544'
     icacls.exe (Join-Path $trusted 'Install-C5hSnapshotGuardian.ps1') /setowner '*S-1-5-32-544'
+    icacls.exe (Join-Path $trusted 'Test-C5hSnapshotGuardian.ps1') /setowner '*S-1-5-32-544'
+    icacls.exe (Join-Path $trusted 'Test-C5hWorkerDenied.ps1') /setowner '*S-1-5-32-544'
     Get-FileHash (Join-Path $trusted 'C5hSnapshotGuardian.cs') -Algorithm SHA256
 
 Verify the expected SHA256 independently of any worker-supplied terminal output or issue prose; using an arbitrary hash supplied by the worker does not validate trust.
@@ -49,7 +51,11 @@ After review and installation, a privileged operator deliberately starts only th
 
 Test-C5hSnapshotGuardian.ps1 verifies the live SCM process PID and user SID, executable/parent ownership, private directory ACEs, and exact source/snapshot synthetic SHA256 and fixture receipt. It returns flags denying real-stage use, stage freeze, independent human authorization and copyback.
 
-Separately run Test-C5hWorkerDenied.ps1 as the **actual unelevated Unity Windows user**. The negative test refuses elevated execution and verifies that this identity cannot enumerate private storage or start the protected SCM service. An absent service or ambiguous failure is not counted as a permission denial. Any unexpectedly allowed operation invalidates the result.
+Separately run the installer-deployed, Administrator-owned/read-only worker-test/Test-C5hWorkerDenied.ps1 as the **actual unelevated Unity Windows user**. The negative test refuses elevated execution and verifies that this identity cannot enumerate private storage or start the protected SCM service. An absent service or ambiguous failure is not counted as a permission denial. The installer creates a worker-test directory whose only nonadministrator grant is Authenticated Users read/execute; the test script is owned by Administrators, so worker-authored Unity C# cannot edit the code being executed. Any unexpectedly allowed operation invalidates the result.
+
+Run the test from the protected location, not a mutable copy:
+
+    & (Join-Path $base 'worker-test\Test-C5hWorkerDenied.ps1')
 
 The operator may stop the service explicitly after acceptance:
 
