@@ -81,7 +81,11 @@ All subsequent broker requests (including health and preflight) receive
 StageDraining, and broker status eventually reports "draining".
 The C5e inspection also rejects the marker immediately, before status refresh.
 The broker fails closed on corrupt/linked/over-permissive marker state and
-preserves the drain across broker restarts.
+preserves the drain across broker restarts. Before launching a child, the broker
+also writes a dispatch reservation under that lock; any restart with an
+ambiguous unfinished reservation remains blocked, including across further
+restarts, until an operator separately verifies actual process ownership.
+Do not clear an ambiguous reservation merely because its PID was not recorded.
 
 Activation returns an operationId to cancel that *broker scheduling* drain,
 only after verifying exact issue/operation identity and idle live broker:
