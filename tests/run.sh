@@ -7,6 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # C5e focused safety checks run before unrelated timing-sensitive broker tests.
 python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 python3 "$ROOT/tests/unity-stage-authority-audit-test.py"
+python3 "$ROOT/tests/unity-stage-operator-drain-test.py"
 
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/workflow-policy-alignment-test.sh"
@@ -133,6 +134,8 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-promotion-recovery-lab.py" \
   "$ROOT/scripts/unity-stage-host-preflight.py" \
   "$ROOT/scripts/unity-stage-authority-audit.py" \
+  "$ROOT/scripts/unity-stage-drain-gate.py" \
+  "$ROOT/scripts/unity-stage-operator-drain.py" \
   "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
