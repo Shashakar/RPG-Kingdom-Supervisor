@@ -91,6 +91,12 @@ class StageHandoffTests(unittest.TestCase):
         self.assertEqual(cmd(self.ws, "diff", "--name-only"), scene)
         self.assertEqual(cmd(self.ws, "status", "--porcelain").strip(), "M " + scene)
 
+    def test_apply_does_not_need_live_github_network(self):
+        cmd(self.ws, "remote", "set-url", "origin", "/definitely/not/a/reachable/git/remote")
+        result = handoff.apply(self.ws, self.stage, "codex/260-offline-copy", [scene])
+        self.assertEqual(result["status"], "copied-to-feature-branch")
+        self.assertEqual(cmd(self.ws, "branch", "--show-current"), "codex/260-offline-copy")
+
     def test_new_scene_copies_meta_and_parent_meta_with_no_urp(self):
         self.proof_fixture()
         result = handoff.apply(self.ws, self.stage, "codex/261-stage-proof", [proof])
