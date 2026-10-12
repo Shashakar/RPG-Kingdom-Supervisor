@@ -1284,7 +1284,13 @@ def main() -> int:
                     last_result = last_result_snapshot(stopped)
                 close_operation(active)
 
-        write_status("stopped")
+        # A clean SIGTERM does not resolve an unknown in-flight dispatch.
+        # Preserve the uncertainty across every subsequent broker restart.
+        if (inherited_owner is not None
+                and inherited_owner.get("recoveryReason") == "ambiguous_dispatch_reservation"):
+            write_status("blocked", inherited_owner)
+        else:
+            write_status("stopped")
         try:
             (broker_root / "pid").unlink()
         except FileNotFoundError:
