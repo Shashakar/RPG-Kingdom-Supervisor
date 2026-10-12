@@ -150,12 +150,8 @@ def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str]) 
     if git(workspace, "show-ref", "--verify", "--quiet", "refs/remotes/origin/" + branch,
            check=False).returncode == 0:
         raise StageHandoffDenied("remote-tracking feature branch already exists")
-    remote = git(workspace, "ls-remote", "--exit-code", "--heads", "origin", branch,
-                 check=False)
-    if remote.returncode == 0:
-        raise StageHandoffDenied("remote feature branch already exists")
-    if remote.returncode != 2:
-        raise StageHandoffDenied("could not check remote branch availability")
+    # No network dependency here. The existing Git host handoff checks the
+    # live remote when publishing and refuses non-fast-forward pushes.
     for entry in entries:
         rel = entry["path"]
         if not file_is_plain(stage, rel) or not file_is_plain(workspace, rel):
