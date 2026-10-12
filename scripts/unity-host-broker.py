@@ -992,9 +992,19 @@ def main() -> int:
     last_result: dict[str, Any] | None = None
     active: ActiveOperation | None = None
     inherited_owner: dict[str, Any] | None = None
-    if previous_status is not None and previous_status.get("state") in {"running", "blocked"}:
+    if previous_status is not None and previous_status.get("state") in {"running", "blocked", "dispatching"}:
         candidate_owner = previous_status.get("activeRequest")
-        if isinstance(candidate_owner, dict):
+        if (previous_status.get("state") == "dispatching"
+                or isinstance(candidate_owner, dict)
+                and candidate_owner.get("recoveryReason") == "ambiguous_dispatch_reservation"):
+            # A prior process may have launched a Unity child between Popen and
+            # recording its PID. Never recover automatically just because a PID
+            # is missing; this needs explicit host process-census reconciliation.
+            inherited_owner = dict(candidate_owner) if isinstance(candidate_owner, dict) else {}
+            inherited_owner["recoveryReason"] = "ambiguous_dispatch_reservation"
+            inherited_owner["recoveryBlocked"] = True
+            inherited_owner["inheritedFromBrokerPid"] = previous_status.get("pid")
+        elif isinstance(candidate_owner, dict):
             try:
                 inherited_pid = int(candidate_owner.get("childPid") or 0)
             except (TypeError, ValueError):
@@ -1080,7 +1090,11 @@ def main() -> int:
                     inherited_pid = int(inherited_owner.get("childPid") or 0)
                 except (TypeError, ValueError):
                     inherited_pid = 0
-                if inherited_pid <= 0 or not process_is_alive(inherited_pid):
+                if inherited_owner.get("recoveryReason") == "ambiguous_dispatch_reservation":
+                    if now - last_status_write >= 1.0:
+                        write_status("blocked", inherited_owner)
+                        last_status_write = now
+                elif inherited_pid <= 0 or not process_is_alive(inherited_pid):
                     last_result = {
                         "requestId": inherited_owner.get("requestId"),
                         "operation": inherited_owner.get("operation"),
@@ -1207,8 +1221,23 @@ def main() -> int:
                     with stage_gate.locked(state_root) as gate_root:
                         drain_record = stage_gate.read_locked(gate_root)
                         if drain_record is None:
+                            # The reservation closes the post-Popen/pre-status
+                            # window. If the host dies mid-launch, a restarted
+                            # broker must block, never infer that no child exists.
+                            write_status("dispatching", {
+                                "requestId": prepared.request_id,
+                                "operation": prepared.operation,
+                                "workspace": str(prepared.workspace),
+                                "childPid": None,
+                                "recoveryReason": "ambiguous_dispatch_reservation",
+                            })
                             active = start_operation(prepared, state_root, host_runner)
+                            write_status("running", active_snapshot(active))
                 except (stage_gate.DrainDenied, OSError) as exc:
+                    if active is not None:
+                        # A child may have launched before status persistence
+                        # failed. Do not continue serving worker requests.
+                        raise
                     denied = response_for_error(
                         prepared.request_id, prepared.operation, 82,
                         f"RPG Kingdom Unity broker: stage drain gate unavailable: {exc}",
@@ -1228,7 +1257,6 @@ def main() -> int:
                     last_status_write = time.monotonic()
                     continue
 
-                write_status("running", active_snapshot(active))
                 last_status_write = time.monotonic()
                 break
 
