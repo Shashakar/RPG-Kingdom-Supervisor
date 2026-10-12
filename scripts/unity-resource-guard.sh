@@ -188,8 +188,18 @@ acquire_lock() {
     LOCK_BLOCKING_OWNER="invalid-stage-drain-state"
     return 1
   fi
+  local original_umask
+  original_umask="$(umask)"
+  umask 077
   if [[ -L "$gate_dir/gate.lock" ]] || ! exec {gate_fd}>>"$gate_dir/gate.lock"; then
+    umask "$original_umask"
     LOCK_BLOCKING_OWNER="invalid-stage-drain-lock"
+    return 1
+  fi
+  umask "$original_umask"
+  if [[ "$(stat -c '%a' "$gate_dir/gate.lock")" != "600" ]]; then
+    LOCK_BLOCKING_OWNER="insecure-stage-drain-lock"
+    exec {gate_fd}>&-
     return 1
   fi
   if ! flock -x "$gate_fd"; then
