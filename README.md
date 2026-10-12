@@ -150,6 +150,9 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
 - [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
 - [`scripts/unity-cli-c2b-audit.py`](scripts/unity-cli-c2b-audit.py) — operator-only clean Git worktree vs staged Unity file-hash attestation and **dry-run** stage asset delta audit (no copyback).
+- [`scripts/unity-cli-staged-code.py`](scripts/unity-cli-staged-code.py) — operator-approved existing-Windows-account C# Editor scripts through the issue-owned Supervisor broker, limited to the disposable Unity stage **as a workflow contract**, with asset-change receipts and **no automatic source copyback**. The separate Windows account is optional/deferred. See [`docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md`](docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md).
+- [`scripts/unity-c3-real-worker-setup.py`](scripts/unity-c3-real-worker-setup.py) — prepares a clean **real GH-N** game workspace and verifies a newly staged Unity Editor originated from that exact checkout before issuing the operator grant. Trial issue: [RPG Kingdom #261](https://github.com/Shashakar/RPG-Kingdom/issues/261); guide: [`docs/UNITY_C3_REAL_WORKER_TRIAL.md`](docs/UNITY_C3_REAL_WORKER_TRIAL.md).
+
 - [`scripts/windows/check-unity-cli-isolation.ps1`](scripts/windows/check-unity-cli-isolation.ps1) — operator-only Windows process owner SID inspection; deliberately does not declare a secure sandbox without a separate identity and denial tests. See [`docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md`](docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md).
 
 
@@ -224,3 +227,9 @@ Prefab derivative authoring is separately authorized and bounded to `create-pref
 ## Unity CLI / Pipeline exploration
 
 A feature-gated migration is being evaluated in [docs/UNITY_CLI_PILOT.md](docs/UNITY_CLI_PILOT.md). The initial implementation is **operator-only, read-only diagnostics** via `bash scripts/unity-cli-pilot.sh`; it does not enable Unity CLI or arbitrary Editor C# for Codex workers, alter the Unity staging/authoring runner, or relax human scene-merge approval. Stage B adds an opt-in, operator-only disposable NTFS project session; see [docs/UNITY_CLI_STAGE.md](docs/UNITY_CLI_STAGE.md). The current brokered Unity path remains authoritative.
+
+C5d (#222) documents a dry-run-only Unity staged asset promotion transaction with fail-closed simulated rollback; see [C5d promotion design](docs/UNITY_C5D_PROMOTION_TRANSACTION.md). No live copyback or promotion authority is enabled.
+
+C5d crash-recovery testing is documented in [the scratch transaction lab](docs/UNITY_C5D_SCRATCH_RECOVERY.md); it never copies actual Unity assets.
+
+C5e host-only read-only Unity stage inspection: [operator instructions and limitations](docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md). It does not freeze the Editor or authorize asset copyback.

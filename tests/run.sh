@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# C5e focused safety checks run before unrelated timing-sensitive broker tests.
+python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 
 bash "$ROOT/tests/routing-policy-test.sh"
 bash "$ROOT/tests/workflow-policy-alignment-test.sh"
@@ -78,6 +82,13 @@ bash "$ROOT/tests/continuation-context-policy-test.sh"
 python3 "$ROOT/tests/unity-cli-readonly-test.py"
 python3 "$ROOT/tests/unity-cli-stage-benchmark-test.py"
 python3 "$ROOT/tests/unity-cli-c2b-audit-test.py"
+python3 "$ROOT/tests/unity-cli-staged-code-test.py"
+python3 "$ROOT/tests/unity-stage-proposal-test.py"
+python3 "$ROOT/tests/unity-stage-approval-verify-test.py"
+python3 "$ROOT/tests/unity-stage-approval-issue-test.py"
+python3 "$ROOT/tests/unity-stage-promotion-dryrun-test.py"
+python3 "$ROOT/tests/unity-promotion-recovery-lab-test.py"
+python3 "$ROOT/tests/unity-c3-real-worker-setup-test.py"
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
@@ -113,6 +124,14 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-cli-readonly.py" \
   "$ROOT/scripts/unity-cli-stage-benchmark.py" \
   "$ROOT/scripts/unity-cli-c2b-audit.py" \
+  "$ROOT/scripts/unity-cli-staged-code.py" \
+  "$ROOT/scripts/unity-stage-proposal.py" \
+  "$ROOT/scripts/unity-stage-approval-verify.py" \
+  "$ROOT/scripts/unity-stage-approval-issue.py" \
+  "$ROOT/scripts/unity-stage-promotion-dryrun.py" \
+  "$ROOT/scripts/unity-promotion-recovery-lab.py" \
+  "$ROOT/scripts/unity-stage-host-preflight.py" \
+  "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
 bash -n "$ROOT/scripts/after-run-guard.sh"
@@ -130,6 +149,7 @@ bash -n "$ROOT/scripts/run-symphony.sh"
 bash -n "$ROOT/scripts/unity-author.sh"
 bash -n "$ROOT/scripts/unity-cli-broker-smoke.sh"
 bash -n "$ROOT/scripts/unity-cli-stage-benchmark-smoke.sh"
+bash -n "$ROOT/scripts/unity-cli-staged-code-smoke.sh"
 bash -n "$ROOT/scripts/unity-author-host.sh"
 bash -n "$ROOT/scripts/unity-resource-guard.sh"
 bash -n "$ROOT/scripts/visual-review-pr.sh"
