@@ -204,11 +204,17 @@ class StageHostInspectionTests(unittest.TestCase):
         with self.assertRaisesRegex(inspect.proposal.AuditDenied, "not clean"):
             self.check()
         (self.ws / "Assets/untracked.txt").unlink()
-        # Advance local HEAD with a real empty commit; origin/main stays pinned.
-        # Git rejects update-ref to an object that does not exist.
+        # Move only origin/main to an actual commit, keeping the operator
+        # grant bound to the original HEAD. This reaches the source gate.
         subprocess.run(["git", "-C", str(self.ws), "-c", "user.name=Test",
                         "-c", "user.email=test@test", "commit",
                         "--allow-empty", "-qm", "advance"], check=True)
+        other_head = subprocess.check_output(
+            ["git", "-C", str(self.ws), "rev-parse", "HEAD"], text=True).strip()
+        subprocess.run(["git", "-C", str(self.ws), "reset",
+                        "--hard", self.rev], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.ws), "update-ref",
+                        "refs/remotes/origin/main", other_head], check=True)
         with self.assertRaisesRegex(inspect.proposal.AuditDenied, "origin/main"):
             self.check()
 
