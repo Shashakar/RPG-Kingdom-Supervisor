@@ -72,6 +72,21 @@ esac
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
 
+cat > "$TMP/fake-persistent-preflight.py" <<'EOF'
+#!/usr/bin/env python3
+import os, sys
+if len(sys.argv) < 2 or sys.argv[1] != "preflight":
+    print("unexpected persistent preflight action", file=sys.stderr)
+    sys.exit(64)
+if os.environ.get("FAKE_PERSISTENT_STATUS", "0") != "0":
+    print("stage grant, Editor PID or process census does not match", file=sys.stderr)
+    sys.exit(int(os.environ["FAKE_PERSISTENT_STATUS"]))
+print('{"status":"ready","mode":"operator-granted-persistent-unity-editor","assetImportWorkerPids":[2064],"copyback":false}')
+EOF
+chmod +x "$TMP/fake-persistent-preflight.py"
+export RPGK_UNITY_PERSISTENT_PREFLIGHT="$TMP/fake-persistent-preflight.py"
+
+
 export PATH="$TMP/bin:$PATH"
 export SYMPHONY_GITHUB_TOKEN="test-token"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
@@ -122,6 +137,51 @@ set -e
 
 export RPGK_UNITY_GUARD_DRY_RUN=0
 export FAKE_UNITY_HEALTH_STATUS=0
+
+# Real-worker persistent Editor label must bypass *only* the batchmode idle
+# check, use its issue-bound host preflight, and acquire the normal exclusive
+# lock. An unrelated Editor or stale grant must fail closed before Codex.
+clear_lock
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-optional"},{"name":"completion:report-only"},{"name":"authoring:editor-staged-code"}]'
+export FAKE_UNITY_HEALTH_STATUS=89
+FAKE_PERSISTENT_STATUS=0 run_guard >/dev/null
+[[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-123" ]] || {
+  echo "persistent Editor did not acquire exclusive Unity lease" >&2
+  exit 1
+}
+(cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
+clear_lock
+set +e
+FAKE_PERSISTENT_STATUS=82 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 76 ]] || {
+  echo "missing/mismatched stage grant must halt before worker, got $status" >&2
+  exit 1
+}
+[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || {
+  echo "failed persistent preflight must not acquire Unity lease" >&2
+  exit 1
+}
+clear_lock
+set +e
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"completion:report-only"},{"name":"authoring:editor-staged-code"}]' FAKE_PERSISTENT_STATUS=0 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 75 ]] || {
+  echo "required batchmode validation cannot be combined with persistent Editor trial: $status" >&2
+  exit 1
+}
+clear_lock
+# Normal Unity jobs must NOT inherit the persistent exception.
+set +e
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-optional"}]' FAKE_UNITY_HEALTH_STATUS=89 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 76 ]] || {
+  echo "unlabeled Unity job bypassed normal idle-host check: $status" >&2
+  exit 1
+}
 
 # Explicit scene-authoring prose without the machine-readable authorization label
 # must fail before Unity health/smoke or a Codex lifetime is consumed.
