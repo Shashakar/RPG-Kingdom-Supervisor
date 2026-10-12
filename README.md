@@ -231,3 +231,5 @@ A feature-gated migration is being evaluated in [docs/UNITY_CLI_PILOT.md](docs/U
 C5d (#222) documents a dry-run-only Unity staged asset promotion transaction with fail-closed simulated rollback; see [C5d promotion design](docs/UNITY_C5D_PROMOTION_TRANSACTION.md). No live copyback or promotion authority is enabled.
 
 C5d crash-recovery testing is documented in [the scratch transaction lab](docs/UNITY_C5D_SCRATCH_RECOVERY.md); it never copies actual Unity assets.
+
+C5e host-only read-only Unity stage inspection: [operator instructions and limitations](docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md). It does not freeze the Editor or authorize asset copyback.
