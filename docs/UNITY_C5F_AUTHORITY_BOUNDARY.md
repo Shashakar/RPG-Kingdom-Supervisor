@@ -62,3 +62,48 @@ Local deterministic test (does not touch Windows, Unity, or source files):
 - [ ] Obtain human review of evidence/rollback steps. Live copyback and Unity validation remain separately authorized work.
 
 No existing worker-exposed broker command was expanded. No production scene edits, approval grants, nonce spending, feature asset copy or GH-260 rearm were performed.
+
+
+## C5f broker dispatch drain (phase 2, code complete; Windows host unverified)
+
+New cooperating-host WSL gate scripts:
+
+    python3 scripts/unity-stage-operator-drain.py activate \
+      --workspace "$HOME/code/rpg-kingdom-symphony-workspaces/GH-261"
+
+This command calls the C5e read-only ownership/consistency inspection, then
+takes the same POSIX flock used by the WSL Unity broker before it launches a
+Unity request. With that lock held, it rechecks broker idle, absent Unity
+resource lease, grant revision/PID/stage and full stage-manifest digest before
+writing a private, persistent "draining" marker to the WSL host state root.
+All subsequent broker requests (including health and preflight) receive
+StageDraining, and broker status eventually reports "draining".
+The C5e inspection also rejects the marker immediately, before status refresh.
+The broker fails closed on corrupt/linked/over-permissive marker state and
+preserves the drain across broker restarts.
+
+Activation returns an operationId to cancel that *broker scheduling* drain,
+only after verifying exact issue/operation identity and idle live broker:
+
+    python3 scripts/unity-stage-operator-drain.py cancel \
+      --issue GH-261 --operation-id EXACT_OPERATION_ID_FROM_ACTIVATION
+
+A crash or uncertain broker status blocks cancellation until operator recovery.
+This cancel command is procedural scheduling control, **NOT** a human-authenticated
+approval: same-user code may still be able to invoke it. Do not store the ID
+as a secret and do not treat it as an authorization token.
+
+Critically, the persistent Windows Unity Editor remains running immediately
+after activation. Worker C# or other same-account Windows processes could
+still edit the stage directly. The WSL flock does not lock Windows files.
+The marker is therefore explicitly **broker-dispatch-draining-not-frozen**,
+and cannot be fed to promotion. The protected-service account, safe Editor
+handoff, verified Windows process census, exclusive private snapshot and
+independent user-presence ceremony remain separate mandatory follow-on work.
+
+Deterministic tests include a real synthetic broker subprocess to prove that
+a staged request cannot launch across activation, that malformed/linked state
+blocks, and that broker restart preserves the deny. No actual Unity tests
+or Windows-volume validation are claimed. Run:
+
+    python3 tests/unity-stage-operator-drain-test.py
