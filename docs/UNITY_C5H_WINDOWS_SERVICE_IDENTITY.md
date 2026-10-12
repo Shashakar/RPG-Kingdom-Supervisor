@@ -1,6 +1,6 @@
 # C5h Windows service identity acceptance (Supervisor #228)
 
-**Status: code plus Windows compilation checks only. Not installed or verified on the actual host.** This phase adds a Windows ServiceBase executable under the built-in LocalService identity, with a restricted, service-specific SID and private NTFS storage. The service only writes a fixed, compiled-in synthetic text fixture to private storage and validates its own service SID and directory ACL. No listener, IPC endpoint, stage path, snapshot request, secret, WebAuthn, promotion, or live game asset write is provided.
+**Status: code plus Windows compilation checks only. Not installed or verified on the actual host.** This phase adds a Windows ServiceBase executable under the dedicated Windows virtual service account, with a restricted, service-specific SID and private NTFS storage. The service only writes a fixed, compiled-in synthetic text fixture to private storage and validates its own service SID and directory ACL. No listener, IPC endpoint, stage path, snapshot request, secret, WebAuthn, promotion, or live game asset write is provided.
 
 ### Trust boundary
 
@@ -38,7 +38,7 @@ From the elevated, operator-controlled Windows PowerShell 5.1 shell, run the sep
 
 The installer refuses user-owned/inherited/linked trusted source, mismatched approved source SHA256, preexisting service or installation destination. It compiles from a separate protected copy of the C# source and assigns the executable and data directory ownership to Administrators.
 
-It registers SCM service RPGKSnapshotGuardian under NT AUTHORITY\LocalService with restricted service SID NT SERVICE\RPGKSnapshotGuardian, hardens service control to SYSTEM/Administrators, and permits only that service SID (plus SYSTEM/Administrators) to access service-private data. The binary is read-only for LocalService. The service is configured for MANUAL start, with no worker-command or auto-start path.
+It registers SCM service RPGKSnapshotGuardian under NT SERVICE\RPGKSnapshotGuardian with restricted service SID NT SERVICE\RPGKSnapshotGuardian, hardens service control to SYSTEM/Administrators, and permits only that service SID (plus SYSTEM/Administrators) to access service-private data. The binary is read-only for the unique virtual service account. The service is configured for MANUAL start, with no worker-command or auto-start path.
 
 ### Verify on the actual Windows host
 
@@ -62,7 +62,7 @@ Do not erase failure evidence, force an active Editor shutdown, grant a new work
 | Capability | Status |
 | --- | --- |
 | Windows ServiceBase compilation | Windows CI check; host execution pending |
-| Separate LocalService process and service-specific SID | Provisioning implemented; requires host attestation |
+| Separate dedicated virtual account process and service-specific SID | Provisioning implemented; requires host attestation |
 | Service data ACL and Administrators ownership | Provisioning + audit implemented; requires host attestation |
 | Worker denied reading private files and starting service | Negative test provided; requires actual worker-host run |
 | Protected service-generated snapshot | Synthetic fixture only |
