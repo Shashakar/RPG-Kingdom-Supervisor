@@ -84,6 +84,7 @@ python3 "$ROOT/tests/unity-stage-approval-verify-test.py"
 python3 "$ROOT/tests/unity-stage-approval-issue-test.py"
 python3 "$ROOT/tests/unity-stage-promotion-dryrun-test.py"
 python3 "$ROOT/tests/unity-promotion-recovery-lab-test.py"
+python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 python3 "$ROOT/tests/unity-c3-real-worker-setup-test.py"
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
@@ -126,6 +127,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-stage-approval-issue.py" \
   "$ROOT/scripts/unity-stage-promotion-dryrun.py" \
   "$ROOT/scripts/unity-promotion-recovery-lab.py" \
+  "$ROOT/scripts/unity-stage-host-preflight.py" \
   "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
