@@ -9,6 +9,7 @@ user; this is not an OS security sandbox.
 ## State and constraints
 
 - RPG Kingdom issue: https://github.com/Shashakar/RPG-Kingdom/issues/261
+- Additional required label: `authoring:editor-staged-code` (dedicated persistent Editor preflight; not production scene authority).
 - Required labels already on that issue: \`completion:report-only\`,
   \`resource:unity-editor\`, \`validation:unity-optional\`.
 - **Do not add \`symphony:ready\` yet.** Setup must succeed first.
@@ -147,6 +148,8 @@ mandatory batchmode readiness smoke competing with the persistent Editor.
 Inside the real \`GH-261\` workspace, the worker should put temporary C#
 scripts at \`Logs/SymphonyUnity/AgentScripts/Create.cs\`,
 \`Modify.cs\`, and \`Verify.cs\`. These paths are ignored by Git.
+
+The issue's dedicated persistent-Editor label keeps the **generic batchmode idle-host** preflight unchanged for other tasks. For this job, Supervisor instead verifies the exact issue/PID/stage grant and that every running Unity.exe process is either the granted Editor or its same-stage asset import worker. Any unrelated Editor or stale grant blocks dispatch.
 
 The worker invokes the existing broker for each script, e.g.:
 
