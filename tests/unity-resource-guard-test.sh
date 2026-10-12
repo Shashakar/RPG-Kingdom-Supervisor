@@ -326,4 +326,17 @@ owner="$(cat "$TMP/state/locks/unity-editor.lock/owner")"
 [[ "$owner" == "GH-123" || "$owner" == "GH-124" ]] || { echo "unexpected contention winner: $owner" >&2; exit 1; }
 
 rm -rf "$TMP/state/locks/unity-editor.lock"
+
+# A C5f operator drain blocks fresh Unity resource lease acquisition even
+# when the fake Unity runner reports healthy.
+mkdir -p -m 700 "$TMP/state/unity-stage-drain"
+printf '%s\n' '{"schemaVersion":1,"phase":"draining","issue":"GH-261"}' > "$TMP/state/unity-stage-drain/state.json"
+set +e
+run_guard GH-123 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 77 ]] || { echo "expected C5f stage drain to deny lease with 77, got $status" >&2; exit 1; }
+[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "stage drain must not acquire Unity lease" >&2; exit 1; }
+rm -f "$TMP/state/unity-stage-drain/state.json"
+
 echo "unity-resource-guard-test: PASS"
