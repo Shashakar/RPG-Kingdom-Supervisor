@@ -139,6 +139,8 @@ def plan(workspace: Path, stage: Path, selected_paths: list[str]) -> dict:
 
 def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str]) -> dict:
     branch = checked_branch(branch)
+    if not selected_paths:
+        raise StageHandoffDenied("apply requires at least one explicit --path")
     # Build the precise selection while issue workspace is still clean/main.
     transaction = plan(workspace, stage, selected_paths)
     entries = transaction["selected"]
@@ -148,9 +150,12 @@ def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str]) 
     if git(workspace, "show-ref", "--verify", "--quiet", "refs/remotes/origin/" + branch,
            check=False).returncode == 0:
         raise StageHandoffDenied("remote-tracking feature branch already exists")
-    if git(workspace, "ls-remote", "--exit-code", "--heads", "origin", branch,
-           check=False).returncode == 0:
+    remote = git(workspace, "ls-remote", "--exit-code", "--heads", "origin", branch,
+                 check=False)
+    if remote.returncode == 0:
         raise StageHandoffDenied("remote feature branch already exists")
+    if remote.returncode != 2:
+        raise StageHandoffDenied("could not check remote branch availability")
     for entry in entries:
         rel = entry["path"]
         if not file_is_plain(stage, rel) or not file_is_plain(workspace, rel):
