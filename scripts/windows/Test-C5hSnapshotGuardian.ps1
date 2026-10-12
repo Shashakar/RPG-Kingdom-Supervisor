@@ -46,6 +46,20 @@ if (($privateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
 }
 $acl = Get-Acl -LiteralPath $private
 if (-not $acl.AreAccessRulesProtected) { Deny 'protected root inherits parent ACL' }
+$ownerSid = $acl.Owner.Translate([Security.Principal.SecurityIdentifier]).Value
+if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
+    Deny 'protected root is owned by worker-usable user identity'
+}
+foreach ($path in @($base, (Join-Path $base 'bin'), $exe)) {
+    $security = Get-Acl -LiteralPath $path
+    $ownerSid = $security.Owner.Translate([Security.Principal.SecurityIdentifier]).Value
+    if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
+        Deny "service parent or executable has an ordinary user owner: $path"
+    }
+    if (-not $security.AreAccessRulesProtected) {
+        Deny "service parent or executable inherits ACL entries: $path"
+    }
+}
 $allowed = @('S-1-5-18','S-1-5-32-544',$serviceSid)
 $hasService = $false
 foreach ($entry in $acl.Access) {
