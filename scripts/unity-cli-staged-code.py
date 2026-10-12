@@ -12,11 +12,13 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import ntpath
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("unity_cli_readonly_staged_code", ROOT / "unity-cli-readonly.py")
@@ -28,7 +30,7 @@ spec.loader.exec_module(ro)
 FLAG = "RPGK_UNITY_STAGED_CODE_ENABLED"
 SCENE = "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
 MAX_CODE = 65536
-SCRIPT = re.compile(r"AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs\Z")
+SCRIPT = re.compile(r"(?:AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs\Z")
 CHECKED = ("Packages/manifest.json", "ProjectSettings/ProjectVersion.txt")
 IGNORED_DIRS = (".git", "Library", "Logs", "Temp", "Obj", "Build", "Builds")
 
@@ -82,11 +84,14 @@ def candidate(stage: Path) -> dict:
 
 def code_path(workspace: Path, rel: str) -> Path:
     if not SCRIPT.fullmatch(rel):
-        deny("script must be AgentScripts/<name>.cs within issue workspace")
-    folder = workspace / "AgentScripts"
-    if folder.is_symlink() or not folder.is_dir():
-        deny("missing or linked AgentScripts directory")
-    path = folder / rel.split("/")[1]
+        deny("script must be AgentScripts/NAME.cs or Logs/SymphonyUnity/AgentScripts/NAME.cs")
+    parts = rel.split("/")
+    folder = workspace
+    for component in parts[:-1]:
+        folder = folder / component
+        if folder.is_symlink() or not folder.is_dir():
+            deny("script parent missing or linked")
+    path = folder / parts[-1]
     if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_CODE:
         deny("script missing, linked, or exceeds 64 KiB")
     if path.resolve(strict=True).parent != folder.resolve(strict=True):
@@ -114,6 +119,124 @@ def current_grant(state: Path, workspace: Path, revision: str) -> dict:
             or grant.get("scenePath") != SCENE):
         deny("operator grant does not match issue, workspace, revision, or scene")
     return grant
+
+
+def windows_unity_processes() -> list[dict]:
+    """Host-owned Windows process census with bounded retry for transport errors.
+
+    Never retry an *actual* unauthorized Unity process: authorization is
+    enforced separately by verify_exclusive_persistent_editor.
+    """
+    ps = os.environ.get("RPGK_POWERSHELL_EXE", "powershell.exe")
+    query = (
+        "$ErrorActionPreference = 'Stop'; "
+        "$items = @(Get-CimInstance Win32_Process -Filter \"Name = 'Unity.exe'\" "
+        "| Select-Object ProcessId, ParentProcessId, CommandLine); "
+        "ConvertTo-Json -InputObject $items -Compress -Depth 3"
+    )
+    args = [ps, "-NoProfile", "-NonInteractive", "-Command", query]
+    failure = "unknown Windows process census failure"
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=30, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failure = f"{type(exc).__name__} executing PowerShell"
+        else:
+            if result.returncode == 0:
+                try:
+                    entries = json.loads(result.stdout)
+                except (ValueError, TypeError) as exc:
+                    # An invalid response is never trusted, even if later retries work.
+                    raise ro.Denied("invalid Windows Unity process census JSON") from exc
+                if not isinstance(entries, list) or not entries:
+                    deny("no Windows Unity processes discovered")
+                if any(not isinstance(row, dict) for row in entries):
+                    deny("invalid Windows Unity process entry")
+                return entries
+            # The command is fixed; expose only a bounded diagnostic, not a raw
+            # process command line or unrestricted PowerShell response.
+            detail = re.sub(r"[\r\n\t]+", " ", result.stderr.strip())[:180]
+            failure = f"PowerShell exit {result.returncode}" + (f": {detail}" if detail else " (no stderr)")
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    deny("Windows Unity process census failed after 3 attempts: " + failure)
+
+def command_project(command: str) -> str | None:
+    if not isinstance(command, str):
+        return None
+    match = re.search(r'(?:^|\s)"?-projectPath"?\s+(?:"([^"]+)"|(\S+))', command, re.I)
+    return ro.normalized_windows((match.group(1) or match.group(2)).replace("/", "\\")) if match else None
+
+
+def verify_exclusive_persistent_editor(receipt: dict, processes: list[dict]) -> dict:
+    """Allow only the granted Editor and its stage-bound asset import children."""
+    pid = receipt["unityPid"]
+    stage = ro.normalized_windows(receipt["stagePath"])
+    main = [row for row in processes if row.get("ProcessId") == pid]
+    if len(main) != 1:
+        deny("granted Unity Editor PID is missing or ambiguous")
+    try:
+        main_project = command_project(main[0].get("CommandLine"))
+    except ro.Denied:
+        deny("granted Unity Editor project path invalid")
+    if not main_project or main_project.casefold() != stage.casefold():
+        deny("granted Unity Editor command line does not match staged project")
+
+    imports = []
+    for row in processes:
+        child_pid = row.get("ProcessId")
+        if child_pid == pid:
+            continue
+        cmd = row.get("CommandLine")
+        try:
+            project = command_project(cmd)
+        except ro.Denied:
+            project = None
+        if (isinstance(child_pid, int) and child_pid > 0
+                and row.get("ParentProcessId") == pid
+                and project is not None and project.casefold() == stage.casefold()
+                and isinstance(cmd, str)
+                and re.search(r'(?:^|\s)"?-adb2"?(?:\s|$)', cmd, re.I)
+                and re.search(r'(?:^|\s)"?-name"?\s+"?AssetImportWorker[0-9]+"?(?:\s|$)', cmd, re.I)):
+            imports.append(child_pid)
+            continue
+        deny("unrelated Unity.exe process detected (PID: " + str(child_pid) + ")")
+    return {"unityPid": pid, "assetImportWorkerPids": sorted(imports),
+            "stagePath": receipt["stagePath"]}
+
+
+def persistent_preflight(workspace: Path, revision: str, state: Path) -> dict:
+    grant = current_grant(state, workspace, revision)
+    stage, receipt = ro.stage_info(grant.get("stagePath"))
+    if receipt["unityPid"] != grant.get("unityPid"):
+        deny("granted Unity Editor PID changed")
+    if protected(stage) != grant.get("protectedBaseline"):
+        deny("protected stage project differs from operator grant")
+    # The operator's new Stage B receipt must bind this exact GH-N workspace.
+    source = subprocess.run(["wslpath", "-w", str(workspace)], capture_output=True,
+                            text=True, timeout=10, check=False)
+    if source.returncode or not source.stdout.strip():
+        deny("unable to verify Windows path for issue workspace")
+    recorded = receipt.get("sourceProjectPath")
+    if (not isinstance(recorded, str)
+            or ntpath.normcase(ntpath.normpath(recorded)) !=
+                ntpath.normcase(ntpath.normpath(source.stdout.strip()))):
+        deny("Windows stage was not created from the granted issue workspace")
+    verified_processes = verify_exclusive_persistent_editor(
+        receipt, windows_unity_processes())
+    ro.verify_pipeline(ro.cli_path(), stage, receipt)
+    hierarchy = ro.cli_json(ro.cli_path(), stage, [
+        "command", "get_scene_hierarchy",
+        "--project-path", receipt["stagePath"], "--format", "json"
+    ])
+    ro.compact_scene(hierarchy, SCENE)
+    if protected(stage) != grant.get("protectedBaseline"):
+        deny("protected stage project changed during persistent preflight")
+    return {"status": "ready", "mode": "operator-granted-persistent-unity-editor",
+            "issue": workspace.name, "workspaceRevision": revision,
+            **verified_processes, "copyback": False}
 
 
 def run_code(stage: Path, receipt: dict, code: str, script: str, exe: str, before: dict) -> dict:
@@ -172,7 +295,7 @@ def run_code(stage: Path, receipt: dict, code: str, script: str, exe: str, befor
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Host-owned Unity staged code operation")
-    parser.add_argument("action", choices=("grant", "revoke", "run"))
+    parser.add_argument("action", choices=("grant", "revoke", "preflight", "run"))
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--state-root", default=os.environ.get(
         "RPGK_SUPERVISOR_STATE_ROOT", str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
@@ -215,6 +338,11 @@ def main() -> int:
 
         if args.session_windows:
             deny("worker cannot supply a Windows stage")
+        if args.action == "preflight":
+            if args.session_windows or args.script:
+                deny("persistent preflight takes no worker-selected stage or script")
+            print(json.dumps(persistent_preflight(workspace, revision, state), separators=(",", ":")))
+            return 0
         grant = current_grant(state, workspace, revision)
         stage, receipt = ro.stage_info(grant.get("stagePath"))
         if receipt["unityPid"] != grant.get("unityPid"):

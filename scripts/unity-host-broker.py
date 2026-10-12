@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code"}
+ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
@@ -226,7 +226,7 @@ def prepare_request(
         reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
-        if operation in {"capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code"}:
+        if operation in {"capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"}:
             if (not scene_path.startswith("Assets/") or not scene_path.endswith(".unity")
                     or "\\" in scene_path or any(part in ("", ".", "..") for part in scene_path.split("/"))):
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
@@ -236,14 +236,16 @@ def prepare_request(
                 raise ValueError("capture fieldOfView is outside supported bounds")
             if camera_rotation and look_at_path:
                 raise ValueError("capture may specify cameraRotation or lookAtPath, not both")
-            if operation in {"inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code"} and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
+            if operation in {"inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"} and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
                 raise ValueError("read-only inspection does not accept camera pose arguments")
-            if operation in {"editor-scene-summary", "editor-stage-benchmark", "editor-staged-code"} and test_filter:
+            if operation in {"editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"} and test_filter:
                 raise ValueError("editor-scene-summary does not accept testFilter")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        if operation == "editor-staged-preflight" and scene_path != "Assets/RPGKingdom/Scenes/PlaytestScene.unity":
+            raise ValueError("persistent Editor preflight requires the fixed granted PlaytestScene")
         if operation == "editor-staged-code":
-            if not re.fullmatch(r"AgentScripts/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs", script_path):
+            if not re.fullmatch(r"(?:AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs", script_path):
                 raise ValueError("editor-staged-code requires AgentScripts/<name>.cs")
         elif script_path:
             raise ValueError("scriptPath may be supplied only for editor-staged-code")
@@ -291,7 +293,7 @@ def prepare_request(
             f"RPG Kingdom Unity broker: workspace '{workspace}' is outside '{workspace_root}'",
         )
 
-    if operation != "health":
+    if operation not in {"health", "editor-staged-preflight"}:
         lock_error = validate_lock(state_root, workspace)
         if lock_error:
             return response_for_error(
@@ -327,7 +329,16 @@ def start_operation(
     state_root: Path,
     host_runner: Path,
 ) -> ActiveOperation:
-    if spec.operation == "editor-staged-code":
+    if spec.operation == "editor-staged-preflight":
+        # Host-owned read-only verification does not require the Unity lease yet.
+        # The guard acquires the exclusive resource only after this succeeds.
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().parent / "unity-cli-staged-code.py"),
+            "preflight", "--workspace", str(spec.workspace),
+            "--state-root", str(state_root),
+        ]
+    elif spec.operation == "editor-staged-code":
         command = [
             sys.executable,
             str(Path(__file__).resolve().parent / "unity-cli-staged-code.py"),
