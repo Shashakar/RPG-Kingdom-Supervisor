@@ -1063,7 +1063,7 @@ def main() -> int:
                     if now - last_status_write >= 1.0:
                         write_status("blocked", active_snapshot(active, now))
                         last_status_write = now
-                elif active is not None and active.spec.operation in {"editmode", "playmode"} and (
+                elif active is not None and active.spec.operation in {"editmode", "playmode", "inspect"} and (
                     now - active.last_progress_monotonic >= max(args.stall_seconds, 1.0)
                 ):
                     disposition, response = recover_stalled_operation(
