@@ -153,7 +153,7 @@ def command_project(command: str) -> str | None:
     if not isinstance(command, str):
         return None
     match = re.search(r'(?:^|\s)-projectPath\s+(?:"([^"]+)"|(\S+))', command, re.I)
-    return ro.normalized_windows(match.group(1) or match.group(2)) if match else None
+    return ro.normalized_windows((match.group(1) or match.group(2)).replace("/", "\\")) if match else None
 
 
 def verify_exclusive_persistent_editor(receipt: dict, processes: list[dict]) -> dict:
