@@ -77,6 +77,30 @@ class CodeTests(unittest.TestCase):
             )
         self.assertEqual(exit_code, 0, err)
 
+    def test_windows_census_retries_transient_host_failure_and_reports_real_error(self):
+        payload = json.dumps([{"ProcessId": 123, "ParentProcessId": 789,
+                               "CommandLine": 'Unity.exe -projectPath "C:\\Stage"'}])
+        failed = subprocess.CompletedProcess(["powershell.exe"], 1, "",
+                                             "Get-CimInstance: temporary RPC failure")
+        succeeded = subprocess.CompletedProcess(["powershell.exe"], 0, payload, "")
+        with patch.object(code.subprocess, "run", side_effect=[failed, succeeded]) as runner, \
+             patch.object(code.time, "sleep") as sleeper:
+            result = code.windows_unity_processes()
+        self.assertEqual(result[0]["ProcessId"], 123)
+        self.assertEqual(runner.call_count, 2)
+        sleeper.assert_called_once_with(0.25)
+        with patch.object(code.subprocess, "run", return_value=failed) as runner, \
+             patch.object(code.time, "sleep") as sleeper:
+            with self.assertRaisesRegex(code.ro.Denied, "after 3 attempts: PowerShell exit 1.*temporary RPC"):
+                code.windows_unity_processes()
+        self.assertEqual(runner.call_count, 3)
+        self.assertEqual(sleeper.call_count, 2)
+        invalid = subprocess.CompletedProcess(["powershell.exe"], 0, "not-json", "")
+        with patch.object(code.subprocess, "run", return_value=invalid) as runner:
+            with self.assertRaisesRegex(code.ro.Denied, "invalid Windows Unity process census JSON"):
+                code.windows_unity_processes()
+        runner.assert_called_once()
+
     def test_persistent_preflight_accepts_only_owned_editor_and_import_children(self):
         stage = self.receipt["stagePath"]
         parent = {"ProcessId": 123, "ParentProcessId": 789,
