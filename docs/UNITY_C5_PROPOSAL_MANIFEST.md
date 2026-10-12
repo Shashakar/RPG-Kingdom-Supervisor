@@ -32,3 +32,22 @@ The inventory rejects missing/linked roots, symlink files or directories, nonreg
 This is **not** a copyback security gate or reliable approval token. Before any promotion API is introduced, implement an operator-only signed/one-shot review contract with explicit source/stage/grant receipt binding, immutable stage snapshot/lease, GUID collision and reference validation, allowed path/hash decisions, atomic backup/rollback, independent Unity import/compilation and EditMode/PlayMode checks, PR review, and human merge approval.
 
 Same-Windows-account worker-authored C# remains trusted code, not an OS sandbox. Game GH-260 remains halted; this stage proposal does not authorize any terrain or production-scene write.
+
+## C5b verification-only attestation (Supervisor #218)
+
+`scripts/unity-stage-approval-verify.py` checks a **host-issued HMAC-SHA256 envelope** against a freshly regenerated C5 proposal. The signature covers reviewer identity, issue, source revision/hash, stage path, the **entire canonical proposal SHA-256** (including all quarantined changes), exact approved C4 fixture and both required `.meta` paths, issue nonce, and a maximum one-hour UTC validity window.
+
+Example verification syntax (only after a trusted host operator has separately issued the signed envelope):
+
+```bash
+python3 scripts/unity-stage-approval-verify.py \
+  --workspace "$HOME/code/rpg-kingdom-symphony-workspaces/GH-261" \
+  --stage "/mnt/c/Users/Dex/AppData/Local/RPGKingdomSupervisor/UnityCliPilots/pilot-08a3d3388ac5499189cabe8b7c106f0a" \
+  --approval "/path/to/operator-issued-review.json" \
+  --host-key "/home/dex/.local/state/rpg-kingdom-supervisor/c5b-signing.key" \
+  --spent-nonces "/home/dex/.local/state/rpg-kingdom-supervisor/c5b-used-nonces.json"
+```
+
+**C5b provides no issuer, key enrollment, promotion or nonce-consuming endpoint.** Do not generate operator signing keys or signatures in a Codex issue workspace. The signing key and consumed nonce ledger must be host-controlled, private and separately provisioned; a worker-provided JSON approval is never trusted. The output reports `verified-for-review-only`, `consumed=false`, `copyback=false`. This verifier alone **does not prevent reuse of a valid envelope**: future host-only promotion must atomically spend its nonce under an exclusive lock *after* fresh stage hash checks and *before* any write. Until that exists, no approval constitutes authority to copy a file.
+
+The current fixed-scene acceptance contract is deliberately limited to the original C4 proof scene and its two sidecars. URP asset migrations, other source assets, and project settings remain non-approvable by this verification contract. Same-account Unity C# is trusted local code, **not** an OS sandbox.

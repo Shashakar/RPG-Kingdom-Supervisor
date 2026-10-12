@@ -354,3 +354,6 @@ Your final response should report completed work, validation evidence, PR URL, a
 ### C5 proposal-only stage audit (Supervisor #216)
 
 The host-only read-only `scripts/unity-stage-proposal.py --workspace GH-N_PATH --stage WSL_STAGE_PATH` generates a review inventory of disposable Unity changes. It has **no promotion or copyback ability**; all outputs have `promotable=false`. Expected C4 scene and `.meta` files are review candidates, and other mutations (including URP migrations) are quarantined. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`. Do not treat this as authorization to alter game assets or rearm GH-260.
+
+
+C5b (#218): `scripts/unity-stage-approval-verify.py` checks a host-signed, exact-manifest review envelope without issuing, spending, promoting or copying assets. Do not treat a successful verification as authorization to mutate any source file. The host-only approval issuer and atomic nonce consumption remain future work; see `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
