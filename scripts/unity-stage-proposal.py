@@ -119,6 +119,11 @@ def manifest(workspace: Path, stage: Path) -> dict:
     staged = inventory(stage)
     unique_guids(source, "source")
     unique_guids(staged, "stage")
+    original = "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
+    if original not in source or original not in staged:
+        raise AuditDenied("original PlaytestScene missing in source or staged project")
+    if source[original]["sha256"] != staged[original]["sha256"]:
+        raise AuditDenied("original PlaytestScene modified in disposable stage")
     changes = []
     for path in sorted(source.keys() | staged.keys()):
         before, after = source.get(path), staged.get(path)
