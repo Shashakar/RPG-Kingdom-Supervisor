@@ -13,8 +13,6 @@ using System.Text;
 internal sealed class RPGKSnapshotGuardian : ServiceBase
 {
     internal const string ExpectedServiceName = "RPGKSnapshotGuardian";
-    private static readonly SecurityIdentifier LocalService =
-        new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null);
     private static readonly SecurityIdentifier BuiltinAdmins =
         new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
     private static readonly SecurityIdentifier LocalSystem =
@@ -43,21 +41,11 @@ internal sealed class RPGKSnapshotGuardian : ServiceBase
     {
         using (WindowsIdentity identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query))
         {
-            if (!Same(identity.User, LocalService))
-                throw new InvalidOperationException("service process must run as LocalService");
-
-            bool hasServiceSid = false;
-            foreach (IdentityReference group in identity.Groups)
-            {
-                SecurityIdentifier sid = group as SecurityIdentifier;
-                if (Same(sid, serviceSid))
-                {
-                    hasServiceSid = true;
-                    break;
-                }
-            }
-            if (!hasServiceSid)
-                throw new InvalidOperationException("process token lacks service-specific SID");
+            // Distinct virtual SCM account; not the shared LocalService SID.
+            // Generated files inherit this service-specific ownership.
+            if (!Same(identity.User, serviceSid))
+                throw new InvalidOperationException(
+                    "process token is not the dedicated virtual service account SID");
         }
     }
 
@@ -140,7 +128,7 @@ internal sealed class RPGKSnapshotGuardian : ServiceBase
             + "\"schemaVersion\":1,"
             + "\"mode\":\"protected-service-synthetic-fixture-only\","
             + "\"generation\":" + QuoteJson(generation) + ","
-            + "\"windowsIdentitySid\":" + QuoteJson(LocalService.Value) + ","
+            + "\"windowsIdentitySid\":" + QuoteJson(serviceSid.Value) + ","
             + "\"serviceSid\":" + QuoteJson(serviceSid.Value) + ","
             + "\"sourceFixtureSha256\":" + QuoteJson(hash) + ","
             + "\"snapshotFixtureSha256\":" + QuoteJson(hash) + ","
