@@ -191,6 +191,39 @@ class DrainTests(unittest.TestCase):
         self.assertNotEqual(response["status"], "StageDraining")
         self.wait_for(launched.exists)
 
+    def test_ambiguous_dispatch_reservation_blocks_across_restarts(self):
+        broker_script = BASE / "unity-host-broker.py"
+        runner = self.root / "never-run.sh"
+        touched = self.root / "unexpected-child"
+        runner.write_text("#!/usr/bin/env bash\nprintf 'BAD\\n' >> " + repr(str(touched)) + "\n")
+        state_file = self.state / "unity-broker/status.json"
+        state_file.parent.mkdir(parents=True)
+        state_file.write_text(json.dumps({
+            "protocolVersion": 1, "pid": 9999999, "state": "dispatching",
+            "workspaceRoot": str(self.workspaces),
+            "activeRequest": {
+                "requestId": "old-unknown", "operation": "health",
+                "childPid": None, "recoveryReason": "ambiguous_dispatch_reservation",
+            },
+        }))
+        for number in (1, 2):
+            with self.subTest(restart=number):
+                proc = subprocess.Popen(
+                    [sys.executable, str(broker_script),
+                     "--workspace-root", str(self.workspaces),
+                     "--state-root", str(self.state),
+                     "--host-runner", str(runner), "--poll-ms", "30"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                self.addCleanup(self.shutdown, proc)
+                self.wait_for(lambda: json.loads(state_file.read_text()).get("state") == "blocked")
+                name = f"ambiguous-{number}"
+                self.request(name)
+                self.assertEqual(self.wait_response(name)["status"], "HostBusy")
+                self.assertFalse(touched.exists())
+                proc.terminate()
+                proc.wait(timeout=5)
+
     @staticmethod
     def shutdown(process):
         if process.poll() is None:
