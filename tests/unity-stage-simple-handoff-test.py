@@ -89,8 +89,7 @@ class StageHandoffTests(unittest.TestCase):
         self.assertEqual(cmd(self.ws, "rev-parse", "HEAD"), self.base_rev)
         self.assertEqual(cmd(self.ws, "rev-parse", "refs/heads/main"), self.base_rev)
         self.assertEqual(cmd(self.ws, "diff", "--name-only"), scene)
-        self.assertEqual(cmd(self.ws, "status", "--porcelain").strip(),
-                         "M " + scene if False else " M " + scene)
+        self.assertEqual(cmd(self.ws, "status", "--porcelain").strip(), "M " + scene)
 
     def test_new_scene_copies_meta_and_parent_meta_with_no_urp(self):
         self.proof_fixture()
