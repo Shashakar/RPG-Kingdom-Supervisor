@@ -9,6 +9,9 @@ user; this is not an OS security sandbox.
 ## State and constraints
 
 - RPG Kingdom issue: https://github.com/Shashakar/RPG-Kingdom/issues/261
+
+**Host-broker health route (post GH-261 retry diagnosis):** During dispatch, the worker's `unity-resource-guard.sh` must call `unity-runner.sh editor-staged-preflight --project "$PWD" --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity` rather than invoking `unity-cli-staged-code.py preflight` directly. The Unity host broker runs the issue-bound, read-only Windows process census and Pipeline check **outside the worker sandbox**, without requiring the Unity lease up front. The guard obtains the exclusive lease only after the host returns success. The process census is fail-closed: a real extra Editor still blocks dispatch. PowerShell transport failures are retried at most twice, with bounded error text. Operator shell diagnostic `python3 scripts/unity-cli-staged-code.py preflight --workspace "$WS"` remains useful but does **not** test the worker/broker boundary.
+
 - Additional required label: `authoring:editor-staged-code` (dedicated persistent Editor preflight; not production scene authority).
 - Required labels already on that issue: \`completion:report-only\`,
   \`resource:unity-editor\`, \`validation:unity-optional\`.
