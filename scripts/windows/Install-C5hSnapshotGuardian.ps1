@@ -112,8 +112,7 @@ foreach ($d in @($bin, $private)) {
 New-Item -ItemType Directory -Path $bin, $private | Out-Null
 # LocalService needs read-execute on the binary, not write.
 Grant-ExactAcl $bin @('*S-1-5-18:(OI)(CI)F',
-                      '*S-1-5-32-544:(OI)(CI)F',
-                      '*S-1-5-19:(OI)(CI)RX')
+                      '*S-1-5-32-544:(OI)(CI)F')
 Grant-ExactAcl $private @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
 
 # Compile from a second protected copy, not the mutable original location.
@@ -136,13 +135,17 @@ foreach ($file in @($copy, $exe)) {
 
 # The service starts disabled and is never auto-started by worker action.
 Invoke-Sc @('create', $service, 'binPath=', ('"' + $exe + '"'), 'type=', 'own',
-            'start=', 'disabled', 'obj=', 'NT AUTHORITY\LocalService',
+            'start=', 'disabled', 'obj=', ('NT SERVICE\' + $service),
             'DisplayName=', 'RPG Kingdom C5h Snapshot Guardian')
 Invoke-Sc @('sidtype', $service, 'restricted')
 Invoke-Sc @('sdset', $service,
     'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)')
 $serviceSid = ([Security.Principal.NTAccount]('NT SERVICE\' + $service)).Translate(
     [Security.Principal.SecurityIdentifier]).Value
+# The unique virtual account needs read/execute only on its executable.
+Grant-ExactAcl $bin @('*S-1-5-18:(OI)(CI)F',
+                      '*S-1-5-32-544:(OI)(CI)F',
+                      ('*' + $serviceSid + ':(OI)(CI)RX'))
 Grant-ExactAcl $private @('*S-1-5-18:(OI)(CI)F',
                           '*S-1-5-32-544:(OI)(CI)F',
                           ('*' + $serviceSid + ':(OI)(CI)F'))
