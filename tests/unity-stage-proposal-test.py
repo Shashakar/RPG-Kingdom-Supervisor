@@ -98,6 +98,15 @@ class StageProposalTests(unittest.TestCase):
         with self.assertRaisesRegex(mod.AuditDenied, "linked"):
             mod.manifest(self.ws, self.stage)
 
+    def test_protected_scene_is_immutable_and_required(self):
+        original = self.stage / "Assets/RPGKingdom/Scenes/PlaytestScene.unity"
+        original.write_text("changed in stage")
+        with self.assertRaisesRegex(mod.AuditDenied, "original PlaytestScene modified"):
+            mod.manifest(self.ws, self.stage)
+        original.unlink()
+        with self.assertRaisesRegex(mod.AuditDenied, "original PlaytestScene missing"):
+            mod.manifest(self.ws, self.stage)
+
     def test_source_and_stage_cannot_be_same(self):
         with self.assertRaisesRegex(mod.AuditDenied, "different"):
             mod.manifest(self.ws, self.ws)
