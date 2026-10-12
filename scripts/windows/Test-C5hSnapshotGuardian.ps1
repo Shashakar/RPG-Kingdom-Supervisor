@@ -41,6 +41,22 @@ $serviceSid = ([Security.Principal.NTAccount]('NT SERVICE\' + $service)).Transla
 if ($owner.Sid -ne $serviceSid) {
     Deny 'service process does not run under its unique virtual account SID'
 }
+$rawSidType = (& "$env:SystemRoot\System32\sc.exe" qsidtype $service 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $rawSidType -notmatch '(?i)SERVICE_SID_TYPE\s*:\s*RESTRICTED') {
+    Deny 'SCM service-specific SID is not configured as restricted'
+}
+$rawSecurity = (& "$env:SystemRoot\System32\sc.exe" sdshow $service 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0) { Deny 'SCM service-control DACL is unavailable' }
+$sddl = ($rawSecurity -split '[\r\n]+' | Where-Object { $_.Trim() -match '^D:' } | Select-Object -First 1)
+if (-not $sddl) { Deny 'SCM service-control DACL is not parseable' }
+$descriptor = New-Object System.Security.AccessControl.CommonSecurityDescriptor(
+    $false, $false, $sddl.Trim())
+foreach ($ace in $descriptor.DiscretionaryAcl) {
+    if ($ace.AceQualifier -eq [System.Security.AccessControl.AceQualifier]::AccessAllowed -and
+        $ace.SecurityIdentifier.Value -notin @('S-1-5-18','S-1-5-32-544')) {
+        Deny ('untrusted SID can control SCM service: ' + $ace.SecurityIdentifier.Value)
+    }
+}
 $privateItem = Get-Item -LiteralPath $private -Force
 if (($privateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
     Deny 'protected root is a reparse point'
