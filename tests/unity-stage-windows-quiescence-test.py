@@ -68,7 +68,7 @@ class WindowsQuiescenceTests(unittest.TestCase):
         self.receipt = {"unityPid": 8111}
         self.grant = {"unityPid": 8111, "stagePath": self.record["stagePath"]}
 
-    def observed(self, census=lambda: dict(GOOD_CENSUS)):
+    def observed(self, census=lambda: dict(GOOD_CENSUS), manifest_fn=None):
         with patch.object(quiescence.c5e.c3.ro, "workspace_info",
                           return_value=(self.ws, "a" * 40)), \
              patch.object(quiescence.c5e.c3, "current_grant",
@@ -81,7 +81,7 @@ class WindowsQuiescenceTests(unittest.TestCase):
                           return_value=quiescence.c5e.SUPPORTED_UNITY), \
              patch.object(quiescence.c5e, "lease_absent"), \
              patch.object(quiescence.c5e.proposal, "manifest",
-                          side_effect=lambda *a: dict(self.manifest)):
+                          side_effect=manifest_fn or (lambda *a: dict(self.manifest))):
             return quiescence.observe(self.state, census=census)
 
     def test_valid_census_remains_observation_only(self):
@@ -143,18 +143,20 @@ class WindowsQuiescenceTests(unittest.TestCase):
             self.observed()
 
     def test_stage_changes_between_manifests_denied(self):
-        original = quiescence.c5e.proposal.manifest
         counter = [0]
 
         def changing(*args):
             counter[0] += 1
             return {**self.manifest, "changes": [{"path": str(counter[0])}]}
 
-        with patch.object(quiescence.c5e.proposal, "manifest", side_effect=changing):
-            # observed() patches proposal.manifest too; perform a direct check
-            self.assertNotEqual(
-                quiescence.c5e.review.manifest_digest(changing()),
-                quiescence.c5e.review.manifest_digest(changing()))
+        with self.assertRaisesRegex(quiescence.QuiescenceDenied, "manifest changed"):
+            self.observed(manifest_fn=changing)
+
+    def test_stale_source_revision_denied_after_scan(self):
+        def stale(*args):
+            return {**self.manifest, "sourceRevision": "c" * 40}
+        with self.assertRaisesRegex(quiescence.QuiescenceDenied, "source revision"):
+            self.observed(manifest_fn=stale)
 
     def test_missing_drain_denied(self):
         (self.state / "unity-stage-drain/state.json").unlink()
