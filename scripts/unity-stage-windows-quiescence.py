@@ -137,11 +137,13 @@ def observe(state: Path, *, census=windows_census) -> dict:
             raise QuiescenceDenied("Unity version mismatch")
         c5e.lease_absent(state)
         broker_drained(state, workspace)
-        before = census()
+        before = validate_census(census())
         manifest_a = c5e.proposal.manifest(workspace, stage)
-        middle = census()
+        middle = validate_census(census())
+        if before != middle:
+            raise QuiescenceDenied("Windows census changed during observation")
         manifest_b = c5e.proposal.manifest(workspace, stage)
-        after = census()
+        after = validate_census(census())
         broker_drained(state, workspace)
         c5e.lease_absent(state)
         if before != middle or middle != after:
