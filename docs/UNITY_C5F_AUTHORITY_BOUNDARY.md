@@ -177,3 +177,7 @@ Unity Editor, credential-isolation or NTFS host acceptance test.
    journal/recovery and hard process termination tests.
 4. Real host negative tests under the worker identity and a separate
    reviewed PR authorizing a future write-capable promotion implementation.
+
+## C5h protected Windows service identity (implementation review only)
+
+C5h adds a compiled Windows ServiceBase host, a guarded elevated installer, private NTFS ACL, restricted service SID and fixed synthetic fixture, plus operator SCM/ACL attestation and unelevated Unity worker-denial scripts. There is no worker IPC or stage input and no real Unity asset snapshot. See [C5h operator security acceptance](UNITY_C5H_WINDOWS_SERVICE_IDENTITY.md). The actual host test remains mandatory; stageFrozen=false, independentHumanAuthorization=false, promotionAuthorized=false and copyback=false remain hard blockers.
