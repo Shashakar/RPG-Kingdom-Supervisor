@@ -370,3 +370,8 @@ C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-sta
 ### C5d scratch-only durability checks (#224)
 
 `python3 scripts/unity-promotion-recovery-lab.py [--inject-crash CHECKPOINT]` creates a private temporary fixture, kills its own test child at a transaction checkpoint, and exercises real on-disk journal, lock, nonce and recovery logic **entirely inside auto-generated scratch files**. It is *not* a Unity promotion endpoint or approval authority. See `docs/UNITY_C5D_SCRATCH_RECOVERY.md` for supported evidence and outstanding requirements. Game #260 remains halted.
+
+
+### C5e stage host consistency check (Supervisor #226)
+
+The host-only `python3 scripts/unity-stage-host-preflight.py --workspace GH-N_PATH` inspects an existing C3-granted Windows Unity stage through the existing read-only Editor/Pipeline checks, confirms clean source/protected scene, detects foreign processes and busy broker/lease state, and compares double stage manifests. It does **not** freeze the running Editor or independently authenticate a human; it returns `stageFrozen=false`, `promotionAuthorized=false`, `copyback=false`. There is no new worker-exposed broker request. See `docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md`. GH-260 stays halted.
