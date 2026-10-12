@@ -26,7 +26,7 @@ sys.modules[spec.name] = preflight
 spec.loader.exec_module(preflight)
 
 SID = re.compile(r"S-1-[0-9]+(?:-[0-9]+){2,}\Z", re.ASCII)
-WINDOWS_STAGE = re.compile(r'^C:\\\\[^"\'*\\x00-\\x1f]+\\Z', re.IGNORECASE)
+WINDOWS_STAGE = re.compile(r'^C:\\[^"\'*\x00-\x1f]+\Z', re.IGNORECASE)
 REQUIRED = frozenset({
     "unityPid", "unityName", "unitySid", "hostInteropSid",
     "volumeDevice", "volumeFilesystem",
