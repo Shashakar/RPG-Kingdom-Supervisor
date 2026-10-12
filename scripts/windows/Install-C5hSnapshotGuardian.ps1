@@ -157,6 +157,10 @@ $serviceSid = ([Security.Principal.NTAccount]('NT SERVICE\' + $service)).Transla
 Grant-ExactAcl $bin @('*S-1-5-18:(OI)(CI)F',
                       '*S-1-5-32-544:(OI)(CI)F',
                       ('*' + $serviceSid + ':(OI)(CI)RX'))
+# The executable already exists: do not rely on propagation of a newly
+# installed parent inheritable ACE to previously created child files.
+Grant-ExactAcl $exe @('*S-1-5-18:F', '*S-1-5-32-544:F',
+                      ('*' + $serviceSid + ':RX'))
 Grant-ExactAcl $private @('*S-1-5-18:(OI)(CI)F',
                           '*S-1-5-32-544:(OI)(CI)F',
                           ('*' + $serviceSid + ':(OI)(CI)F'))
