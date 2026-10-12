@@ -57,11 +57,11 @@ def main():
         subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
         subprocess.run(["git", "init", "-q", "-b", "main", str(ws)], check=True)
         git(ws, "remote", "add", "origin", str(origin))
-        write(ws, ".gitignore", "Logs/\\n")
-        write(ws, "Assets/base.txt", "baseline\\n")
-        write(ws, "Assets/Settings/Mobile_RPAsset.asset", "old URP\\n")
-        write(ws, "Packages/manifest.json", "{}\\n")
-        write(ws, "ProjectSettings/ProjectVersion.txt", "Unity\\n")
+        write(ws, ".gitignore", "Logs/\n")
+        write(ws, "Assets/base.txt", "baseline\n")
+        write(ws, "Assets/Settings/Mobile_RPAsset.asset", "old URP\n")
+        write(ws, "Packages/manifest.json", "{}\n")
+        write(ws, "ProjectSettings/ProjectVersion.txt", "Unity\n")
         for directory in ("Assets", "Packages", "ProjectSettings"):
             (stage / directory).mkdir(exist_ok=True)
         for rel in ("Assets/base.txt", "Assets/Settings/Mobile_RPAsset.asset",
@@ -77,10 +77,10 @@ def main():
         # offline test the Git object remote is deliberately a local fixture.
         git(ws, "remote", "set-url", "origin",
             "https://github.com/Shashakar/RPG-Kingdom.git")
-        write(stage, SCENE, "real Unity scene\\n")
-        write(stage, META, "fileFormatVersion: 2\\nguid: " + "a" * 32 + "\\n")
-        write(stage, FOLDER, "fileFormatVersion: 2\\nguid: " + "b" * 32 + "\\n")
-        write(stage, "Assets/Settings/Mobile_RPAsset.asset", "unrelated upgraded URP\\n")
+        write(stage, SCENE, "real Unity scene\n")
+        write(stage, META, "fileFormatVersion: 2\nguid: " + "a" * 32 + "\n")
+        write(stage, FOLDER, "fileFormatVersion: 2\nguid: " + "b" * 32 + "\n")
+        write(stage, "Assets/Settings/Mobile_RPAsset.asset", "unrelated upgraded URP\n")
         (stage / "session.json").write_text(json.dumps({
             "schemaVersion": 1, "sessionId": stage.name,
             "sourceProjectPath": "C:\\\\mock\\\\GH-700"
