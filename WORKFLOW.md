@@ -375,3 +375,7 @@ C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-sta
 ### C5e stage host consistency check (Supervisor #226)
 
 The host-only `python3 scripts/unity-stage-host-preflight.py --workspace GH-N_PATH` inspects an existing C3-granted Windows Unity stage through the existing read-only Editor/Pipeline checks, confirms clean source/protected scene, detects foreign processes and busy broker/lease state, and compares double stage manifests. It does **not** freeze the running Editor or independently authenticate a human; it returns `stageFrozen=false`, `promotionAuthorized=false`, `copyback=false`. There is no new worker-exposed broker request. See `docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md`. GH-260 stays halted.
+
+## MVP staged Unity file handoff (current priority)
+
+C3 work that produces assets in an isolated Windows Unity stage can use the operator-run `scripts/unity-stage-simple-handoff.py plan` and `apply` commands. The operator reviews changed paths, copies **explicit selected `Assets/` files with required Unity `.meta` companions** to a new `codex/*` feature branch, then uses existing `unity-runner.sh` for validation and `git-handoff.sh handoff` for commit, push and PR. Stage deletions, URP/Packages/ProjectSettings and automatic merge are excluded. This is an ordinary trusted-machine workflow, NOT an independent security approval. The separate C5f Windows service work is deferred and must not block this MVP. See `docs/UNITY_STAGE_SIMPLE_HANDOFF.md`.
