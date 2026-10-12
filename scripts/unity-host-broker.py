@@ -22,6 +22,13 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
+import importlib.util
+
+_gate_spec = importlib.util.spec_from_file_location(
+    "unity_stage_dispatch_drain_gate", Path(__file__).with_name("unity-stage-drain-gate.py"))
+assert _gate_spec and _gate_spec.loader
+stage_gate = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(stage_gate)
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"}
@@ -985,9 +992,19 @@ def main() -> int:
     last_result: dict[str, Any] | None = None
     active: ActiveOperation | None = None
     inherited_owner: dict[str, Any] | None = None
-    if previous_status is not None and previous_status.get("state") in {"running", "blocked"}:
+    if previous_status is not None and previous_status.get("state") in {"running", "blocked", "dispatching"}:
         candidate_owner = previous_status.get("activeRequest")
-        if isinstance(candidate_owner, dict):
+        if (previous_status.get("state") == "dispatching"
+                or isinstance(candidate_owner, dict)
+                and candidate_owner.get("recoveryReason") == "ambiguous_dispatch_reservation"):
+            # A prior process may have launched a Unity child between Popen and
+            # recording its PID. Never recover automatically just because a PID
+            # is missing; this needs explicit host process-census reconciliation.
+            inherited_owner = dict(candidate_owner) if isinstance(candidate_owner, dict) else {}
+            inherited_owner["recoveryReason"] = "ambiguous_dispatch_reservation"
+            inherited_owner["recoveryBlocked"] = True
+            inherited_owner["inheritedFromBrokerPid"] = previous_status.get("pid")
+        elif isinstance(candidate_owner, dict):
             try:
                 inherited_pid = int(candidate_owner.get("childPid") or 0)
             except (TypeError, ValueError):
@@ -1038,7 +1055,7 @@ def main() -> int:
             last_result = last_result_snapshot(response)
         close_operation(active)
         active = None
-        write_status("ready")
+        write_status(stage_gate.status(state_root))
         last_status_write = time.monotonic()
         return True
 
@@ -1060,7 +1077,7 @@ def main() -> int:
         last_status_write = time.monotonic()
 
     stale_count = fail_stale_requests(workspace_root)
-    write_status("blocked" if inherited_owner is not None else "ready", inherited_owner)
+    write_status("blocked" if inherited_owner is not None else stage_gate.status(state_root), inherited_owner)
     if stale_count:
         print(f"RPG Kingdom Unity broker: rejected {stale_count} stale request(s)", file=sys.stderr)
 
@@ -1073,7 +1090,11 @@ def main() -> int:
                     inherited_pid = int(inherited_owner.get("childPid") or 0)
                 except (TypeError, ValueError):
                     inherited_pid = 0
-                if inherited_pid <= 0 or not process_is_alive(inherited_pid):
+                if inherited_owner.get("recoveryReason") == "ambiguous_dispatch_reservation":
+                    if now - last_status_write >= 1.0:
+                        write_status("blocked", inherited_owner)
+                        last_status_write = now
+                elif inherited_pid <= 0 or not process_is_alive(inherited_pid):
                     last_result = {
                         "requestId": inherited_owner.get("requestId"),
                         "operation": inherited_owner.get("operation"),
@@ -1088,7 +1109,7 @@ def main() -> int:
                         "completedAt": utc_now(),
                     }
                     inherited_owner = None
-                    write_status("ready")
+                    write_status(stage_gate.status(state_root))
                     last_status_write = now
                 elif now - last_status_write >= 1.0:
                     write_status("blocked", inherited_owner)
@@ -1194,22 +1215,54 @@ def main() -> int:
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
+                # Serialize broker launches with operator drain activation.
+                # Cooperative WSL dispatch gate, not a Windows filesystem freeze.
                 try:
-                    active = start_operation(prepared, state_root, host_runner)
-                except OSError as exc:
-                    failed = response_for_error(
-                        prepared.request_id,
-                        prepared.operation,
-                        70,
-                        f"RPG Kingdom Unity broker: failed to start host operation: {exc}",
+                    with stage_gate.locked(state_root) as gate_root:
+                        drain_record = stage_gate.read_locked(gate_root)
+                        if drain_record is None:
+                            # The reservation closes the post-Popen/pre-status
+                            # window. If the host dies mid-launch, a restarted
+                            # broker must block, never infer that no child exists.
+                            write_status("dispatching", {
+                                "requestId": prepared.request_id,
+                                "operation": prepared.operation,
+                                "workspace": str(prepared.workspace),
+                                "childPid": None,
+                                "recoveryReason": "ambiguous_dispatch_reservation",
+                            })
+                            active = start_operation(prepared, state_root, host_runner)
+                            write_status("running", active_snapshot(active))
+                except (stage_gate.DrainDenied, OSError) as exc:
+                    if active is not None:
+                        # A child may have launched before status persistence
+                        # failed. Do not continue serving worker requests.
+                        raise
+                    denied = response_for_error(
+                        prepared.request_id, prepared.operation, 82,
+                        f"RPG Kingdom Unity broker: stage drain gate unavailable: {exc}",
                     )
-                    write_response(request_path, failed)
+                    write_response(request_path, denied)
                     continue
 
-                write_status("running", active_snapshot(active))
+                if drain_record is not None:
+                    denied = response_for_status(
+                        prepared.request_id, prepared.operation,
+                        "StageDraining", 82,
+                        "RPG Kingdom Unity broker: operator stage drain blocks new Unity requests",
+                        details={"issue": drain_record["issue"], "operationId": drain_record["operationId"]},
+                    )
+                    write_response(request_path, denied)
+                    write_status("draining")
+                    last_status_write = time.monotonic()
+                    continue
+
                 last_status_write = time.monotonic()
                 break
 
+            if active is None and inherited_owner is None and now - last_status_write >= 1.0:
+                write_status(stage_gate.status(state_root))
+                last_status_write = now
             time.sleep(max(args.poll_ms, 25) / 1000.0)
     finally:
         if active is not None:
@@ -1231,7 +1284,13 @@ def main() -> int:
                     last_result = last_result_snapshot(stopped)
                 close_operation(active)
 
-        write_status("stopped")
+        # A clean SIGTERM does not resolve an unknown in-flight dispatch.
+        # Preserve the uncertainty across every subsequent broker restart.
+        if (inherited_owner is not None
+                and inherited_owner.get("recoveryReason") == "ambiguous_dispatch_reservation"):
+            write_status("blocked", inherited_owner)
+        else:
+            write_status("stopped")
         try:
             (broker_root / "pid").unlink()
         except FileNotFoundError:

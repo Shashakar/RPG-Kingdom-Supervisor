@@ -120,6 +120,11 @@ def project_version(source: Path, stage: Path) -> str:
 
 
 def check_guard(state: Path, workspace: Path) -> dict:
+    # A drain marker must deny even if the broker has not yet refreshed status.
+    # This remains an observation, never a guarantee against Unity C# writes.
+    gate_marker = state / "unity-stage-drain" / "state.json"
+    if gate_marker.exists() or gate_marker.is_symlink():
+        deny("operator Unity broker drain is active or ambiguous")
     lease_absent(state)
     return broker_idle(state, workspace)
 

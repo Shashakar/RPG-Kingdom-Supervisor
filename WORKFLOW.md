@@ -375,3 +375,19 @@ C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-sta
 ### C5e stage host consistency check (Supervisor #226)
 
 The host-only `python3 scripts/unity-stage-host-preflight.py --workspace GH-N_PATH` inspects an existing C3-granted Windows Unity stage through the existing read-only Editor/Pipeline checks, confirms clean source/protected scene, detects foreign processes and busy broker/lease state, and compares double stage manifests. It does **not** freeze the running Editor or independently authenticate a human; it returns `stageFrozen=false`, `promotionAuthorized=false`, `copyback=false`. There is no new worker-exposed broker request. See `docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md`. GH-260 stays halted.
+
+
+### C5f WSL Unity broker drain (Supervisor #228, partial)
+
+The operator may use scripts/unity-stage-operator-drain.py to enter an
+issue-bound *cooperative WSL dispatch drain* after a clean C5e inspection.
+This closes new Unity broker launch and Unity resource-lease admission using
+a shared POSIX flock, persists across broker restarts, and is cancellable
+only after verifying exact issue/operation ID and idle broker status.
+
+This is NOT a Windows stage freeze, independent human approval or permission
+to promote assets. The existing same-user Unity Editor remains writable until
+a separately validated host-service stop/handoff and protected immutable
+snapshot are deployed. The new marker only protects cooperating WSL broker
+paths. No new worker operation or copyback capability was added.
+See docs/UNITY_C5F_AUTHORITY_BOUNDARY.md for commands, limits and recovery.

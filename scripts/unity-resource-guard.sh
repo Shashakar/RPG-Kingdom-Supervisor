@@ -180,13 +180,45 @@ run_readiness_smoke() {
 }
 
 acquire_lock() {
-  local attempt owner recovery_status
+  local attempt owner recovery_status gate_dir gate_fd
+  gate_dir="$STATE_ROOT/unity-stage-drain"
+  # Serialize new resource leases against C5f operator drain activation.
+  # POSIX flock only gates the cooperating WSL host; it does not freeze NTFS.
+  if [[ -L "$gate_dir" ]] || ! mkdir -m 700 -p "$gate_dir"; then
+    LOCK_BLOCKING_OWNER="invalid-stage-drain-state"
+    return 1
+  fi
+  local original_umask
+  original_umask="$(umask)"
+  umask 077
+  if [[ -L "$gate_dir/gate.lock" ]] || ! exec {gate_fd}>>"$gate_dir/gate.lock"; then
+    umask "$original_umask"
+    LOCK_BLOCKING_OWNER="invalid-stage-drain-lock"
+    return 1
+  fi
+  umask "$original_umask"
+  if [[ "$(stat -c '%a' "$gate_dir/gate.lock")" != "600" ]]; then
+    LOCK_BLOCKING_OWNER="insecure-stage-drain-lock"
+    exec {gate_fd}>&-
+    return 1
+  fi
+  if ! flock -x "$gate_fd"; then
+    LOCK_BLOCKING_OWNER="unavailable-stage-drain-lock"
+    exec {gate_fd}>&-
+    return 1
+  fi
+  if [[ -e "$gate_dir/state.json" || -L "$gate_dir/state.json" ]]; then
+    LOCK_BLOCKING_OWNER="operator-stage-draining"
+    exec {gate_fd}>&-
+    return 1
+  fi
 
   for attempt in 1 2; do
     if mkdir "$LOCK_DIR" 2>/dev/null; then
       printf '%s\n' "$issue_identifier" > "$LOCK_DIR/owner"
       printf '%s\n' "$PWD" > "$LOCK_DIR/workspace"
       printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK_DIR/acquired-at"
+      exec {gate_fd}>&-
       return 0
     fi
 
@@ -202,12 +234,14 @@ acquire_lock() {
     fi
 
     LOCK_BLOCKING_OWNER="$owner"
+    exec {gate_fd}>&-
     return 1
   done
 
   owner="unknown"
   [[ -f "$LOCK_DIR/owner" ]] && owner="$(cat "$LOCK_DIR/owner")"
   LOCK_BLOCKING_OWNER="$owner"
+  exec {gate_fd}>&-
   return 1
 }
 
