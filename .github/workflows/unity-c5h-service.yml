@@ -50,6 +50,22 @@ jobs:
           }
           Write-Host ('ServiceBase compilation OK; source SHA256: ' + (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash)
           Write-Host ('Compiled executable size: ' + (Get-Item $output).Length)
+      - name: Assert installer refuses worker-writable checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD 'scripts/windows/Install-C5hSnapshotGuardian.ps1'
+          $denied = $false
+          try {
+            & $installer -ApprovedSourceSha256 ('0' * 64)
+          } catch {
+            $message = $_.Exception.Message
+            if ($message -notmatch '(?i)(requires a deliberate elevated|Run only from admin-protected)') {
+              throw ('Unexpected installer result: ' + $message)
+            }
+            $denied = $true
+          }
+          if (-not $denied) { throw 'C5h installer accepted worker-writable checkout' }
       - name: Confirm no installer/service runs in CI
         shell: powershell
         run: |
