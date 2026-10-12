@@ -49,7 +49,7 @@ $rawSecurity = (& "$env:SystemRoot\System32\sc.exe" sdshow $service 2>&1 | Out-S
 if ($LASTEXITCODE -ne 0) { Deny 'SCM service-control DACL is unavailable' }
 $sddl = ($rawSecurity -split '[\r\n]+' | Where-Object { $_.Trim() -match '^D:' } | Select-Object -First 1)
 if (-not $sddl) { Deny 'SCM service-control DACL is not parseable' }
-$descriptor = New-Object System.Security.AccessControl.CommonSecurityDescriptor(
+$descriptor = [System.Security.AccessControl.CommonSecurityDescriptor]::new(
     $false, $false, $sddl.Trim())
 foreach ($ace in $descriptor.DiscretionaryAcl) {
     if ($ace.AceQualifier -eq [System.Security.AccessControl.AceQualifier]::AccessAllowed -and
