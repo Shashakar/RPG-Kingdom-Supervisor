@@ -107,6 +107,37 @@ def main():
                 return mapped
             return real_run(argv, **kwargs)
 
+        # Exercise the host issuer from an existing, issue-bound C3 grant.
+        approval_spec = importlib.util.spec_from_file_location(
+            "rpgk_stage_approval_test",
+            ROOT / "scripts/git-stage-copyback-approval-host.py")
+        assert approval_spec and approval_spec.loader
+        issuer = importlib.util.module_from_spec(approval_spec)
+        sys.modules[approval_spec.name] = issuer
+        approval_spec.loader.exec_module(issuer)
+        issuer_state = root / "issuer-state"
+        grant_file = issuer_state / "unity-staged-code-grants/GH-700.json"
+        grant_file.parent.mkdir(parents=True, exist_ok=True)
+        grant_file.write_text(json.dumps({
+            "schemaVersion": 1, "enabled": True,
+            "mode": "operator-trusted-staged-editor-code",
+            "issue": "GH-700", "workspace": str(ws),
+            "workspaceRevision": base, "stagePath": "C:\\\\mock\\\\pilot-one",
+            "unityPid": 123,
+        }))
+        receipt = {"unityPid": 123, "sourceProjectPath": "C:\\\\mock\\\\GH-700"}
+        with patch.object(issuer.readonly, "stage_info", return_value=(stage, receipt)), \\
+                patch.object(host.subprocess, "run", side_effect=mock_run):
+            denied(lambda: issuer.generate(ws, wsroot, issuer_state, "codex/700-proof",
+                                           [SCENE, SCENE]), "duplicate selected")
+            issued = issuer.generate(ws, wsroot, issuer_state, "codex/700-proof", [SCENE])
+            assert issued["status"] == "approved"
+            assert set(issued["selectedPaths"]) == {SCENE, META, FOLDER}
+            assert issued["copyback"] is False
+            assert (issuer_state / "stage-copyback-approvals/GH-700.json").is_file()
+            denied(lambda: issuer.generate(ws, wsroot, issuer_state, "codex/700-proof",
+                                           [SCENE]), "already exists")
+
         with patch.object(host.subprocess, "run", side_effect=mock_run):
             denied(run, "missing host-owned")
             file.write_text(json.dumps(approval))
