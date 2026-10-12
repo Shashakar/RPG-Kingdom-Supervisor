@@ -111,6 +111,11 @@ class StageHandoffTests(unittest.TestCase):
             handoff.apply(self.ws, self.stage, "codex/260-exists", [scene])
         self.assertEqual(cmd(self.ws, "branch", "--show-current"), "main")
 
+    def test_apply_requires_explicit_paths(self):
+        with self.assertRaisesRegex(handoff.StageHandoffDenied, "explicit --path"):
+            handoff.apply(self.ws, self.stage, "codex/260-empty", [])
+        self.assertEqual(cmd(self.ws, "branch", "--show-current"), "main")
+
     def test_new_asset_without_metadata_is_denied(self):
         self.put(self.stage, "Assets/RPGKingdom/Generated/Orphan.asset", "new asset\n")
         with self.assertRaisesRegex(handoff.StageHandoffDenied, "missing its .meta"):
