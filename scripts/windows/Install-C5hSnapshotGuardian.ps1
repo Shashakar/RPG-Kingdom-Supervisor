@@ -39,7 +39,7 @@ function Assert-ProtectedDirectory([string]$path) {
     if (-not $acl.AreAccessRulesProtected) {
         throw "C5h directory inherits permissions: $path"
     }
-    $ownerSid = $acl.Owner.Translate(
+    $ownerSid = ([Security.Principal.NTAccount]$acl.Owner).Translate(
         [Security.Principal.SecurityIdentifier]).Value
     if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
         throw "C5h trusted root is still owned by a user token: $ownerSid"
@@ -81,7 +81,7 @@ foreach ($file in @($src, $PSCommandPath)) {
         throw "C5h trusted source file is linked: $file"
     }
     $acl = Get-Acl -LiteralPath $file
-    $ownerSid = $acl.Owner.Translate(
+    $ownerSid = ([Security.Principal.NTAccount]$acl.Owner).Translate(
         [Security.Principal.SecurityIdentifier]).Value
     if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
         throw "C5h trusted source file is owned by a user: $ownerSid"
