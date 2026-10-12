@@ -126,8 +126,8 @@ def main():
             "unityPid": 123,
         }))
         receipt = {"unityPid": 123, "sourceProjectPath": "C:\\\\mock\\\\GH-700"}
-        with patch.object(issuer.readonly, "stage_info", return_value=(stage, receipt)), \\
-                patch.object(host.subprocess, "run", side_effect=mock_run):
+        with (patch.object(issuer.readonly, "stage_info", return_value=(stage, receipt)),
+              patch.object(host.subprocess, "run", side_effect=mock_run)):
             denied(lambda: issuer.generate(ws, wsroot, issuer_state, "codex/700-proof",
                                            [SCENE, SCENE]), "duplicate selected")
             issued = issuer.generate(ws, wsroot, issuer_state, "codex/700-proof", [SCENE])
