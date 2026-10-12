@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("unity_cli_readonly_staged_code", ROOT / "unity-cli-readonly.py")
@@ -121,7 +122,11 @@ def current_grant(state: Path, workspace: Path, revision: str) -> dict:
 
 
 def windows_unity_processes() -> list[dict]:
-    """Read actual Windows Unity processes; no model-supplied PowerShell."""
+    """Host-owned Windows process census with bounded retry for transport errors.
+
+    Never retry an *actual* unauthorized Unity process: authorization is
+    enforced separately by verify_exclusive_persistent_editor.
+    """
     ps = os.environ.get("RPGK_POWERSHELL_EXE", "powershell.exe")
     query = (
         "$ErrorActionPreference = 'Stop'; "
@@ -129,25 +134,34 @@ def windows_unity_processes() -> list[dict]:
         "| Select-Object ProcessId, ParentProcessId, CommandLine); "
         "ConvertTo-Json -InputObject $items -Compress -Depth 3"
     )
-    try:
-        result = subprocess.run(
-            [ps, "-NoProfile", "-NonInteractive", "-Command", query],
-            capture_output=True, text=True, timeout=30, check=False
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ro.Denied("Windows Unity process census unavailable") from exc
-    if result.returncode != 0:
-        deny("Windows Unity process census failed")
-    try:
-        entries = json.loads(result.stdout)
-    except (ValueError, TypeError) as exc:
-        raise ro.Denied("invalid Windows Unity process census") from exc
-    if not isinstance(entries, list) or not entries:
-        deny("no Windows Unity processes discovered")
-    if any(not isinstance(row, dict) for row in entries):
-        deny("invalid Windows Unity process entry")
-    return entries
-
+    args = [ps, "-NoProfile", "-NonInteractive", "-Command", query]
+    failure = "unknown Windows process census failure"
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=30, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failure = f"{type(exc).__name__} executing PowerShell"
+        else:
+            if result.returncode == 0:
+                try:
+                    entries = json.loads(result.stdout)
+                except (ValueError, TypeError) as exc:
+                    # An invalid response is never trusted, even if later retries work.
+                    raise ro.Denied("invalid Windows Unity process census JSON") from exc
+                if not isinstance(entries, list) or not entries:
+                    deny("no Windows Unity processes discovered")
+                if any(not isinstance(row, dict) for row in entries):
+                    deny("invalid Windows Unity process entry")
+                return entries
+            # The command is fixed; expose only a bounded diagnostic, not a raw
+            # process command line or unrestricted PowerShell response.
+            detail = re.sub(r"[\r\n\t]+", " ", result.stderr.strip())[:180]
+            failure = f"PowerShell exit {result.returncode}" + (f": {detail}" if detail else " (no stderr)")
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    deny("Windows Unity process census failed after 3 attempts: " + failure)
 
 def command_project(command: str) -> str | None:
     if not isinstance(command, str):
