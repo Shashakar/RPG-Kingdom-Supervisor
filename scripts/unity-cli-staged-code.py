@@ -152,7 +152,7 @@ def windows_unity_processes() -> list[dict]:
 def command_project(command: str) -> str | None:
     if not isinstance(command, str):
         return None
-    match = re.search(r'(?:^|\s)-projectPath\s+(?:"([^"]+)"|(\S+))', command, re.I)
+    match = re.search(r'(?:^|\s)"?-projectPath"?\s+(?:"([^"]+)"|(\S+))', command, re.I)
     return ro.normalized_windows((match.group(1) or match.group(2)).replace("/", "\\")) if match else None
 
 
@@ -184,8 +184,8 @@ def verify_exclusive_persistent_editor(receipt: dict, processes: list[dict]) -> 
                 and row.get("ParentProcessId") == pid
                 and project is not None and project.casefold() == stage.casefold()
                 and isinstance(cmd, str)
-                and re.search(r'(?:^|\s)-adb2(?:\s|$)', cmd, re.I)
-                and re.search(r'(?:^|\s)-name\s+"?AssetImportWorker[0-9]+"?(?:\s|$)', cmd, re.I)):
+                and re.search(r'(?:^|\s)"?-adb2"?(?:\s|$)', cmd, re.I)
+                and re.search(r'(?:^|\s)"?-name"?\s+"?AssetImportWorker[0-9]+"?(?:\s|$)', cmd, re.I)):
             imports.append(child_pid)
             continue
         deny("unrelated Unity.exe process detected (PID: " + str(child_pid) + ")")
