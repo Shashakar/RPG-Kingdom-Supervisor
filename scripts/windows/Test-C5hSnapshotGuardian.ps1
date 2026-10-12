@@ -81,6 +81,21 @@ $latest = $generations[0]
 if (($latest.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
     Deny 'latest service fixture directory is linked'
 }
+$ownedPaths = @($latest.FullName,
+    (Join-Path $latest.FullName 'source-fixture.txt'),
+    (Join-Path $latest.FullName 'snapshot-fixture.txt'),
+    (Join-Path $latest.FullName 'receipt.json'))
+foreach ($path in $ownedPaths) {
+    $item = Get-Item -LiteralPath $path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        Deny "protected fixture contains linked file: $path"
+    }
+    $ownerSid = ([Security.Principal.NTAccount](Get-Acl -LiteralPath $path).Owner).Translate(
+        [Security.Principal.SecurityIdentifier]).Value
+    if ($ownerSid -ne $serviceSid) {
+        Deny "fixture was not created under unique service owner SID: $path"
+    }
+}
 $receiptFile = Join-Path $latest.FullName 'receipt.json'
 $receipt = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
 if ($receipt.schemaVersion -ne 1 -or
