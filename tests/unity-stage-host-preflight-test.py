@@ -204,8 +204,11 @@ class StageHostInspectionTests(unittest.TestCase):
         with self.assertRaisesRegex(inspect.proposal.AuditDenied, "not clean"):
             self.check()
         (self.ws / "Assets/untracked.txt").unlink()
-        subprocess.run(["git", "-C", str(self.ws), "update-ref",
-                        "refs/remotes/origin/main", "f" * 40], check=True)
+        # Advance local HEAD with a real empty commit; origin/main stays pinned.
+        # Git rejects update-ref to an object that does not exist.
+        subprocess.run(["git", "-C", str(self.ws), "-c", "user.name=Test",
+                        "-c", "user.email=test@test", "commit",
+                        "--allow-empty", "-qm", "advance"], check=True)
         with self.assertRaisesRegex(inspect.proposal.AuditDenied, "origin/main"):
             self.check()
 
