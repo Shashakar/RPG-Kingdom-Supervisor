@@ -81,7 +81,7 @@ class DrainTests(unittest.TestCase):
 
     def test_identity_or_stage_race_blocks_before_activation(self):
         with self.assertRaisesRegex(operator.HandoffDenied, "changed"):
-            self.stubbed_activate(unityPid=9600) if False else self._mismatch_test()
+            self._mismatch_test()
         self.assertEqual(gate.status(self.state), "ready")
 
     def _mismatch_test(self):
