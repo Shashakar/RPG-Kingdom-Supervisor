@@ -13,7 +13,6 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 BROKER_STATUS="$STATE_ROOT/unity-broker/status.json"
 UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
-UNITY_PERSISTENT_PREFLIGHT="${RPGK_UNITY_PERSISTENT_PREFLIGHT:-$ROOT/scripts/unity-cli-staged-code.py}"
 UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources}"
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
@@ -383,8 +382,10 @@ if [[ "$persistent_editor" == "true" ]]; then
     halt_issue "persistent Editor trial requires completion:report-only and validation:unity-optional (never batchmode preflight)"
     exit 75
   fi
+  # Execute Windows process discovery through the trusted host broker, not
+  # directly from the Codex sandbox. A live lease is obtained after this check.
   set +e
-  health_output="$(python3 "$UNITY_PERSISTENT_PREFLIGHT" preflight --workspace "$PWD" --state-root "$STATE_ROOT" 2>&1)"
+  health_output="$(bash "$UNITY_RUNNER" editor-staged-preflight --project "$PWD" --scene "Assets/RPGKingdom/Scenes/PlaytestScene.unity" 2>&1)"
   health_status=$?
   set -e
   if (( health_status != 0 )); then
