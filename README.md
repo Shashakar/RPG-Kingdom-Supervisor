@@ -233,3 +233,5 @@ C5d (#222) documents a dry-run-only Unity staged asset promotion transaction wit
 C5d crash-recovery testing is documented in [the scratch transaction lab](docs/UNITY_C5D_SCRATCH_RECOVERY.md); it never copies actual Unity assets.
 
 C5e host-only read-only Unity stage inspection: [operator instructions and limitations](docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md). It does not freeze the Editor or authorize asset copyback.
+
+C5f (Supervisor #228) begins with a **read-only Windows Unity SID and NTFS-volume boundary audit** and a documented protected-service/FIDO2 authorization design; see [C5f trust boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md). The audit explicitly cannot establish independent human approval or stage freeze. Neither service isolation nor live promotion is deployed. Game #260 remains halted.
