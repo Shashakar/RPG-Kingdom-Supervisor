@@ -59,6 +59,20 @@ This is a simple productivity workflow. If a copy errors after switching branche
 
 Inspect binary/meta paths as well. Do not commit scene changes that exceed the issue authorization.
 
+### Reuse a branch already prepared by the Supervisor Git broker
+
+Ordinary dispatched workers call `git-handoff.sh prepare --branch codex/ISSUE-name` before edits. The existing operator `apply` creates a **new** branch from clean `main` and therefore must not run unchanged against an already prepared worker branch. A bounded alternative is available:
+
+```bash
+# The existing Git broker has already prepared the exact codex/ branch.
+python3 "$SUP/scripts/unity-stage-simple-handoff.py" apply \
+  --workspace "$WS" --stage "$STAGE" \
+  --branch codex/ISSUE-name --use-prepared-branch \
+  --path Assets/RPGKingdom/Generated/EXACT_APPROVED_SCENE.unity
+```
+
+This path requires the requested `codex/*` branch to be **currently checked out**, with a clean worktree and `HEAD == origin/main`; it refuses to switch branches, discard changes, accept an existing remote-tracking feature branch, or copy unrelated assets. It is only a reusable **host-side primitive**. It is **not** yet a worker-facing broker API, Windows stage-grant authorization or managed unattended workflow (Supervisor #234); do not give a model unrestricted `--stage` selection.
+
 ## 3. Run normal Unity validation, then existing PR handoff
 
 Use existing host commands in the issue workspace:
