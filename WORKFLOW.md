@@ -357,3 +357,6 @@ The host-only read-only `scripts/unity-stage-proposal.py --workspace GH-N_PATH -
 
 
 C5b (#218): `scripts/unity-stage-approval-verify.py` checks a host-signed, exact-manifest review envelope without issuing, spending, promoting or copying assets. Do not treat a successful verification as authorization to mutate any source file. The host-only approval issuer and atomic nonce consumption remain future work; see `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
+
+
+C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-stage-approval-issue.py`): interactive approval of a fresh exact C5 manifest, host-only private HMAC signing key, issuance ledger and nonce. This is **not** authorization to copy or promote any game file; nonce consumption and promotion remain disabled. Do not invoke the issuer from Symphony worker code. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
