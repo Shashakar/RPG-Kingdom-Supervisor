@@ -25,8 +25,8 @@ stage_handoff = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = stage_handoff
 spec.loader.exec_module(stage_handoff)
 
-SHA = re.compile(r"[0-9a-f]{64}\\Z")
-HEAD = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"^[0-9a-f]{64}$")
+HEAD = re.compile(r"^[0-9a-f]{40}$")
 
 
 def refuse(message: str) -> None:
