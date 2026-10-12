@@ -239,3 +239,5 @@ C5f (Supervisor #228) begins with a **read-only Windows Unity SID and NTFS-volum
 C5f phase 2 introduces a **cooperative WSL Unity broker dispatch drain gate** and explicit operator cancellation, documented in [C5f authority boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md). This gate blocks new broker operations but **does not** stop the Windows Editor, freeze stage files or confer human authorization; live asset promotion remains disabled.
 
 C5g (#228) adds a post-drain, read-only Windows Unity-process/NTFS-volume consistency observation and a scratch-only Windows snapshot copy-integrity lab. Neither establishes immutable Windows ownership, independent human approval nor promotion permission. See [C5f/C5g authority boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md).
+
+C5h (#228) adds an isolated Windows ServiceBase host, restricted service-SID/NTFS ACL provisioning, a fixed synthetic fixture, and real-host operator/worker negative-test scripts. It has **no live Unity snapshot requests or promotion path** and is not installed in CI. See [C5h Windows service identity](docs/UNITY_C5H_WINDOWS_SERVICE_IDENTITY.md).
