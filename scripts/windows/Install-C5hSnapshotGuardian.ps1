@@ -66,11 +66,21 @@ if ([IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') -ine
         [IO.Path]::GetFullPath($sourceRoot).TrimEnd('\')) {
     throw 'Run only from admin-protected trusted-source, not a Git checkout'
 }
+Assert-ProtectedDirectory $base
 Assert-ProtectedDirectory $sourceRoot
 foreach ($file in @($src, $PSCommandPath)) {
     $item = Get-Item -LiteralPath $file -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "C5h trusted source file is linked: $file"
+    }
+    $acl = Get-Acl -LiteralPath $file
+    foreach ($access in $acl.Access) {
+        $sid = $access.IdentityReference.Translate(
+            [Security.Principal.SecurityIdentifier]).Value
+        if ($sid -notin @('S-1-5-18','S-1-5-32-544') -and
+            $access.AccessControlType -eq 'Allow') {
+            throw "C5h trusted source file can be read/modified by untrusted principal: $sid"
+        }
     }
 }
 $observed = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash
@@ -100,15 +110,15 @@ Copy-Item -LiteralPath $src -Destination $copy
 if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -ine $ApprovedSourceSha256) {
     throw 'C5h protected source changed while being copied'
 }
-Add-Type -Path $copy -OutputAssembly $exe -OutputType ConsoleApplication -ReferencedAssemblies @('System.ServiceProcess.dll','System.Security.dll') -ErrorAction Stop
+Add-Type -Path $copy -OutputAssembly $exe -OutputType ConsoleApplication -ReferencedAssemblies @('System.dll','System.Core.dll','System.ServiceProcess.dll','System.Security.dll') -ErrorAction Stop
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw 'C5h compiler did not produce service executable'
 }
 
 # The service starts disabled and is never auto-started by worker action.
-Invoke-Sc @('create', $service, ('binPath= "' + $exe + '"'), 'type= own',
-            'start= disabled', 'obj= NT AUTHORITY\LocalService',
-            'DisplayName= RPG Kingdom C5h Snapshot Guardian')
+Invoke-Sc @('create', $service, 'binPath=', ('"' + $exe + '"'), 'type=', 'own',
+            'start=', 'disabled', 'obj=', 'NT AUTHORITY\LocalService',
+            'DisplayName=', 'RPG Kingdom C5h Snapshot Guardian')
 Invoke-Sc @('sidtype', $service, 'restricted')
 Invoke-Sc @('sdset', $service,
     'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRRC;;;BA)')
@@ -118,7 +128,7 @@ Grant-ExactAcl $private @('*S-1-5-18:(OI)(CI)F',
                           '*S-1-5-32-544:(OI)(CI)F',
                           ('*' + $serviceSid + ':(OI)(CI)F'))
 # Explicit operator start only; no automatic startup at reboot.
-Invoke-Sc @('config', $service, 'start= demand')
+Invoke-Sc @('config', $service, 'start=', 'demand')
 
 [ordered]@{
     status = 'installed-manual-start-only'
