@@ -143,6 +143,50 @@ class StageHandoffTests(unittest.TestCase):
             handoff.apply(self.ws, self.stage, "codex/260-empty", [])
         self.assertEqual(cmd(self.ws, "branch", "--show-current"), "main")
 
+    def test_copyback_uses_host_prepared_clean_branch_without_creating_another(self):
+        self.proof_fixture()
+        cmd(self.ws, "switch", "-c", "codex/260-host-prepared")
+        result = handoff.apply(
+            self.ws, self.stage, "codex/260-host-prepared", [proof],
+            use_prepared_branch=True)
+        self.assertEqual(result["status"], "copied-to-feature-branch")
+        self.assertEqual(set(result["copiedPaths"]), {
+            proof, proof + ".meta", handoff.proposal.FOLDER_META})
+        self.assertEqual(cmd(self.ws, "branch", "--show-current"), "codex/260-host-prepared")
+        self.assertEqual(cmd(self.ws, "rev-parse", "refs/heads/main"), self.base_rev)
+        self.assertEqual(cmd(self.ws, "rev-parse", "HEAD"), self.base_rev)
+        self.assertEqual((self.ws / "Assets/Settings/Mobile_RPAsset.asset").read_text(), "URP base\\n")
+
+    def test_prepared_copyback_rejects_branch_mismatch_or_dirty_tree(self):
+        self.proof_fixture()
+        cmd(self.ws, "switch", "-c", "codex/260-ready")
+        with self.assertRaisesRegex(handoff.StageHandoffDenied, "selected checked-out"):
+            handoff.apply(self.ws, self.stage, "codex/260-other", [proof],
+                          use_prepared_branch=True)
+        with self.assertRaisesRegex(handoff.StageHandoffDenied, "start from the clean"):
+            handoff.apply(self.ws, self.stage, "codex/260-ready", [proof])
+        self.put(self.ws, "Assets/extra.txt", "dirty\\n")
+        with self.assertRaises(handoff.proposal.AuditDenied):
+            handoff.apply(self.ws, self.stage, "codex/260-ready", [proof],
+                          use_prepared_branch=True)
+        self.assertEqual(cmd(self.ws, "branch", "--show-current"), "codex/260-ready")
+
+    def test_prepared_copyback_rejects_remote_branch_and_advanced_source(self):
+        self.proof_fixture()
+        cmd(self.ws, "switch", "-c", "codex/260-ready")
+        cmd(self.ws, "update-ref", "refs/remotes/origin/codex/260-ready", self.base_rev)
+        with self.assertRaisesRegex(handoff.StageHandoffDenied, "remote-tracking"):
+            handoff.apply(self.ws, self.stage, "codex/260-ready", [proof],
+                          use_prepared_branch=True)
+        cmd(self.ws, "update-ref", "-d", "refs/remotes/origin/codex/260-ready")
+        self.put(self.ws, "Assets/another.txt", "new tracked\\n")
+        cmd(self.ws, "add", ".")
+        cmd(self.ws, "-c", "user.name=test", "-c", "user.email=test@example.test",
+            "commit", "-qm", "advanced branch")
+        with self.assertRaises(handoff.proposal.AuditDenied):
+            handoff.apply(self.ws, self.stage, "codex/260-ready", [proof],
+                          use_prepared_branch=True)
+
     def test_new_asset_without_metadata_is_denied(self):
         self.put(self.stage, "Assets/RPGKingdom/Generated/Orphan.asset", "new asset\n")
         with self.assertRaisesRegex(handoff.StageHandoffDenied, "missing its .meta"):
