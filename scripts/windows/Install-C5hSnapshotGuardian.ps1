@@ -39,6 +39,11 @@ function Assert-ProtectedDirectory([string]$path) {
     if (-not $acl.AreAccessRulesProtected) {
         throw "C5h directory inherits permissions: $path"
     }
+    $ownerSid = $acl.Owner.Translate(
+        [Security.Principal.SecurityIdentifier]).Value
+    if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
+        throw "C5h trusted root is still owned by a user token: $ownerSid"
+    }
     $trusted = @('S-1-5-18','S-1-5-32-544')
     foreach ($access in $acl.Access) {
         $sid = $access.IdentityReference.Translate(
@@ -55,6 +60,8 @@ function Invoke-Sc([string[]]$arguments) {
 }
 
 function Grant-ExactAcl([string]$path, [string[]]$grants) {
+    & "$env:SystemRoot\System32\icacls.exe" $path '/setowner' '*S-1-5-32-544' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'failed to set Administrators as protected owner' }
     & "$env:SystemRoot\System32\icacls.exe" $path '/inheritance:r' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'failed to remove inherited ACL entries' }
     & "$env:SystemRoot\System32\icacls.exe" $path '/grant:r' @grants | Out-Null
@@ -74,6 +81,11 @@ foreach ($file in @($src, $PSCommandPath)) {
         throw "C5h trusted source file is linked: $file"
     }
     $acl = Get-Acl -LiteralPath $file
+    $ownerSid = $acl.Owner.Translate(
+        [Security.Principal.SecurityIdentifier]).Value
+    if ($ownerSid -notin @('S-1-5-18','S-1-5-32-544')) {
+        throw "C5h trusted source file is owned by a user: $ownerSid"
+    }
     foreach ($access in $acl.Access) {
         $sid = $access.IdentityReference.Translate(
             [Security.Principal.SecurityIdentifier]).Value
@@ -113,6 +125,13 @@ if ((Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash -ine $ApprovedSourc
 Add-Type -Path $copy -OutputAssembly $exe -OutputType ConsoleApplication -ReferencedAssemblies @('System.dll','System.Core.dll','System.ServiceProcess.dll','System.Security.dll') -ErrorAction Stop
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw 'C5h compiler did not produce service executable'
+}
+# Individual source and executable owners also matter, even with a tight
+# parent DACL. An unelevated worker sharing the administrator account's user
+# SID must not be the owner with implicit WRITE_DAC.
+foreach ($file in @($copy, $exe)) {
+    & "$env:SystemRoot\System32\icacls.exe" $file '/setowner' '*S-1-5-32-544' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'protected service binary/file owner change failed' }
 }
 
 # The service starts disabled and is never auto-started by worker action.
