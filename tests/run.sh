@@ -136,6 +136,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-stage-simple-handoff.py" \
   "$ROOT/scripts/git-stage-copyback-host.py" \
   "$ROOT/scripts/git-stage-copyback-approval-host.py" \
+  "$ROOT/scripts/terrain-acceptance-preflight.py" \
   "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
