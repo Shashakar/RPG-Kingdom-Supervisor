@@ -349,3 +349,8 @@ Implementation success additionally requires:
 
 Your final response should report completed work, validation evidence, PR URL, and blockers or unvalidated items. Do not claim the change is merged.
 {% endif %}
+
+
+### C5 proposal-only stage audit (Supervisor #216)
+
+The host-only read-only `scripts/unity-stage-proposal.py --workspace GH-N_PATH --stage WSL_STAGE_PATH` generates a review inventory of disposable Unity changes. It has **no promotion or copyback ability**; all outputs have `promotable=false`. Expected C4 scene and `.meta` files are review candidates, and other mutations (including URP migrations) are quarantined. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`. Do not treat this as authorization to alter game assets or rearm GH-260.
