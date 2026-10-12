@@ -183,6 +183,10 @@ set -e
   exit 1
 }
 
+# Restore the normal mock host before exercising existing scene tiers.
+export FAKE_UNITY_HEALTH_STATUS=0
+export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]'
+
 # Explicit scene-authoring prose without the machine-readable authorization label
 # must fail before Unity health/smoke or a Codex lifetime is consumed.
 clear_lock
