@@ -19,7 +19,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 $svc = Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $service + "'")
 if ($null -eq $svc -or $svc.Name -cne $service) { Deny 'named Windows SCM service missing' }
-if ($svc.StartName -notin @('NT AUTHORITY\LocalService','NT AUTHORITY\LOCAL SERVICE')) {
+if ($svc.StartName -ine ('NT SERVICE\' + $service)) {
     Deny 'unexpected Windows service process logon identity'
 }
 if ([int]$svc.ProcessId -le 0 -or $svc.State -ne 'Running') {
@@ -36,10 +36,11 @@ if ($null -eq $process -or $process.Name -ine 'RPGKSnapshotGuardian.exe') {
     Deny 'running service PID is not the expected executable'
 }
 $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
-if ($owner.Sid -ne 'S-1-5-19') { Deny 'service process does not run as LocalService' }
-
 $serviceSid = ([Security.Principal.NTAccount]('NT SERVICE\' + $service)).Translate(
     [Security.Principal.SecurityIdentifier]).Value
+if ($owner.Sid -ne $serviceSid) {
+    Deny 'service process does not run under its unique virtual account SID'
+}
 $privateItem = Get-Item -LiteralPath $private -Force
 if (($privateItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
     Deny 'protected root is a reparse point'
@@ -84,7 +85,7 @@ $receiptFile = Join-Path $latest.FullName 'receipt.json'
 $receipt = Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
 if ($receipt.schemaVersion -ne 1 -or
     $receipt.mode -cne 'protected-service-synthetic-fixture-only' -or
-    $receipt.windowsIdentitySid -ne 'S-1-5-19' -or
+    $receipt.windowsIdentitySid -ne $serviceSid -or
     $receipt.serviceSid -ne $serviceSid -or
     $receipt.generation -cne $latest.Name) { Deny 'service fixture receipt mismatch' }
 foreach ($key in @('realStageUsed','stageFrozen','independentHumanAuthorization',
@@ -105,7 +106,7 @@ if ($sourceHash -ne $copyHash -or
     status = 'protected-service-synthetic-proof-only'
     service = $service
     scmPidObserved = [int]$svc.ProcessId
-    serviceWindowsSid = 'S-1-5-19'
+    serviceWindowsSid = $serviceSid
     virtualServiceSid = $serviceSid
     rootAclExplicitAndBounded = $true
     fixtureSha256 = $copyHash
