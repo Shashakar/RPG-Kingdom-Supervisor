@@ -216,7 +216,9 @@ class DrainTests(unittest.TestCase):
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 )
                 self.addCleanup(self.shutdown, proc)
-                self.wait_for(lambda: json.loads(state_file.read_text()).get("state") == "blocked")
+                self.wait_for(lambda: (
+                    json.loads(state_file.read_text()).get("state") == "blocked"
+                    and json.loads(state_file.read_text()).get("pid") == proc.pid))
                 name = f"ambiguous-{number}"
                 self.request(name)
                 self.assertEqual(self.wait_response(name)["status"], "HostBusy")
