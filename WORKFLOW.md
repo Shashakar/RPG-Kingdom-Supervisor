@@ -360,3 +360,8 @@ C5b (#218): `scripts/unity-stage-approval-verify.py` checks a host-signed, exact
 
 
 C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-stage-approval-issue.py`): interactive approval of a fresh exact C5 manifest, host-only private HMAC signing key, issuance ledger and nonce. This is **not** authorization to copy or promote any game file; nonce consumption and promotion remain disabled. Do not invoke the issuer from Symphony worker code. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
+
+
+### C5d promotion transaction dry run (Supervisor #222)
+
+`python3 scripts/unity-stage-promotion-dryrun.py --workspace GH-N_PATH --stage WSL_STAGE_PATH --approval HOST_REVIEW_JSON --host-key PRIVATE_KEY --spent-nonces PRIVATE_LEDGER [--inject-failure CHECKPOINT]` checks a host-issued C5b review against a fresh C5 manifest and runs a purely **in-memory** transaction simulation with fault injection. It has **no source writes, nonce consumption, Unity calls, promotion grant, or production authority**. A `simulated-commit` result is **not** a successful asset copy. See `docs/UNITY_C5D_PROMOTION_TRANSACTION.md` for the threat model, crash/rollback protocol to be built and independent operator approval requirement. Game #260 stays halted.
