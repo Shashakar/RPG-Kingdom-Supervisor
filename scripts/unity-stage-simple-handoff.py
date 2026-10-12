@@ -68,7 +68,7 @@ def file_is_plain(root: Path, rel: str) -> bool:
     return True
 
 
-def changed_entries(workspace: Path, stage: Path) -> tuple[str, dict[str, dict], list[dict]]:
+def changed_entries(workspace: Path, stage: Path, *, prepared_branch: str | None = None) -> tuple[str, dict[str, dict], list[dict]]:
     workspace = workspace.resolve(strict=True)
     stage = stage.resolve(strict=True)
     if (workspace == stage or workspace in stage.parents or stage in workspace.parents
@@ -76,7 +76,10 @@ def changed_entries(workspace: Path, stage: Path) -> tuple[str, dict[str, dict],
         raise StageHandoffDenied("stage and source must be distinct Unity projects")
     revision = proposal.validate_source(workspace)
     current_branch = git(workspace, "symbolic-ref", "--short", "-q", "HEAD", check=False).stdout.strip()
-    if current_branch not in ("", "main"):
+    if prepared_branch is not None:
+        if current_branch != prepared_branch:
+            raise StageHandoffDenied("prepared copyback requires the selected checked-out codex branch")
+    elif current_branch not in ("", "main"):
         raise StageHandoffDenied("start from the clean issue main workspace, not an existing feature branch")
     source = proposal.inventory(workspace)
     staged = proposal.inventory(stage)
@@ -124,8 +127,8 @@ def choose(paths: list[str], staged: dict[str, dict], changes: list[dict]) -> li
     return [by_path[path] for path in sorted(selected)]
 
 
-def plan(workspace: Path, stage: Path, selected_paths: list[str]) -> dict:
-    revision, staged, changed = changed_entries(workspace, stage)
+def plan(workspace: Path, stage: Path, selected_paths: list[str], *, prepared_branch: str | None = None) -> dict:
+    revision, staged, changed = changed_entries(workspace, stage, prepared_branch=prepared_branch)
     selected = choose(selected_paths, staged, changed) if selected_paths else []
     chosen = {row["path"] for row in selected}
     return {
@@ -137,15 +140,19 @@ def plan(workspace: Path, stage: Path, selected_paths: list[str]) -> dict:
     }
 
 
-def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str]) -> dict:
+def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str], *, use_prepared_branch: bool = False) -> dict:
     branch = checked_branch(branch)
     if not selected_paths:
         raise StageHandoffDenied("apply requires at least one explicit --path")
     # Build the precise selection while issue workspace is still clean/main.
-    transaction = plan(workspace, stage, selected_paths)
+    transaction = plan(workspace, stage, selected_paths,
+                       prepared_branch=branch if use_prepared_branch else None)
     entries = transaction["selected"]
-    if git(workspace, "show-ref", "--verify", "--quiet", "refs/heads/" + branch,
-           check=False).returncode == 0:
+    local_exists = git(workspace, "show-ref", "--verify", "--quiet",
+                       "refs/heads/" + branch, check=False).returncode == 0
+    if use_prepared_branch and not local_exists:
+        raise StageHandoffDenied("requested prepared feature branch does not exist")
+    if not use_prepared_branch and local_exists:
         raise StageHandoffDenied("local feature branch already exists")
     if git(workspace, "show-ref", "--verify", "--quiet", "refs/remotes/origin/" + branch,
            check=False).returncode == 0:
@@ -178,8 +185,13 @@ def apply(workspace: Path, stage: Path, branch: str, selected_paths: list[str]) 
                 raise StageHandoffDenied("stage asset changed while preparing copy: " + rel)
         if proposal.validate_source(workspace) != transaction["sourceRevision"]:
             raise StageHandoffDenied("source main advanced before branch creation")
-        # No write to main: create/switch branch BEFORE copying any Unity file.
-        git(workspace, "switch", "-c", branch)
+        # No write to main. The normal operator flow creates the branch here;
+        # Supervisor workers already use the host Git broker to prepare one.
+        if use_prepared_branch:
+            if git(workspace, "branch", "--show-current").stdout.strip() != branch:
+                raise StageHandoffDenied("prepared feature branch changed during snapshot")
+        else:
+            git(workspace, "switch", "-c", branch)
         copied: list[str] = []
         for entry in entries:
             rel = entry["path"]
@@ -208,13 +220,18 @@ def main() -> int:
     parser.add_argument("--branch", help="new codex/* branch (required for apply)")
     parser.add_argument("--path", action="append", default=[],
                         help="explicit changed Assets file (repeat as needed)")
+    parser.add_argument("--use-prepared-branch", action="store_true",
+                        help="apply into an already host-prepared clean codex branch at origin/main (never create/switch branches)")
     args = parser.parse_args()
     try:
         if args.action == "apply":
             if not args.branch:
                 raise StageHandoffDenied("apply requires --branch")
-            result = apply(args.workspace, args.stage, args.branch, args.path)
+            result = apply(args.workspace, args.stage, args.branch, args.path,
+                           use_prepared_branch=args.use_prepared_branch)
         else:
+            if args.use_prepared_branch:
+                raise StageHandoffDenied("--use-prepared-branch requires apply")
             if args.branch:
                 raise StageHandoffDenied("plan does not create branches; omit --branch")
             result = plan(args.workspace, args.stage, args.path)
