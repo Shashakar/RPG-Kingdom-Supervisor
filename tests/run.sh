@@ -81,6 +81,7 @@ python3 "$ROOT/tests/unity-cli-c2b-audit-test.py"
 python3 "$ROOT/tests/unity-cli-staged-code-test.py"
 python3 "$ROOT/tests/unity-stage-proposal-test.py"
 python3 "$ROOT/tests/unity-stage-approval-verify-test.py"
+python3 "$ROOT/tests/unity-stage-approval-issue-test.py"
 python3 "$ROOT/tests/unity-c3-real-worker-setup-test.py"
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
@@ -120,6 +121,7 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-cli-staged-code.py" \
   "$ROOT/scripts/unity-stage-proposal.py" \
   "$ROOT/scripts/unity-stage-approval-verify.py" \
+  "$ROOT/scripts/unity-stage-approval-issue.py" \
   "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
