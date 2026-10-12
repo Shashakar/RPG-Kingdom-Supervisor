@@ -77,6 +77,66 @@ class CodeTests(unittest.TestCase):
             )
         self.assertEqual(exit_code, 0, err)
 
+    def test_persistent_preflight_accepts_only_owned_editor_and_import_children(self):
+        stage = self.receipt["stagePath"]
+        parent = {"ProcessId": 123, "ParentProcessId": 789,
+                  "CommandLine": '"C:\\Unity\\Editor\\Unity.exe" -projectPath "' + stage + '" -logFile "Editor.log"'}
+        child = {"ProcessId": 2064, "ParentProcessId": 123,
+                 "CommandLine": '"C:\\Unity\\Editor\\Unity.exe" "-adb2" "-batchMode" '
+                 '"-name" "AssetImportWorker0" "-projectPath" "' + stage.replace("\\", "/") + '"'}
+        info = code.verify_exclusive_persistent_editor(self.receipt, [parent, child])
+        self.assertEqual(info["unityPid"], 123)
+        self.assertEqual(info["assetImportWorkerPids"], [2064])
+        stranger = dict(child, ProcessId=9999, ParentProcessId=999)
+        with self.assertRaisesRegex(code.ro.Denied, "unrelated Unity"):
+            code.verify_exclusive_persistent_editor(self.receipt, [parent, child, stranger])
+        other_project = dict(child, ProcessId=4444,
+                             CommandLine=child["CommandLine"].replace(
+                                 stage.replace("\\", "/"), "C:/Temp/OtherGame"))
+        with self.assertRaisesRegex(code.ro.Denied, "unrelated Unity"):
+            code.verify_exclusive_persistent_editor(self.receipt, [parent, other_project])
+        wrong_name = dict(child, ProcessId=5555,
+                          CommandLine=child["CommandLine"].replace("AssetImportWorker0", "TestRunner"))
+        with self.assertRaisesRegex(code.ro.Denied, "unrelated Unity"):
+            code.verify_exclusive_persistent_editor(self.receipt, [parent, wrong_name])
+        with self.assertRaisesRegex(code.ro.Denied, "missing"):
+            code.verify_exclusive_persistent_editor(self.receipt, [child])
+
+    def test_persistent_preflight_requires_current_issue_grant(self):
+        status, _, err = self.invoke("preflight")
+        self.assertEqual(status, 82)
+        self.assertIn("no host grant", err)
+        self.grant()
+        def fake_processes():
+            return [{"ProcessId": 123, "ParentProcessId": 789,
+                     "CommandLine": '"C:\\Unity\\Unity.exe" -projectPath "' +
+                                    self.receipt["stagePath"] + '"'}]
+        self.receipt["sourceProjectPath"] = r"\\wsl.localhost\Ubuntu\home\dex\GH-999999"
+        hierarchy = {"success": True, "data": {"result": {
+            "scenePath": code.SCENE, "sceneName": "PlaytestScene",
+            "isDirty": False, "roots": []
+        }}}
+        real_run = subprocess.run
+        def fake_run(args, **kwargs):
+            if args[0] == "wslpath":
+                return subprocess.CompletedProcess(args, 0, self.receipt["sourceProjectPath"] + "\n", "")
+            return real_run(args, **kwargs)
+        with patch.object(code.ro, "stage_info", return_value=(self.stage, self.receipt)), \
+             patch.object(code.ro, "cli_path", return_value="fake"), \
+             patch.object(code.ro, "verify_pipeline"), \
+             patch.object(code.ro, "cli_json", return_value=hierarchy), \
+             patch.object(code, "windows_unity_processes", side_effect=fake_processes), \
+             patch.object(code.subprocess, "run", side_effect=fake_run):
+            status, out, err = self.invoke("preflight")
+        self.assertEqual(status, 0, err)
+        self.assertEqual(json.loads(out)["status"], "ready")
+        self.assertFalse(json.loads(out)["copyback"])
+        self.receipt["unityPid"] = 999
+        with patch.object(code.ro, "stage_info", return_value=(self.stage, self.receipt)):
+            status, _, err = self.invoke("preflight")
+        self.assertEqual(status, 82)
+        self.assertIn("PID changed", err)
+
     def test_default_off_revoke_and_revision_binding(self):
         status, _, err = self.invoke("run", "--script", "AgentScripts/Test.cs")
         self.assertEqual(status, 82)
