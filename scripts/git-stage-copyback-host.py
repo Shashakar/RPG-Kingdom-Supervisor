@@ -101,7 +101,7 @@ def copyback(workspace: Path, workspace_root: Path, state_root: Path,
     if Path(mapped.stdout.strip()).resolve() != workspace:
         refuse("Unity stage originated from another issue workspace")
     git_origin = git(workspace, "remote", "get-url", "origin")
-    if not re.fullmatch(r"(?:https://github.com/|git@github.com:|ssh://git@github.com/)Shashakar/RPG-Kingdom(?:\\.git)?", git_origin, re.I):
+    if not re.fullmatch(r"(?:https://github.com/|git@github.com:|ssh://git@github.com/)Shashakar/RPG-Kingdom(?:\.git)?", git_origin, re.I):
         refuse("unexpected game repository origin")
 
     if git(workspace, "branch", "--show-current") != branch:
