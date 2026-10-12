@@ -155,7 +155,7 @@ class StageHandoffTests(unittest.TestCase):
         self.assertEqual(cmd(self.ws, "branch", "--show-current"), "codex/260-host-prepared")
         self.assertEqual(cmd(self.ws, "rev-parse", "refs/heads/main"), self.base_rev)
         self.assertEqual(cmd(self.ws, "rev-parse", "HEAD"), self.base_rev)
-        self.assertEqual((self.ws / "Assets/Settings/Mobile_RPAsset.asset").read_text(), "URP base\\n")
+        self.assertEqual((self.ws / "Assets/Settings/Mobile_RPAsset.asset").read_text().splitlines(), ["URP base"])
 
     def test_prepared_copyback_rejects_branch_mismatch_or_dirty_tree(self):
         self.proof_fixture()
