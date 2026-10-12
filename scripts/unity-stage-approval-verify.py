@@ -94,7 +94,7 @@ def validate(approval: dict, current: dict, *, key: bytes, spent: set[str],
     if (payload["sourceSceneSha256"] != current["sourceSceneSha256"]
             or payload["stageProject"] != current["stageProject"]):
         raise ApprovalDenied("stage identity or source scene changed")
-    if payload["proposalSha256"] != manifest_digest(current):
+    if not isinstance(payload["proposalSha256"], str) or payload["proposalSha256"] != manifest_digest(current):
         raise ApprovalDenied("proposal content changed")
     paths = payload["approvedPaths"]
     if not isinstance(paths, list) or not paths or len(paths) != len(set(map(str, paths))):
@@ -124,12 +124,16 @@ def main() -> int:
     args = ap.parse_args()
     try:
         workspace = Path(args.workspace).resolve()
-        host_key = Path(args.host_key).resolve()
-        spent_file = Path(args.spent_nonces).resolve()
+        host_key = Path(args.host_key)
+        spent_file = Path(args.spent_nonces)
+        if host_key.is_symlink() or spent_file.is_symlink():
+            raise ApprovalDenied("linked host authority is forbidden")
+        host_key = host_key.resolve()
+        spent_file = spent_file.resolve()
         if workspace == host_key or workspace in host_key.parents or workspace in spent_file.parents:
             raise ApprovalDenied("host authority cannot reside in worker workspace")
         key = safe_secret(host_key)
-        if spent_file.is_symlink() or not spent_file.is_file():
+        if not spent_file.is_file() or spent_file.stat().st_mode & 0o077:
             raise ApprovalDenied("host nonce ledger missing")
         ledger = json.loads(spent_file.read_text(encoding="utf-8"))
         if not isinstance(ledger, list) or any(not isinstance(x, str) or not NONCE.fullmatch(x) for x in ledger):
