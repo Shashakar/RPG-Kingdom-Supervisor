@@ -365,3 +365,8 @@ C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-sta
 ### C5d promotion transaction dry run (Supervisor #222)
 
 `python3 scripts/unity-stage-promotion-dryrun.py --workspace GH-N_PATH --stage WSL_STAGE_PATH --approval HOST_REVIEW_JSON --host-key PRIVATE_KEY --spent-nonces PRIVATE_LEDGER [--inject-failure CHECKPOINT]` checks a host-issued C5b review against a fresh C5 manifest and runs a purely **in-memory** transaction simulation with fault injection. It has **no source writes, nonce consumption, Unity calls, promotion grant, or production authority**. A `simulated-commit` result is **not** a successful asset copy. See `docs/UNITY_C5D_PROMOTION_TRANSACTION.md` for the threat model, crash/rollback protocol to be built and independent operator approval requirement. Game #260 stays halted.
+
+
+### C5d scratch-only durability checks (#224)
+
+`python3 scripts/unity-promotion-recovery-lab.py [--inject-crash CHECKPOINT]` creates a private temporary fixture, kills its own test child at a transaction checkpoint, and exercises real on-disk journal, lock, nonce and recovery logic **entirely inside auto-generated scratch files**. It is *not* a Unity promotion endpoint or approval authority. See `docs/UNITY_C5D_SCRATCH_RECOVERY.md` for supported evidence and outstanding requirements. Game #260 remains halted.
