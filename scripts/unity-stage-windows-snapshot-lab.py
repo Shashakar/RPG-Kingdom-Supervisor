@@ -45,9 +45,9 @@ def checksum(path: Path) -> str:
 
 
 def inventory(root: Path) -> dict[str, dict]:
-    reject_reparse(root)
     if not root.is_dir():
         raise SnapshotLabDenied("snapshot input root missing")
+    reject_reparse(root)
     files: dict[str, dict] = {}
     total = 0
     for part in ROOTS:
