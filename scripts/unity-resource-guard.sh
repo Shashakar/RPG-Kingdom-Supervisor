@@ -13,6 +13,7 @@ STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervi
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 BROKER_STATUS="$STATE_ROOT/unity-broker/status.json"
 UNITY_RUNNER="${RPGK_UNITY_RUNNER:-$ROOT/scripts/unity-runner.sh}"
+UNITY_PERSISTENT_PREFLIGHT="${RPGK_UNITY_PERSISTENT_PREFLIGHT:-$ROOT/scripts/unity-cli-staged-code.py}"
 UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources}"
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
@@ -219,6 +220,7 @@ structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring
 existing_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-existing-composition")' <<<"$labels_json")"
 gameplay_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-gameplay")' <<<"$labels_json")"
 new_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-new-composition")' <<<"$labels_json")"
+persistent_editor="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:editor-staged-code")' <<<"$labels_json")"
 authoring_count=0
 [[ "$mechanical_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$structural_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
@@ -367,14 +369,39 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-set +e
-health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
-health_status=$?
-set -e
-if (( health_status != 0 )); then
-  health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
-  halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
-  exit 76
+# The persistent Editor lane deliberately keeps its own operator-granted Unity
+# process alive. Do NOT run the generic batchmode health check for this label:
+# it correctly rejects every Unity.exe. Verify the exact issue-bound grant,
+# Windows Editor PID/stage, and only its stage-bound import worker children.
+# Unlabeled jobs retain the strict original idle-host check.
+if [[ "$persistent_editor" == "true" ]]; then
+  if [[ "$mechanical_authoring" == "true" || "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" || "$gameplay_authoring" == "true" ]]; then
+    halt_issue "persistent Editor code label cannot be combined with typed production scene-authoring labels"
+    exit 75
+  fi
+  if ! rpgk_unity_has_label "completion:report-only" "$labels" || [[ "$validation_mode" != "optional" ]]; then
+    halt_issue "persistent Editor trial requires completion:report-only and validation:unity-optional (never batchmode preflight)"
+    exit 75
+  fi
+  set +e
+  health_output="$(python3 "$UNITY_PERSISTENT_PREFLIGHT" preflight --workspace "$PWD" --state-root "$STATE_ROOT" 2>&1)"
+  health_status=$?
+  set -e
+  if (( health_status != 0 )); then
+    health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-350)"
+    halt_issue "issue-bound persistent Unity Editor health check failed (exit $health_status): $health_reason"
+    exit 76
+  fi
+else
+  set +e
+  health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
+  health_status=$?
+  set -e
+  if (( health_status != 0 )); then
+    health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
+    halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
+    exit 76
+  fi
 fi
 
 echo "$health_output"
