@@ -86,7 +86,8 @@ def windows_census(*, run=subprocess.run) -> dict:
         value = json.loads(result.stdout.strip().lstrip("\ufeff"))
     except (ValueError, TypeError) as exc:
         raise QuiescenceDenied("invalid Windows census JSON") from exc
-    return validate_census(value)
+    # The caller validates all three samples uniformly, including mocks.
+    return value
 
 
 def broker_drained(state: Path, workspace: Path) -> None:
