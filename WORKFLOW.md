@@ -395,3 +395,7 @@ See docs/UNITY_C5F_AUTHORITY_BOUNDARY.md for commands, limits and recovery.
 ### C5g post-drain Windows observation and scratch snapshot only
 
 After an explicit operator-controlled Editor shutdown, an active C5f broker drain allows a read-only Windows process/volume census plus repeated stage manifest audit with scripts/unity-stage-windows-quiescence.py. This does not freeze the mutable stage or grant promotion. The scratch-only snapshot lab builds synthetic assets only inside temporary directories and never touches real game scenes, grants, journals or approvals. Protected Windows service identity, NTFS snapshot ACL/exclusivity and independent human authorization are still required. See docs/UNITY_C5F_AUTHORITY_BOUNDARY.md. RPG Kingdom #260 remains halted.
+
+### C5h protected Windows identity (still non-promoting)
+
+C5h contributes a Windows ServiceBase executable and separately reviewed elevated installer with restricted service SID, privileged audit and normal-Unity-user negative access test. Installation must originate from an admin-owned trusted-source path, NOT a worker-writable checkout. CI compiles the service without installing it. The only service operation copies a built-in synthetic fixture to the service's private directory. No stage path, Unix/Windows broker operation, production asset copy, WebAuthn approval or RPG Kingdom #260 rearm is enabled. See docs/UNITY_C5H_WINDOWS_SERVICE_IDENTITY.md.

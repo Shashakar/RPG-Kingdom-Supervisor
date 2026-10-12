@@ -1,0 +1,74 @@
+name: C5h Windows Service Compile
+
+on:
+  pull_request:
+    paths:
+      - "scripts/windows/C5hSnapshotGuardian.cs"
+      - "scripts/windows/Install-C5hSnapshotGuardian.ps1"
+      - "scripts/windows/Test-C5hSnapshotGuardian.ps1"
+      - "scripts/windows/Test-C5hWorkerDenied.ps1"
+      - ".github/workflows/unity-c5h-service.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-service-compile:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse privileged host PowerShell scripts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $paths = @(
+            'scripts/windows/Install-C5hSnapshotGuardian.ps1',
+            'scripts/windows/Test-C5hSnapshotGuardian.ps1',
+            'scripts/windows/Test-C5hWorkerDenied.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell AST syntax failed: $path"
+            }
+          }
+      - name: Compile Windows ServiceBase executable without installation
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $PWD 'scripts/windows/C5hSnapshotGuardian.cs'
+          $output = Join-Path $env:RUNNER_TEMP 'RPGKSnapshotGuardian.exe'
+          Add-Type -Path $source -OutputAssembly $output -OutputType ConsoleApplication -ReferencedAssemblies @('System.dll','System.Core.dll','System.ServiceProcess.dll','System.Security.dll') -ErrorAction Stop
+          if (-not (Test-Path -LiteralPath $output -PathType Leaf)) {
+            throw 'C5h Windows ServiceBase executable was not produced'
+          }
+          Write-Host ('ServiceBase compilation OK; source SHA256: ' + (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash)
+          Write-Host ('Compiled executable size: ' + (Get-Item $output).Length)
+      - name: Assert installer refuses worker-writable checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD 'scripts/windows/Install-C5hSnapshotGuardian.ps1'
+          $denied = $false
+          try {
+            & $installer -ApprovedSourceSha256 ('0' * 64)
+          } catch {
+            $message = $_.Exception.Message
+            if ($message -notmatch '(?i)(requires a deliberate elevated|Run only from admin-protected)') {
+              throw ('Unexpected installer result: ' + $message)
+            }
+            $denied = $true
+          }
+          if (-not $denied) { throw 'C5h installer accepted worker-writable checkout' }
+      - name: Confirm no installer/service runs in CI
+        shell: powershell
+        run: |
+          $service = Get-Service -Name 'RPGKSnapshotGuardian' -ErrorAction SilentlyContinue
+          if ($null -ne $service) { throw 'CI unexpectedly contains C5h SCM service' }
+          Write-Host 'C5h CI compiled and inspected only; no service registered or installed'
