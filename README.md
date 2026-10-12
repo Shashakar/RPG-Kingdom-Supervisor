@@ -237,3 +237,5 @@ C5e host-only read-only Unity stage inspection: [operator instructions and limit
 C5f (Supervisor #228) begins with a **read-only Windows Unity SID and NTFS-volume boundary audit** and a documented protected-service/FIDO2 authorization design; see [C5f trust boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md). The audit explicitly cannot establish independent human approval or stage freeze. Neither service isolation nor live promotion is deployed. Game #260 remains halted.
 
 C5f phase 2 introduces a **cooperative WSL Unity broker dispatch drain gate** and explicit operator cancellation, documented in [C5f authority boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md). This gate blocks new broker operations but **does not** stop the Windows Editor, freeze stage files or confer human authorization; live asset promotion remains disabled.
+
+C5g (#228) adds a post-drain, read-only Windows Unity-process/NTFS-volume consistency observation and a scratch-only Windows snapshot copy-integrity lab. Neither establishes immutable Windows ownership, independent human approval nor promotion permission. See [C5f/C5g authority boundary](docs/UNITY_C5F_AUTHORITY_BOUNDARY.md).

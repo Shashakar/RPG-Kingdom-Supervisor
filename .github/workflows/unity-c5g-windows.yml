@@ -1,0 +1,29 @@
+name: C5g Windows Scratch Snapshot
+
+on:
+  pull_request:
+    paths:
+      - "scripts/unity-stage-windows-snapshot-lab.py"
+      - "tests/unity-stage-windows-snapshot-lab-test.py"
+      - ".github/workflows/unity-c5g-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-scratch:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scratch snapshot integrity regression (no Unity or live paths)
+        shell: pwsh
+        run: |
+          python tests/unity-stage-windows-snapshot-lab-test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/unity-stage-windows-snapshot-lab.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

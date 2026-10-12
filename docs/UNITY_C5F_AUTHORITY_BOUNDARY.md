@@ -112,3 +112,68 @@ blocks, and that broker restart preserves the deny. No actual Unity tests
 or Windows-volume validation are claimed. Run:
 
     python3 tests/unity-stage-operator-drain-test.py
+
+
+## C5g post-handoff Windows census and scratch snapshot experiment (phase 3)
+
+**This is non-promoting work.** No protected Windows service identity, forced
+Editor shutdown, real-stage asset copy, independent human authentication,
+exclusive NTFS file lock or OS-protected immutable snapshot is supplied.
+
+After the operator manually closes the disposable Unity Editor, while the C5f
+dispatch drain remains active, run from the trusted WSL host:
+
+    python3 scripts/unity-stage-windows-quiescence.py
+
+This read-only command derives issue, revision and stage from the existing
+C5f drain and C3 grant (no worker-supplied stage path). It requires a live
+draining/idle broker, absent Unity resource lease, matching source revision and
+Unity version. Under the cooperating dispatch lock it samples all Windows
+Unity.exe processes three times around two full stage/source manifests; any
+Editor, asset import worker or batchmode Unity process denies the observation.
+It confirms the current Windows C: Win32_LogicalDisk reports NTFS and a
+volume serial. This still does not independently verify stage volume handle
+identity, process creation times, root reparse points or OS-enforced file
+exclusion.
+
+Success is a windows-quiescence-observed-not-frozen *observation*, not a
+freeze. It always reports stageFrozen=false, immutableSnapshotVerified=false,
+independentHumanAuthorization=false, promotionAuthorized=false,
+nonceConsumed=false and copyback=false. Other Windows writers may modify files
+after the scan, and a scan can miss uncoordinated mutations.
+
+The scratch-only experiment takes NO real stage, source, destination,
+credentials, approval or service arguments:
+
+    python3 scripts/unity-stage-windows-snapshot-lab.py
+    python3 tests/unity-stage-windows-snapshot-lab-test.py
+
+It creates synthetic Unity scenes, metadata and a quarantined URP asset in a
+fresh temporary directory, copies a bounded full project inventory into an
+unrelated synthetic directory, fsyncs file contents, rehashes both sides, and
+fails on mutations during copying. It verifies that a later source change does
+not rewrite copied bytes. It rejects symlinks and Windows reparse/junction
+entries when the OS reports those attributes and cleans up partial scratch
+copies. It does not prove Windows parent-directory flush durability, handle
+safety against untrusted concurrent writers, or protection from a worker
+sharing the copying user's identity.
+
+Its output deliberately reports realStageUsed=false,
+windowsServiceDeployed=false, immutableSnapshotVerified=false,
+stageFrozen=false and copyback=false. The dedicated Windows GitHub Actions
+job runs these synthetic tests on a Windows runner; this is not a real-local
+Unity Editor, credential-isolation or NTFS host acceptance test.
+
+### Remaining blockers (do not mark #228 complete)
+
+1. Install and independently verify a protected Windows service identity
+   separate from Unity authoring; test worker cannot read service secrets,
+   private snapshot or access privileged promotion IPC. Require independent,
+   transaction-bound human user verification for any future promotion.
+2. Operator-controlled Editor handoff and process creation-time identity checks;
+   Windows-enforced stage exclusion, not only cooperative WSL flock.
+3. Real private service-owned immutable snapshot, Windows non-following file
+   handles, NTFS reparse/volume serial identity, GUID inventory, durable
+   journal/recovery and hard process termination tests.
+4. Real host negative tests under the worker identity and a separate
+   reviewed PR authorizing a future write-capable promotion implementation.
