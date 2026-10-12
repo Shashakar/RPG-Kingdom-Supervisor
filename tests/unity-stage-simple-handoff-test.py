@@ -78,6 +78,27 @@ class StageHandoffTests(unittest.TestCase):
         self.assertIn("Assets/Settings/Mobile_RPAsset.asset",
                       {x["path"] for x in plan["excluded"]})
 
+    def test_real_textmesh_pro_ampersand_paths_do_not_block_stage_preview(self):
+        # Real game main includes Assets/TextMesh Pro/Resources/Fonts & Materials.
+        # These unchanged Unity package files must not block plan/apply.
+        path = "Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset"
+        self.put(self.ws, path, "original font data\n")
+        self.put(self.stage, path, "original font data\n")
+        self.put(self.ws, path + ".meta",
+                 "fileFormatVersion: 2\nguid: " + "c" * 32 + "\n")
+        self.put(self.stage, path + ".meta",
+                 "fileFormatVersion: 2\nguid: " + "c" * 32 + "\n")
+        cmd(self.ws, "add", ".")
+        cmd(self.ws, "-c", "user.name=test", "-c", "user.email=test@example.test",
+            "commit", "-qm", "existing font fixture")
+        cmd(self.ws, "update-ref", "refs/remotes/origin/main",
+            cmd(self.ws, "rev-parse", "HEAD"))
+        output = handoff.plan(self.ws, self.stage, [scene])
+        self.assertEqual([x["path"] for x in output["selected"]], [scene])
+        self.assertNotIn(path, {x["path"] for x in output["excluded"]})
+        self.assertIn("Assets/Settings/Mobile_RPAsset.asset",
+                      {x["path"] for x in output["excluded"]})
+
     def test_apply_copies_scene_only_after_feature_branch_switch(self):
         result = handoff.apply(self.ws, self.stage, "codex/260-terrain-approach", [scene])
         self.assertEqual(result["status"], "copied-to-feature-branch")
