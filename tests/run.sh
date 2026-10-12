@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# C5e focused safety checks run before unrelated timing-sensitive broker tests.
+python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 bash "$ROOT/tests/routing-policy-test.sh"
@@ -84,7 +87,6 @@ python3 "$ROOT/tests/unity-stage-approval-verify-test.py"
 python3 "$ROOT/tests/unity-stage-approval-issue-test.py"
 python3 "$ROOT/tests/unity-stage-promotion-dryrun-test.py"
 python3 "$ROOT/tests/unity-promotion-recovery-lab-test.py"
-python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 python3 "$ROOT/tests/unity-c3-real-worker-setup-test.py"
 python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
