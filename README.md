@@ -233,3 +233,7 @@ C5d (#222) documents a dry-run-only Unity staged asset promotion transaction wit
 C5d crash-recovery testing is documented in [the scratch transaction lab](docs/UNITY_C5D_SCRATCH_RECOVERY.md); it never copies actual Unity assets.
 
 C5e host-only read-only Unity stage inspection: [operator instructions and limitations](docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md). It does not freeze the Editor or authorize asset copyback.
+
+### MVP Unity staged-asset handoff
+
+For a working C3 Unity workflow without extra Windows services or authorization infrastructure, use the operator-run `scripts/unity-stage-simple-handoff.py` to preview exact stage changes and copy selected `Assets/` files (plus changed Unity metadata) to a **new `codex/*` feature branch**. Run normal Unity tests and use the existing `git-handoff.sh handoff` to commit/push/create the PR for human review. No main writes or automatic merge. See [minimal Unity handoff guide](docs/UNITY_STAGE_SIMPLE_HANDOFF.md).

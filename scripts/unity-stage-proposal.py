@@ -17,7 +17,7 @@ import sys
 
 ISSUE = re.compile(r"GH-[1-9][0-9]*\Z")
 GUID = re.compile(r"(?m)^\s*guid:\s*([0-9a-fA-F]{32})\s*$")
-SAFE = re.compile(r"^[A-Za-z0-9_ .+@()/-]+$")
+SAFE = re.compile(r"^[A-Za-z0-9_ .+@()&/-]+$")
 MAX_FILES = 250000
 CHECK_ROOTS = ("Assets", "Packages", "ProjectSettings")
 IGNORE = {"Library", "Logs", "Temp", "Obj", "Build", "Builds", ".git"}
@@ -55,7 +55,7 @@ def inventory(root: Path) -> dict[str, dict]:
                 relative = path.relative_to(root).as_posix()
                 if (not SAFE.fullmatch(relative) or "//" in relative
                         or any(x in {".", "..", ""} for x in relative.split("/"))):
-                    raise AuditDenied("unsafe project path")
+                    raise AuditDenied(f"unsafe project path: {relative}")
                 if len(result) >= MAX_FILES:
                     raise AuditDenied("project inventory too large")
                 data = {"sha256": digest(path), "bytes": path.stat().st_size}
