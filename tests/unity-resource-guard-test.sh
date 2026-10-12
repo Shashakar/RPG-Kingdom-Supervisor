@@ -48,6 +48,14 @@ case "$command" in
     fi
     printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
     ;;
+  editor-staged-preflight)
+    [[ "${3:-}" == "--scene" || "${1:-}" == "--project" ]] || { echo "preflight requires typed request" >&2; exit 64; }
+    if [[ "${FAKE_PERSISTENT_STATUS:-0}" != "0" ]]; then
+      echo "fake host preflight: staged grant or Windows census denied" >&2
+      exit "$FAKE_PERSISTENT_STATUS"
+    fi
+    printf '{"status":"ready","mode":"operator-granted-persistent-unity-editor","assetImportWorkerPids":[2064],"copyback":false}\n'
+    ;;
   editmode)
     filter=""
     while [[ $# -gt 0 ]]; do
@@ -72,19 +80,6 @@ esac
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
 
-cat > "$TMP/fake-persistent-preflight.py" <<'EOF'
-#!/usr/bin/env python3
-import os, sys
-if len(sys.argv) < 2 or sys.argv[1] != "preflight":
-    print("unexpected persistent preflight action", file=sys.stderr)
-    sys.exit(64)
-if os.environ.get("FAKE_PERSISTENT_STATUS", "0") != "0":
-    print("stage grant, Editor PID or process census does not match", file=sys.stderr)
-    sys.exit(int(os.environ["FAKE_PERSISTENT_STATUS"]))
-print('{"status":"ready","mode":"operator-granted-persistent-unity-editor","assetImportWorkerPids":[2064],"copyback":false}')
-EOF
-chmod +x "$TMP/fake-persistent-preflight.py"
-export RPGK_UNITY_PERSISTENT_PREFLIGHT="$TMP/fake-persistent-preflight.py"
 
 
 export PATH="$TMP/bin:$PATH"
