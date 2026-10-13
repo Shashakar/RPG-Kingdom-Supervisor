@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROTOCOL_VERSION = 1
-ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"}
+ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 STOP_REQUESTED = False
 SAFE_PRE_UNITY_PHASES = {
@@ -43,7 +43,6 @@ class RequestSpec:
     operation: str
     test_filter: str
     scene_path: str = ""
-    script_path: str = ""
     camera_path: str = ""
     view_name: str = ""
     camera_position: str = ""
@@ -55,6 +54,8 @@ class RequestSpec:
     capture_height: int = 1080
     workspace: Path = Path(".")
     client_pid: int | None = None
+    expected_worker_run_id: str | None = None
+    requires_worker_lease: bool = False
     worker_run_id: str | None = None
     worker_pid: int | None = None
 
@@ -216,7 +217,6 @@ def prepare_request(
         operation = str(request.get("operation", ""))
         test_filter = str(request.get("testFilter", ""))
         scene_path = str(request.get("scenePath", ""))
-        script_path = str(request.get("scriptPath", ""))
         camera_path = str(request.get("cameraPath", ""))
         view_name = str(request.get("viewName", ""))
         camera_position = str(request.get("cameraPosition", ""))
@@ -226,7 +226,7 @@ def prepare_request(
         reuse_stage_library = bool(request.get("reuseStageLibrary", False))
         capture_width = int(request.get("captureWidth", 1920))
         capture_height = int(request.get("captureHeight", 1080))
-        if operation in {"capture", "inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"}:
+        if operation in {"capture", "inspect"}:
             if (not scene_path.startswith("Assets/") or not scene_path.endswith(".unity")
                     or "\\" in scene_path or any(part in ("", ".", "..") for part in scene_path.split("/"))):
                 raise ValueError("capture requires scenePath under Assets ending in .unity")
@@ -236,19 +236,21 @@ def prepare_request(
                 raise ValueError("capture fieldOfView is outside supported bounds")
             if camera_rotation and look_at_path:
                 raise ValueError("capture may specify cameraRotation or lookAtPath, not both")
-            if operation in {"inspect", "editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"} and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
-                raise ValueError("read-only inspection does not accept camera pose arguments")
-            if operation in {"editor-scene-summary", "editor-stage-benchmark", "editor-staged-code", "editor-staged-preflight"} and test_filter:
-                raise ValueError("editor-scene-summary does not accept testFilter")
+            if operation == "inspect" and (camera_path or view_name or camera_position or camera_rotation or look_at_path):
+                raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
-        if operation == "editor-staged-preflight" and scene_path != "Assets/RPGKingdom/Scenes/PlaytestScene.unity":
-            raise ValueError("persistent Editor preflight requires the fixed granted PlaytestScene")
-        if operation == "editor-staged-code":
-            if not re.fullmatch(r"(?:AgentScripts|Logs/SymphonyUnity/AgentScripts)/[A-Za-z][A-Za-z0-9_-]{0,70}\.cs", script_path):
-                raise ValueError("editor-staged-code requires AgentScripts/<name>.cs")
-        elif script_path:
-            raise ValueError("scriptPath may be supplied only for editor-staged-code")
+        requires_worker_lease = request.get("requiresWorkerLease", False)
+        if not isinstance(requires_worker_lease, bool):
+            raise ValueError("requiresWorkerLease must be boolean")
+        expected_worker_run_id = request.get("expectedWorkerRunId")
+        if requires_worker_lease:
+            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(
+                r"GH-[0-9]+-[A-Za-z0-9_-]+", expected_worker_run_id
+            ):
+                raise ValueError("requiresWorkerLease needs a valid expectedWorkerRunId")
+        elif expected_worker_run_id is not None:
+            raise ValueError("expectedWorkerRunId requires requiresWorkerLease")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -293,7 +295,7 @@ def prepare_request(
             f"RPG Kingdom Unity broker: workspace '{workspace}' is outside '{workspace_root}'",
         )
 
-    if operation not in {"health", "editor-staged-preflight"}:
+    if operation != "health":
         lock_error = validate_lock(state_root, workspace)
         if lock_error:
             return response_for_error(
@@ -309,7 +311,6 @@ def prepare_request(
         operation=operation,
         test_filter=test_filter,
         scene_path=scene_path,
-        script_path=script_path,
         camera_path=camera_path,
         view_name=view_name,
         camera_position=camera_position,
@@ -321,6 +322,8 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        requires_worker_lease=requires_worker_lease,
+        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -329,42 +332,7 @@ def start_operation(
     state_root: Path,
     host_runner: Path,
 ) -> ActiveOperation:
-    if spec.operation == "editor-staged-preflight":
-        # Host-owned read-only verification does not require the Unity lease yet.
-        # The guard acquires the exclusive resource only after this succeeds.
-        command = [
-            sys.executable,
-            str(Path(__file__).resolve().parent / "unity-cli-staged-code.py"),
-            "preflight", "--workspace", str(spec.workspace),
-            "--state-root", str(state_root),
-        ]
-    elif spec.operation == "editor-staged-code":
-        command = [
-            sys.executable,
-            str(Path(__file__).resolve().parent / "unity-cli-staged-code.py"),
-            "run", "--workspace", str(spec.workspace),
-            "--state-root", str(state_root),
-            "--scene", spec.scene_path,
-            "--script", spec.script_path,
-        ]
-    elif spec.operation == "editor-stage-benchmark":
-        command = [
-            sys.executable,
-            str(Path(__file__).resolve().parent / "unity-cli-stage-benchmark.py"),
-            "run", "--workspace", str(spec.workspace),
-            "--state-root", str(state_root), "--scene", spec.scene_path,
-        ]
-    elif spec.operation == "editor-scene-summary":
-        # Only the host broker selects the Windows CLI session from an operator
-        # grant outside the GH issue workspace. No worker-supplied stage or code.
-        command = [
-            sys.executable,
-            str(Path(__file__).resolve().parent / "unity-cli-readonly.py"),
-            "inspect", "--workspace", str(spec.workspace),
-            "--state-root", str(state_root), "--scene", spec.scene_path,
-        ]
-    else:
-        command = ["bash", str(host_runner), spec.operation, "--project", str(spec.workspace)]
+    command = ["bash", str(host_runner), spec.operation, "--project", str(spec.workspace)]
     if spec.test_filter:
         command.extend(["--filter", spec.test_filter])
     if spec.operation in {"capture", "inspect"}:
@@ -588,6 +556,21 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     if len(matches) != 1:
         return None, None
     return matches[0]
+
+
+def verify_worker_ownership(spec: RequestSpec, state_root: Path) -> dict[str, Any] | None:
+    """The host alone may validate a Codex request's worker PID."""
+    run_id, pid = resolve_worker_lease(state_root, spec.workspace)
+    if spec.requires_worker_lease and (pid is None or run_id != spec.expected_worker_run_id):
+        return response_for_status(
+            spec.request_id, spec.operation, "WorkerLeaseRejected", 75,
+            "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
+            details={"expectedWorkerRunId": spec.expected_worker_run_id,
+                     "resolvedWorkerRunId": run_id, "leaseVerifiedByHost": False},
+        )
+    spec.worker_run_id = run_id
+    spec.worker_pid = pid
+    return None
 
 
 def request_owner_alive(active: ActiveOperation) -> bool:
@@ -1190,9 +1173,10 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
-                prepared.worker_run_id = worker_run_id
-                prepared.worker_pid = worker_pid
+                owner_error = verify_worker_ownership(prepared, state_root)
+                if owner_error is not None:
+                    write_response(request_path, owner_error)
+                    continue
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)

@@ -531,10 +531,19 @@ grep -Fq 'RPGK_UNITY_PROGRESS_FILE' "$ROOT/scripts/unity-runner-host.sh" || {
   exit 1
 }
 
+# Read-only inspection must share the broker's ownership-aware progress-stall
+# recovery; a stuck Editor inspection must not hold Unity until global timeout.
+grep -Fq 'active.spec.operation in {"editmode", "playmode", "inspect"}' "$ROOT/scripts/unity-host-broker.py" || {
+  echo "unity-broker-test: inspect missing from stall recovery" >&2
+  exit 1
+}
+
 bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
 python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
 
+# Exercise managed Unity work across the 30-second execution-tool boundary.
 bash "$ROOT/tests/unity-managed-wait-test.sh"
+python3 "$ROOT/tests/unity-host-ownership-test.py"
 
 echo "unity-broker-test: PASS"
