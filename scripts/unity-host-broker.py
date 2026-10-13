@@ -54,6 +54,8 @@ class RequestSpec:
     capture_height: int = 1080
     workspace: Path = Path(".")
     client_pid: int | None = None
+    expected_worker_run_id: str | None = None
+    requires_worker_lease: bool = False
     worker_run_id: str | None = None
     worker_pid: int | None = None
 
@@ -238,6 +240,17 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        requires_worker_lease = request.get("requiresWorkerLease", False)
+        if not isinstance(requires_worker_lease, bool):
+            raise ValueError("requiresWorkerLease must be boolean")
+        expected_worker_run_id = request.get("expectedWorkerRunId")
+        if requires_worker_lease:
+            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(
+                r"GH-[0-9]+-[A-Za-z0-9_-]+", expected_worker_run_id
+            ):
+                raise ValueError("requiresWorkerLease needs a valid expectedWorkerRunId")
+        elif expected_worker_run_id is not None:
+            raise ValueError("expectedWorkerRunId requires requiresWorkerLease")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -309,6 +322,8 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        requires_worker_lease=requires_worker_lease,
+        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -541,6 +556,21 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     if len(matches) != 1:
         return None, None
     return matches[0]
+
+
+def verify_worker_ownership(spec: RequestSpec, state_root: Path) -> dict[str, Any] | None:
+    """The host alone may validate a Codex request's worker PID."""
+    run_id, pid = resolve_worker_lease(state_root, spec.workspace)
+    if spec.requires_worker_lease and (pid is None or run_id != spec.expected_worker_run_id):
+        return response_for_status(
+            spec.request_id, spec.operation, "WorkerLeaseRejected", 75,
+            "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
+            details={"expectedWorkerRunId": spec.expected_worker_run_id,
+                     "resolvedWorkerRunId": run_id, "leaseVerifiedByHost": False},
+        )
+    spec.worker_run_id = run_id
+    spec.worker_pid = pid
+    return None
 
 
 def request_owner_alive(active: ActiveOperation) -> bool:
@@ -1143,9 +1173,10 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
-                prepared.worker_run_id = worker_run_id
-                prepared.worker_pid = worker_pid
+                owner_error = verify_worker_ownership(prepared, state_root)
+                if owner_error is not None:
+                    write_response(request_path, owner_error)
+                    continue
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)
