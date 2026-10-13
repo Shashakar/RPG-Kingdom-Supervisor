@@ -299,6 +299,17 @@ def worker_start(
     if existing and process_alive(existing.get("pid")):
         raise RuntimeError(f"active {role} worker already recorded: {existing.get('runId')}")
     atomic_json(active, payload)
+    observed = read_json(active)
+    lease_readback_ok = (observed.get("runId") == run_id
+                         and observed.get("workspace") == str(workspace)
+                         and observed.get("pid") == payload["pid"])
+    lease_pid_alive = process_alive(payload["pid"])
+    append_event("worker_lease_created", runId=run_id, issue=issue_number,
+                 workspace=str(workspace), leasePath=str(active),
+                 workerPid=payload["pid"], pidAliveFromHost=lease_pid_alive,
+                 readbackMatches=lease_readback_ok)
+    if not lease_readback_ok or not lease_pid_alive:
+        raise RuntimeError("new host worker lease failed readback or PID visibility")
     append_event("worker_started", **payload)
     return payload
 
@@ -508,10 +519,21 @@ def worker_end(
     atomic_json(_worker_history_dir() / f"{complete['runId']}.json", complete)
     append_jsonl(state_root() / "workers" / "history.jsonl", complete)
     append_event("worker_completed", **complete)
-    try:
-        active_path.unlink()
-    except FileNotFoundError:
-        pass
+    pre_remove = read_json(active_path)
+    matches = pre_remove.get("runId") == payload.get("runId")
+    if matches:
+        try:
+            active_path.unlink()
+            removal = "removed"
+        except FileNotFoundError:
+            removal = "already_missing"
+    else:
+        removal = "not_removed_run_id_mismatch" if pre_remove else "already_missing"
+    append_event("worker_lease_closed", runId=payload.get("runId"),
+                 issue=issue_number, workspace=str(workspace),
+                 leasePath=str(active_path), workerPid=payload.get("pid"),
+                 pidAliveFromHost=process_alive(payload.get("pid")),
+                 removal=removal)
     return complete
 
 
