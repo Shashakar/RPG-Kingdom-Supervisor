@@ -16,7 +16,7 @@ import time
 import uuid
 
 OPS = {"inspect", "capture", "health", "editmode", "playmode"}
-SCENE = re.compile(r"^Assets/(?!.*(?:^|/)\\.\\.?/)[A-Za-z0-9_./ -]+\\.unity$")
+SCENE = re.compile(r"^Assets/.*\.unity$")
 REQUEST = re.compile(r"^GH-[0-9]+-(?:inspect|capture|health|editmode|playmode)-[A-Za-z0-9-]+$")
 
 def read(path):
