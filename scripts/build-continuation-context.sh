@@ -61,6 +61,14 @@ api() {
 
 issue_comments="$(api "repos/$RPGK_REPO/issues/$issue_number/comments?per_page=100")"
 
+# A verified recovery marker supersedes historical automated Unity halt reports.
+# Preserve all human comments and all newer diagnostics. The marker is only
+# valid as a continuation-context boundary, never as proof of a healthy broker.
+recovery_timestamp="$(jq -r '[.[] | select((.body // "") | contains("<!-- rpgk-unity-recovery-reconciled")) | .created_at] | max // empty' <<<"$issue_comments")"
+if [[ -n "$recovery_timestamp" ]]; then
+  issue_comments="$(jq -c --arg ts "$recovery_timestamp" '[.[] | select(.created_at >= $ts or ((.body // "") | startswith("## Symphony halt diagnosis") | not) and ((.body // "") | startswith("Symphony halted this dispatch") | not))]' <<<"$issue_comments")"
+fi
+
 pr_json='[]'
 if [[ -n "$branch" ]]; then
   encoded_branch="$(jq -rn --arg value "$branch" '$value|@uri')"
