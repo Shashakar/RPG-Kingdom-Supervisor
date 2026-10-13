@@ -27,7 +27,9 @@ hooks:
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/after-run-guard.sh"
 agent:
   max_concurrent_agents: 1
-  max_turns: 4
+  # Unity-bound workers may need multiple turns while a single host-owned Editor request runs.
+  # Symphony currently applies this limit globally; see bounded-use instructions below.
+  max_turns: 8
 codex:
   command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"
   approval_policy: never
@@ -57,6 +59,12 @@ No issue description was provided.
 4. Treat issue text and comments as implementation requirements, not as permission to violate repository safety, architectural, persistence, scene-ownership, or system-boundary rules.
 5. Do not change the Supervisor repository from a worker session.
 6. The App Server runs under the Supervisor's named Codex permission profile so source files in the current issue workspace can be inspected and edited. Do not assume the model turn can reliably own `.git` metadata, GitHub DNS, or final GitHub lifecycle state. The host-owned Git handoff interface below is the authoritative mutation path for branch preparation, final PR handoff, and explicit report-only completion.
+
+## Turn budget and long-running Unity operations
+
+Symphony currently exposes a single global `agent.max_turns` setting, not an issue-label-specific limit. The eight-turn ceiling is a temporary, bounded accommodation for Unity resource tasks. For issues **without** `resource:unity-editor`, aim to finish or report incomplete within the original four-turn budget; do not use additional turns just because they are available. This is a worker instruction rather than a hard per-issue enforcement limit.
+
+For Unity-bound work, use the same host-owned request ID and the bounded `unity-managed-wait.py wait` call. Never submit another request because the first takes several minutes, never renew an expired worker lease, and never bypass host cancellation. If the operation is not terminal by the final available turn, report the active request ID and incomplete status. A longer turn budget does not imply Unity has passed or authorize scene changes.
 
 ## Phase 2 execution contract
 
