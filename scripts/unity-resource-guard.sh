@@ -404,11 +404,20 @@ fi
 echo "$health_output"
 
 mkdir -p "$STATE_ROOT/locks"
+# Serialize stale-lock examination/reclamation with acquisition. Directory rename
+# alone is not sufficient: a second contender can rename a *new* owner's lock
+# based on an earlier stale-owner observation (ABA race).
+exec {acquire_fd}>"$STATE_ROOT/locks/.unity-editor-acquire.flock"
+flock -x "$acquire_fd"
 LOCK_BLOCKING_OWNER="unknown"
 if ! acquire_lock; then
+  flock -u "$acquire_fd"
+  exec {acquire_fd}>&-
   halt_issue "the exclusive Unity editor resource is already locked by $LOCK_BLOCKING_OWNER"
   exit 77
 fi
+flock -u "$acquire_fd"
+exec {acquire_fd}>&-
 
 echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"
 
