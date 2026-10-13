@@ -160,7 +160,10 @@ def main():
             parser.error("--filter requires editmode or playmode")
         state_root = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT",
                      str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
-        owners = leases(state_root, workspace)
+        matching = [m for m in inspect_leases(state_root, workspace).get("matching", [])
+                    if m.get("runId") and m.get("pid") and m.get("reason") in
+                    {"live", "pid_not_visible_or_dead"}]
+        owners = [str(m["runId"]) for m in matching]
         if len(owners) != 1:
             print("Refusing request: " + json.dumps(inspect_leases(state_root, workspace)), file=sys.stderr)
             return 75
@@ -172,8 +175,9 @@ def main():
             "cameraRotation": "", "lookAtPath": "", "fieldOfView": 60.0,
             "reuseStageLibrary": False, "captureWidth": 1920, "captureHeight": 1080,
             "requestedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "requiresWorkerLease": True, "expectedWorkerRunId": owners[0],
             # No clientPid: Codex's PID namespace is not the broker's host namespace.
-            # Broker resolves and checks the live Supervisor worker lease.
+            # Broker validates this exact run ID against a live host PID; client cannot.
         }
         history = root / "history/requests" / f"{request_id}.json"
         write(history, envelope)
