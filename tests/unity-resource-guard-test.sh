@@ -264,6 +264,7 @@ set -e
 
 # Two contenders racing the same positively stale lock must never both acquire it.
 write_broker_status ready null
+for race_round in $(seq 1 12); do
 write_lock GH-98
 export FAKE_OWNER_ISSUE_JSON='{"state":"closed","labels":[]}'
 export FAKE_OTHER_ISSUE_JSON='{"state":"open","labels":[{"name":"symphony:ready"}]}'
@@ -278,9 +279,9 @@ set -e
 successes=0
 [[ "$status1" -eq 0 ]] && successes=$((successes + 1))
 [[ "$status2" -eq 0 ]] && successes=$((successes + 1))
-[[ "$successes" -eq 1 ]] || { echo "expected exactly one stale-lock contender to acquire Unity, got statuses $status1/$status2" >&2; exit 1; }
+[[ "$successes" -eq 1 ]] || { echo "round $race_round: expected exactly one stale-lock contender to acquire Unity, got statuses $status1/$status2" >&2; exit 1; }
 owner="$(cat "$TMP/state/locks/unity-editor.lock/owner")"
 [[ "$owner" == "GH-123" || "$owner" == "GH-124" ]] || { echo "unexpected contention winner: $owner" >&2; exit 1; }
-
 rm -rf "$TMP/state/locks/unity-editor.lock"
+done
 echo "unity-resource-guard-test: PASS"
