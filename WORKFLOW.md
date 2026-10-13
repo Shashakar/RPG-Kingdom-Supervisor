@@ -27,7 +27,9 @@ hooks:
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/after-run-guard.sh"
 agent:
   max_concurrent_agents: 1
-  max_turns: 4
+  # Unity-bound workers may need multiple turns while a single host-owned Editor request runs.
+  # Symphony currently applies this limit globally; see bounded-use instructions below.
+  max_turns: 8
 codex:
   command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"
   approval_policy: never
@@ -58,6 +60,14 @@ No issue description was provided.
 5. Do not change the Supervisor repository from a worker session.
 6. The App Server runs under the Supervisor's named Codex permission profile so source files in the current issue workspace can be inspected and edited. Do not assume the model turn can reliably own `.git` metadata, GitHub DNS, or final GitHub lifecycle state. The host-owned Git handoff interface below is the authoritative mutation path for branch preparation, final PR handoff, and explicit report-only completion.
 
+## Turn budget and long-running Unity operations
+
+Symphony currently exposes a single global `agent.max_turns` setting, not an issue-label-specific limit. The eight-turn ceiling is a temporary, bounded accommodation for Unity resource tasks. For issues **without** `resource:unity-editor`, aim to finish or report incomplete within the original four-turn budget; do not use additional turns just because they are available. This is a worker instruction rather than a hard per-issue enforcement limit.
+
+The managed client's `diagnose` output only inventories lease identities: a host worker PID can be invisible inside Codex. `host_verification_required` is not a failure and not proof of a live worker. The host Unity broker alone decides whether a submitted `expectedWorkerRunId` matches one live host lease. A broker rejection is authoritative; do not bypass it.
+
+For Unity-bound work, use the same host-owned request ID and the bounded `unity-managed-wait.py wait` call. Never submit another request because the first takes several minutes, never renew an expired worker lease, and never bypass host cancellation. If the operation is not terminal by the final available turn, report the active request ID and incomplete status. A longer turn budget does not imply Unity has passed or authorize scene changes.
+
 ## Phase 2 execution contract
 
 This worker is intentionally budgeted. A Codex turn is expected to perform substantial tool work, not one small conversational step.
@@ -72,6 +82,25 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - When a fix changes existing behavior-bearing configuration or wiring, identify the pre-existing behavior that the changed asset/configuration provided and validate that it is still preserved. Making the originally failing assertion green is not sufficient evidence if the implementation changes an Animator/controller, prefab wiring, scene composition, serialization reference, input binding, or another configuration that can displace existing runtime behavior.
 - On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
 - Do not merge a pull request or close an issue directly.
+
+### Long-running Unity operations (host-owned broker requests)
+
+Codex execution tools may exit after 30 seconds and use a separate PID namespace. Do **not** detach a runner from Codex, rely on its PID for durability, or treat an empty tool output as Unity completion.
+
+For inspect/capture/EditMode/PlayMode, submit a **single typed request** to the existing host-owned Unity broker through the async helper (requires exactly one live Supervisor worker lease):
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" start --workspace "$PWD" --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
+```
+
+The returned `jobId` is the actual **broker request ID**, not a process ID. Do not submit another request while its terminal response is missing. Poll the same request in bounded tool calls:
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" status --workspace "$PWD" --job-id "GH-264-inspect-REQUEST_ID"
+```
+
+`queued` and `running` are not successful completion. When `completed`, **read the JSON at `responsePath`** and verify `exitCode == 0` and an appropriate broker status before continuing; nonzero codes require honest failure reporting. Poll within one model turn when practical, using bounded sleeps, rather than spending continuation turns reissuing `health`. If no terminal response appears before the authorized worker lifetime ends, stop and report the request ID. The broker owns execution, worker-lifetime cancellation, and Unity serialization. No authoring grants are expanded by this helper.
+
 
 ### Unfinished-turn status contract
 
@@ -235,6 +264,8 @@ The validation runner mirrors only `Assets`, `Packages`, and `ProjectSettings` i
 
 Rules:
 
+- For managed Unity captures requiring an explicit camera pose, pass `--operation capture --scene Assets/...unity --position X,Y,Z --rotation X,Y,Z`. The GH-264 canonical overhead baseline uses `--position 0,200,20 --rotation 90,0,0`; never claim the canonical view from a default-camera capture. Pose parameters are not valid for `inspect`.
+- For file-backed Unity requests submitted using `unity-managed-wait.py start`, preserve the returned `jobId`. Use `unity-managed-wait.py wait --workspace "$PWD" --job-id "$jobId" --wait-seconds 60` to wait on that **same** request, repeating while it reports queued/running. Do not issue another `start` merely because the first request has not finished. The wait call returns at most 90 seconds later and does not extend the worker lifetime or bypass broker cancellation. If execution must stop before the terminal result, persist the active request ID in the worker status and mark the task incomplete; do not claim inspection or validation passed.
 - Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for the exact granted scene-authoring tier.
 - Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/` or `Logs/SymphonyUnityAuthoring/`.

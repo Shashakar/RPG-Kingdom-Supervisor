@@ -121,6 +121,26 @@ allowed, reason, detail = policy._runtime_progress_decision(
 assert not allowed
 assert detail["consecutiveInvisibleTurns"] == 3
 
+# Unity resource workers receive at most four host-invisible turns, not an unlimited grant.
+policy._ACTIVE_LABELS = {"resource:unity-editor"}
+for count in (2, 3, 4):
+    previous["progress"] = {"consecutiveInvisibleTurns": count - 1}
+    allowed, reason, detail = policy._runtime_progress_decision(
+        {"fingerprint": "same", "dirty": True},
+        {"runId": "run-1", "failed": 1},
+        previous,
+    )
+    assert allowed, (count, reason)
+    assert detail["followThroughAnalysisLimit"] == 4
+previous["progress"] = {"consecutiveInvisibleTurns": 4}
+allowed, reason, detail = policy._runtime_progress_decision(
+    {"fingerprint": "same", "dirty": True},
+    {"runId": "run-1", "failed": 1},
+    previous,
+)
+assert not allowed and detail["consecutiveInvisibleTurns"] == 5
+policy._ACTIVE_LABELS = {"risk:investigative"}
+
 # One repeated focused failure is treated as new downstream-defect evidence; a second repeat stops.
 previous_focus = {
     "workspace": {"fingerprint": "same", "dirty": True},
