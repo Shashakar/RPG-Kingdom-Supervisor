@@ -262,6 +262,7 @@ The validation runner mirrors only `Assets`, `Packages`, and `ProjectSettings` i
 
 Rules:
 
+- For managed Unity captures requiring an explicit camera pose, pass `--operation capture --scene Assets/...unity --position X,Y,Z --rotation X,Y,Z`. The GH-264 canonical overhead baseline uses `--position 0,200,20 --rotation 90,0,0`; never claim the canonical view from a default-camera capture. Pose parameters are not valid for `inspect`.
 - For file-backed Unity requests submitted using `unity-managed-wait.py start`, preserve the returned `jobId`. Use `unity-managed-wait.py wait --workspace "$PWD" --job-id "$jobId" --wait-seconds 60` to wait on that **same** request, repeating while it reports queued/running. Do not issue another `start` merely because the first request has not finished. The wait call returns at most 90 seconds later and does not extend the worker lifetime or bypass broker cancellation. If execution must stop before the terminal result, persist the active request ID in the worker status and mark the task incomplete; do not claim inspection or validation passed.
 - Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for the exact granted scene-authoring tier.
 - Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.

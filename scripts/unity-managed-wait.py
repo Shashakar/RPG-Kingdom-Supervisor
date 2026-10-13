@@ -7,6 +7,7 @@ A live, unambiguous Supervisor worker lease is required before submission.
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import math
 import json
 import os
 from pathlib import Path
@@ -110,6 +111,8 @@ def main():
     parser.add_argument("--operation", choices=sorted(OPS))
     parser.add_argument("--scene", default="")
     parser.add_argument("--filter", default="")
+    parser.add_argument("--position", default="")
+    parser.add_argument("--rotation", default="")
     parser.add_argument("--job-id", default="")
     parser.add_argument("--wait-seconds", type=int, default=60)
     args = parser.parse_args()
@@ -179,6 +182,21 @@ def main():
                 parser.error("inspect/capture requires a safe Assets/*.unity scene path")
         elif args.scene:
             parser.error("--scene requires inspect or capture")
+        if args.position or args.rotation:
+            if args.operation != "capture":
+                parser.error("--position and --rotation require --operation capture")
+            for label, value in (("position", args.position), ("rotation", args.rotation)):
+                if not value:
+                    continue
+                parts = value.split(",")
+                if len(parts) != 3:
+                    parser.error(f"--{label} must contain exactly three finite comma-separated numbers")
+                try:
+                    numbers = [float(part.strip()) for part in parts]
+                except ValueError:
+                    parser.error(f"--{label} must contain exactly three finite comma-separated numbers")
+                if not all(math.isfinite(number) for number in numbers):
+                    parser.error(f"--{label} must contain only finite coordinates")
         if args.filter and args.operation not in {"editmode", "playmode"}:
             parser.error("--filter requires editmode or playmode")
         state_root = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT",
@@ -194,8 +212,8 @@ def main():
         envelope = {
             "protocolVersion": 1, "requestId": request_id, "operation": args.operation,
             "testFilter": args.filter, "scenePath": args.scene,
-            "cameraPath": "", "viewName": "", "cameraPosition": "",
-            "cameraRotation": "", "lookAtPath": "", "fieldOfView": 60.0,
+            "cameraPath": "", "viewName": "", "cameraPosition": args.position,
+            "cameraRotation": args.rotation, "lookAtPath": "", "fieldOfView": 60.0,
             "reuseStageLibrary": False, "captureWidth": 1920, "captureHeight": 1080,
             "requestedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "requiresWorkerLease": True, "expectedWorkerRunId": owners[0],
