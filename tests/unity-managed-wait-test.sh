@@ -24,19 +24,29 @@ jq -e '.reason == "no_matching_workspace_lease" and (.matching | length == 0)' "
 jq -n --arg workspace "$WORKSPACE" --argjson pid "$$" \
   '{workspace:$workspace,pid:$pid,runId:"test-worker-1"}' > "$TMP/state/workers/active/test.json"
 "${CLI[@]}" diagnose >"$TMP/live-diagnostic.json"
-jq -e '.reason == "ready" and .matching[0].pidVisible == true and .owners == ["test-worker-1"]' "$TMP/live-diagnostic.json" >/dev/null
+jq -e '.reason == "host_verification_required" and .matching[0].pidVisible == null and .matching[0].hostPidLiveness == "unverifiable_from_client" and .owners == ["test-worker-1"]' "$TMP/live-diagnostic.json" >/dev/null
 
-# A stale matching lease must not authorize a request.
+# A stale host PID cannot be verified in this namespace; only the host broker may reject it.
 jq -n --arg workspace "$WORKSPACE" '{workspace:$workspace,pid:999999999,runId:"stale"}' > "$TMP/state/workers/active/stale.json"
 "${CLI[@]}" diagnose >"$TMP/stale-diagnostic.json"
-jq -e '.reason == "ready" and ([.matching[].reason] | index("pid_not_visible_or_dead"))' "$TMP/stale-diagnostic.json" >/dev/null
+jq -e '.reason == "ambiguous_matching_leases" and ([.matching[].reason] | index("host_liveness_unverified"))' "$TMP/stale-diagnostic.json" >/dev/null
 rm "$TMP/state/workers/active/stale.json"
 
 # Two live leases fail closed rather than selecting an arbitrary owner.
 cp "$TMP/state/workers/active/test.json" "$TMP/state/workers/active/duplicate.json"
 "${CLI[@]}" diagnose >"$TMP/ambiguous-diagnostic.json"
-jq -e '.reason == "multiple_live_leases"' "$TMP/ambiguous-diagnostic.json" >/dev/null
+jq -e '.reason == "ambiguous_matching_leases"' "$TMP/ambiguous-diagnostic.json" >/dev/null
 rm "$TMP/state/workers/active/duplicate.json"
+# A single lease whose host PID is invisible from this client is not proof of death.
+# The client submits only the run identity; the host broker decides liveness.
+jq -n --arg workspace "$WORKSPACE" '{workspace:$workspace,pid:999999999,runId:"host-worker"}' > "$TMP/state/workers/active/host.json"
+mv "$TMP/state/workers/active/test.json" "$TMP/state/workers/active/visible.saved"
+"${CLI[@]}" diagnose > "$TMP/host-namespace.json"
+jq -e '.reason == "host_verification_required" and .matching[0].pidVisible == null
+  and .owners == ["host-worker"]' "$TMP/host-namespace.json" >/dev/null
+rm "$TMP/state/workers/active/host.json"
+mv "$TMP/state/workers/active/visible.saved" "$TMP/state/workers/active/test.json"
+
 
 "${CLI[@]}" start --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity >"$TMP/start.json"
 jq -e '.status == "queued" and .operation == "inspect"' "$TMP/start.json" >/dev/null
