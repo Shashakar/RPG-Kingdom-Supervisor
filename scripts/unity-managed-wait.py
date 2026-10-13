@@ -105,12 +105,13 @@ def present(workspace, job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["start", "status", "diagnose"])
+    parser.add_argument("action", choices=["start", "status", "wait", "diagnose"])
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--operation", choices=sorted(OPS))
     parser.add_argument("--scene", default="")
     parser.add_argument("--filter", default="")
     parser.add_argument("--job-id", default="")
+    parser.add_argument("--wait-seconds", type=int, default=60)
     args = parser.parse_args()
     workspace = Path(args.workspace).resolve(strict=True)
     base = Path(os.environ.get("RPGK_SYMPHONY_WORKSPACE_ROOT",
@@ -130,6 +131,28 @@ def main():
     with (state / "lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         previous = read(state / "active.json")
+        if args.action == "wait":
+            if args.wait_seconds < 1 or args.wait_seconds > 90:
+                parser.error("--wait-seconds must be between 1 and 90")
+            if args.job_id:
+                if not REQUEST.fullmatch(args.job_id):
+                    parser.error("invalid request ID")
+                history = read(root / "history/requests" / f"{args.job_id}.json")
+                if not isinstance(history, dict) or history.get("requestId") != args.job_id:
+                    parser.error("request ID not found in workspace history")
+                target = {"requestId": args.job_id, "operation": history["operation"]}
+            else:
+                if not isinstance(previous, dict) or "requestId" not in previous:
+                    print('{"status":"none"}')
+                    return 4
+                target = previous
+            deadline = time.monotonic() + args.wait_seconds
+            while True:
+                if read(root / "responses" / f"{target['requestId']}.json") is not None:
+                    return present(workspace, target)
+                if time.monotonic() >= deadline:
+                    return present(workspace, target)
+                time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
         if args.action == "status":
             if args.job_id:
                 if not REQUEST.fullmatch(args.job_id):

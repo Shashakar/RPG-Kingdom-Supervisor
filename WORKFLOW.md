@@ -91,6 +91,7 @@ python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" status 
 
 `queued` and `running` are not successful completion. When `completed`, **read the JSON at `responsePath`** and verify `exitCode == 0` and an appropriate broker status before continuing; nonzero codes require honest failure reporting. Poll within one model turn when practical, using bounded sleeps, rather than spending continuation turns reissuing `health`. If no terminal response appears before the authorized worker lifetime ends, stop and report the request ID. The broker owns execution, worker-lifetime cancellation, and Unity serialization. No authoring grants are expanded by this helper.
 
+
 ### Unfinished-turn status contract
 
 Do not spend an extra model turn merely to explain why work stopped. Instead, before returning control from any turn that has **not** successfully completed PR/report handoff, persist the best task-level status you already know from that turn:
@@ -253,21 +254,8 @@ The validation runner mirrors only `Assets`, `Packages`, and `ProjectSettings` i
 
 Rules:
 
+- For file-backed Unity requests submitted using `unity-managed-wait.py start`, preserve the returned `jobId`. Use `unity-managed-wait.py wait --workspace "$PWD" --job-id "$jobId" --wait-seconds 60` to wait on that **same** request, repeating while it reports queued/running. Do not issue another `start` merely because the first request has not finished. The wait call returns at most 90 seconds later and does not extend the worker lifetime or bypass broker cancellation. If execution must stop before the terminal result, persist the active request ID in the worker status and mark the task incomplete; do not claim inspection or validation passed.
 - Do not launch `Unity.exe`, `powershell.exe`, `cmd.exe`, or another Windows Unity bridge directly. Use `unity-runner.sh` for validation and, only when explicitly authorized as above, `unity-author.sh` for the exact granted scene-authoring tier.
-- For **read-only** scene inspection, only when the host operator has issued a matching issue/workspace/revision/scene grant and enabled the lane, use:
-  `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-scene-summary --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
-  This returns a compact summary of the live staged Editor scene. Never call `unity.exe`, `unity eval`, a Pipeline API URL, or the operator grant script directly. A denied grant means stop and request operator authorization; do not bypass.
-- The new persistent-Editor CLI lane is **read-only**. It does not provide any Editor mutation, scene saves, terrain sculpting, asset copyback, or validation evidence.
-- The explicit `authoring:editor-staged-code` label selects persistent Editor preflight only alongside `completion:report-only` and `validation:unity-optional`. The host verifies the issue/revision/PID/stage grant, original project hashes, active clean scene, and Windows Unity process census (granted Editor plus matching AssetImportWorker children). All unlabeled and batchmode jobs retain the strict original idle-host check. This never grants production scene source copyback.
-- For the real-worker Stage C3 report-only acceptance issue **GH-261**, no game source files should change. Write worker-authored Editor expressions under `Logs/SymphonyUnity/AgentScripts/NAME.cs` (ignored by Git), not the tracked `Assets` tree. Use `editor-staged-code --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --script Logs/SymphonyUnity/AgentScripts/NAME.cs` to create/reopen/modify an **additive test scene in the disposable stage only**. Validate its exact objects/transforms and provide broker response IDs and before/after asset SHA-256s. Finish using `git-handoff.sh report-complete` and **do not** create a game branch, PR, source asset or production terrain edit. If the grant/stage is not ready, report a real blocker; never bypass the host broker.
-- **Operator-approved same-account staged Editor code**: once the host has granted the exact issue/revision/staged Editor and enabled `RPGK_UNITY_STAGED_CODE_ENABLED=1`, an issue worker may create an ordinary C# script at `AgentScripts/NAME.cs` and invoke
-  `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-staged-code --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --script AgentScripts/NAME.cs`.
-  The host executes it using the existing operator-owned Windows Unity Editor. This is **trusted-code execution, not a Windows security sandbox**. Keep intentional writes within the disposable Unity stage and save scenes before returning; the host reports actual changed staged asset paths and hashes and **does not copy them into the source checkout**. It allows iterative editing of the staged PlaytestScene; the existing original game workspace must remain untouched. Never issue shell/Windows CLI commands directly from workers. Read `docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md` first.
-
-- An **operator-granted stage-only benchmark** is available through the existing Unity host broker:
-  `bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-runner.sh" editor-stage-benchmark --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity`
-  This is a fixed-code creation of a disposable benchmark scene, with no worker-provided C#, no selectable output, and no source copyback. It is disabled by default, may be run only after a separate operator benchmark grant/host flag, and must never be used as approval to modify the production scene. Do not attempt the benchmark after it already succeeded on that stage; the target intentionally cannot be overwritten.
- Existing `unity-runner.sh` test and `unity-author.sh` policies still apply.
 - Do not mutate the Windows staging project directly; it is disposable state owned by the Supervisor.
 - Do not commit files under `Logs/SymphonyUnity/` or `Logs/SymphonyUnityAuthoring/`.
 - A nonzero runner exit or failed test result is real validation evidence. Inspect the returned artifacts, fix the scoped defect when appropriate, and rerun the narrow test rather than claiming success.
@@ -367,33 +355,3 @@ Implementation success additionally requires:
 
 Your final response should report completed work, validation evidence, PR URL, and blockers or unvalidated items. Do not claim the change is merged.
 {% endif %}
-
-
-### C5 proposal-only stage audit (Supervisor #216)
-
-The host-only read-only `scripts/unity-stage-proposal.py --workspace GH-N_PATH --stage WSL_STAGE_PATH` generates a review inventory of disposable Unity changes. It has **no promotion or copyback ability**; all outputs have `promotable=false`. Expected C4 scene and `.meta` files are review candidates, and other mutations (including URP migrations) are quarantined. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`. Do not treat this as authorization to alter game assets or rearm GH-260.
-
-
-C5b (#218): `scripts/unity-stage-approval-verify.py` checks a host-signed, exact-manifest review envelope without issuing, spending, promoting or copying assets. Do not treat a successful verification as authorization to mutate any source file. The host-only approval issuer and atomic nonce consumption remain future work; see `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
-
-
-C5c (#220) provides a **manual host-operator review issuer** (`scripts/unity-stage-approval-issue.py`): interactive approval of a fresh exact C5 manifest, host-only private HMAC signing key, issuance ledger and nonce. This is **not** authorization to copy or promote any game file; nonce consumption and promotion remain disabled. Do not invoke the issuer from Symphony worker code. See `docs/UNITY_C5_PROPOSAL_MANIFEST.md`.
-
-
-### C5d promotion transaction dry run (Supervisor #222)
-
-`python3 scripts/unity-stage-promotion-dryrun.py --workspace GH-N_PATH --stage WSL_STAGE_PATH --approval HOST_REVIEW_JSON --host-key PRIVATE_KEY --spent-nonces PRIVATE_LEDGER [--inject-failure CHECKPOINT]` checks a host-issued C5b review against a fresh C5 manifest and runs a purely **in-memory** transaction simulation with fault injection. It has **no source writes, nonce consumption, Unity calls, promotion grant, or production authority**. A `simulated-commit` result is **not** a successful asset copy. See `docs/UNITY_C5D_PROMOTION_TRANSACTION.md` for the threat model, crash/rollback protocol to be built and independent operator approval requirement. Game #260 stays halted.
-
-
-### C5d scratch-only durability checks (#224)
-
-`python3 scripts/unity-promotion-recovery-lab.py [--inject-crash CHECKPOINT]` creates a private temporary fixture, kills its own test child at a transaction checkpoint, and exercises real on-disk journal, lock, nonce and recovery logic **entirely inside auto-generated scratch files**. It is *not* a Unity promotion endpoint or approval authority. See `docs/UNITY_C5D_SCRATCH_RECOVERY.md` for supported evidence and outstanding requirements. Game #260 remains halted.
-
-
-### C5e stage host consistency check (Supervisor #226)
-
-The host-only `python3 scripts/unity-stage-host-preflight.py --workspace GH-N_PATH` inspects an existing C3-granted Windows Unity stage through the existing read-only Editor/Pipeline checks, confirms clean source/protected scene, detects foreign processes and busy broker/lease state, and compares double stage manifests. It does **not** freeze the running Editor or independently authenticate a human; it returns `stageFrozen=false`, `promotionAuthorized=false`, `copyback=false`. There is no new worker-exposed broker request. See `docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md`. GH-260 stays halted.
-
-## MVP staged Unity file handoff (current priority)
-
-C3 work that produces assets in an isolated Windows Unity stage can use the operator-run `scripts/unity-stage-simple-handoff.py plan` and `apply` commands. The operator reviews changed paths, copies **explicit selected `Assets/` files with required Unity `.meta` companions** to a new `codex/*` feature branch, then uses existing `unity-runner.sh` for validation and `git-handoff.sh handoff` for commit, push and PR. Stage deletions, URP/Packages/ProjectSettings and automatic merge are excluded. This is an ordinary trusted-machine workflow, NOT an independent security approval. The separate C5f Windows service work is deferred and must not block this MVP. See `docs/UNITY_STAGE_SIMPLE_HANDOFF.md`.
