@@ -64,7 +64,9 @@ No issue description was provided.
 
 Symphony currently exposes a single global `agent.max_turns` setting, not an issue-label-specific limit. The eight-turn ceiling is a temporary, bounded accommodation for Unity resource tasks. For issues **without** `resource:unity-editor`, aim to finish or report incomplete within the original four-turn budget; do not use additional turns just because they are available. This is a worker instruction rather than a hard per-issue enforcement limit.
 
-The managed client's `diagnose` output only inventories lease identities: a host worker PID can be invisible inside Codex. `host_verification_required` is not a failure and not proof of a live worker. The host Unity broker alone decides whether a submitted `expectedWorkerRunId` matches one live host lease. A broker rejection is authoritative; do not bypass it.\n\nFor Unity-bound work, use the same host-owned request ID and the bounded `unity-managed-wait.py wait` call. Never submit another request because the first takes several minutes, never renew an expired worker lease, and never bypass host cancellation. If the operation is not terminal by the final available turn, report the active request ID and incomplete status. A longer turn budget does not imply Unity has passed or authorize scene changes.
+The managed client's `diagnose` output only inventories lease identities: a host worker PID can be invisible inside Codex. `host_verification_required` is not a failure and not proof of a live worker. The host Unity broker alone decides whether a submitted `expectedWorkerRunId` matches one live host lease. A broker rejection is authoritative; do not bypass it.
+
+For Unity-bound work, use the same host-owned request ID and the bounded `unity-managed-wait.py wait` call. Never submit another request because the first takes several minutes, never renew an expired worker lease, and never bypass host cancellation. If the operation is not terminal by the final available turn, report the active request ID and incomplete status. A longer turn budget does not imply Unity has passed or authorize scene changes.
 
 ## Phase 2 execution contract
 
