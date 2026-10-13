@@ -42,6 +42,11 @@ command="${1:-}"
 shift || true
 case "$command" in
   health)
+    if [[ "${FAKE_HEALTH_BUSY_ONCE:-0}" == "1" && ! -f "${FAKE_HEALTH_BUSY_MARKER:?}" ]]; then
+      touch "$FAKE_HEALTH_BUSY_MARKER"
+      echo "HostBusy" >&2
+      exit 87
+    fi
     if [[ "${FAKE_UNITY_HEALTH_STATUS:-0}" != "0" ]]; then
       echo "fake Unity health failure" >&2
       exit "$FAKE_UNITY_HEALTH_STATUS"
@@ -78,6 +83,7 @@ export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export RPGK_UNITY_GUARD_DRY_RUN=1
 export RPGK_UNITY_RUNNER="$TMP/fake-unity-runner.sh"
 export FAKE_UNITY_SMOKE_LOG="$TMP/smoke.log"
+export FAKE_HEALTH_BUSY_MARKER="$TMP/health-busy-seen"
 : > "$FAKE_UNITY_SMOKE_LOG"
 
 run_guard() {
@@ -119,6 +125,16 @@ status=$?
 set -e
 [[ "$status" -eq 76 ]] || { echo "expected failed Unity health check to exit 76, got $status" >&2; exit 1; }
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "health-failed preflight must not leave a lock" >&2; exit 1; }
+
+# An explicitly owned, live readiness smoke can temporarily make health return
+# HostBusy. The guard must retry without treating this as a failed Unity check.
+clear_lock
+write_broker_status running '{"requestId":"GH-123-editmode-test","issue":"GH-123","workspace":"'"$TMP"'/GH-123","operation":"editmode","testFilter":"RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources","clientAlive":true}'
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' FAKE_HEALTH_BUSY_ONCE=1 run_guard >/dev/null
+[[ -f "$FAKE_HEALTH_BUSY_MARKER" ]] || { echo "expected initial busy health result" >&2; exit 1; }
+rm -f "$FAKE_HEALTH_BUSY_MARKER"
+clear_lock
+write_broker_status ready null
 
 export RPGK_UNITY_GUARD_DRY_RUN=0
 export FAKE_UNITY_HEALTH_STATUS=0
