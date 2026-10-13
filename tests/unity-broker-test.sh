@@ -535,4 +535,6 @@ bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
 python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
 
+bash "$ROOT/tests/unity-managed-wait-test.sh"
+
 echo "unity-broker-test: PASS"
