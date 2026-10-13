@@ -219,7 +219,6 @@ structural_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring
 existing_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-existing-composition")' <<<"$labels_json")"
 gameplay_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-gameplay")' <<<"$labels_json")"
 new_scene_authoring="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:scene-new-composition")' <<<"$labels_json")"
-persistent_editor="$(jq -r '[.[].name | ascii_downcase] | any(. == "authoring:editor-staged-code")' <<<"$labels_json")"
 authoring_count=0
 [[ "$mechanical_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
 [[ "$structural_authoring" == "true" ]] && authoring_count=$((authoring_count + 1))
@@ -368,51 +367,57 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-# The persistent Editor lane deliberately keeps its own operator-granted Unity
-# process alive. Do NOT run the generic batchmode health check for this label:
-# it correctly rejects every Unity.exe. Verify the exact issue-bound grant,
-# Windows Editor PID/stage, and only its stage-bound import worker children.
-# Unlabeled jobs retain the strict original idle-host check.
-if [[ "$persistent_editor" == "true" ]]; then
-  if [[ "$mechanical_authoring" == "true" || "$structural_authoring" == "true" || "$existing_scene_authoring" == "true" || "$new_scene_authoring" == "true" || "$gameplay_authoring" == "true" ]]; then
-    halt_issue "persistent Editor code label cannot be combined with typed production scene-authoring labels"
-    exit 75
-  fi
-  if ! rpgk_unity_has_label "completion:report-only" "$labels" || [[ "$validation_mode" != "optional" ]]; then
-    halt_issue "persistent Editor trial requires completion:report-only and validation:unity-optional (never batchmode preflight)"
-    exit 75
-  fi
-  # Execute Windows process discovery through the trusted host broker, not
-  # directly from the Codex sandbox. A live lease is obtained after this check.
-  set +e
-  health_output="$(bash "$UNITY_RUNNER" editor-staged-preflight --project "$PWD" --scene "Assets/RPGKingdom/Scenes/PlaytestScene.unity" 2>&1)"
-  health_status=$?
-  set -e
-  if (( health_status != 0 )); then
-    health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-350)"
-    halt_issue "issue-bound persistent Unity Editor health check failed (exit $health_status): $health_reason"
-    exit 76
-  fi
-else
+# An earlier owned readiness smoke may still be finishing when a continuation
+# preflight starts. Health is read-only, but returns HostBusy while the broker
+# owns that operation. Wait only for a verifiably live, same-issue smoke;
+# never bypass failures or wait on a foreign/ambiguous request.
+health_deadline=$((SECONDS + ${RPGK_UNITY_OWNED_PREFLIGHT_WAIT_SECONDS:-600}))
+while true; do
   set +e
   health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
   health_status=$?
   set -e
-  if (( health_status != 0 )); then
-    health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
-    halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
-    exit 76
+  if (( health_status != 87 )); then
+    break
   fi
+  if ! jq -e --arg issue "$issue_identifier" --arg filter "$UNITY_SMOKE_FILTER" --arg workspace "$PWD" \
+    '.activeRequest != null and .activeRequest.issue == $issue
+     and .activeRequest.workspace == $workspace
+     and .activeRequest.operation == "editmode"
+     and .activeRequest.testFilter == $filter
+     and .activeRequest.clientAlive == true' "$BROKER_STATUS" >/dev/null 2>&1; then
+    break
+  fi
+  if (( SECONDS >= health_deadline )); then
+    echo "RPG Kingdom Unity guard: owned readiness smoke did not finish within bounded wait" >&2
+    break
+  fi
+  echo "RPG Kingdom Unity guard: waiting for active owned readiness smoke to finish before health preflight"
+  sleep 5
+done
+if (( health_status != 0 )); then
+  health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
+  halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
+  exit 76
 fi
 
 echo "$health_output"
 
 mkdir -p "$STATE_ROOT/locks"
+# Serialize stale-lock examination/reclamation with acquisition. Directory rename
+# alone is not sufficient: a second contender can rename a *new* owner's lock
+# based on an earlier stale-owner observation (ABA race).
+exec {acquire_fd}>"$STATE_ROOT/locks/.unity-editor-acquire.flock"
+flock -x "$acquire_fd"
 LOCK_BLOCKING_OWNER="unknown"
 if ! acquire_lock; then
+  flock -u "$acquire_fd"
+  exec {acquire_fd}>&-
   halt_issue "the exclusive Unity editor resource is already locked by $LOCK_BLOCKING_OWNER"
   exit 77
 fi
+flock -u "$acquire_fd"
+exec {acquire_fd}>&-
 
 echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"
 

@@ -42,19 +42,16 @@ command="${1:-}"
 shift || true
 case "$command" in
   health)
+    if [[ "${FAKE_HEALTH_BUSY_ONCE:-0}" == "1" && ! -f "${FAKE_HEALTH_BUSY_MARKER:?}" ]]; then
+      touch "$FAKE_HEALTH_BUSY_MARKER"
+      echo "HostBusy" >&2
+      exit 87
+    fi
     if [[ "${FAKE_UNITY_HEALTH_STATUS:-0}" != "0" ]]; then
       echo "fake Unity health failure" >&2
       exit "$FAKE_UNITY_HEALTH_STATUS"
     fi
     printf '{"status":"ready","unityVersion":"6000.3.10f1"}\n'
-    ;;
-  editor-staged-preflight)
-    [[ "${3:-}" == "--scene" || "${1:-}" == "--project" ]] || { echo "preflight requires typed request" >&2; exit 64; }
-    if [[ "${FAKE_PERSISTENT_STATUS:-0}" != "0" ]]; then
-      echo "fake host preflight: staged grant or Windows census denied" >&2
-      exit "$FAKE_PERSISTENT_STATUS"
-    fi
-    printf '{"status":"ready","mode":"operator-granted-persistent-unity-editor","assetImportWorkerPids":[2064],"copyback":false}\n'
     ;;
   editmode)
     filter=""
@@ -80,14 +77,13 @@ esac
 EOF
 chmod +x "$TMP/fake-unity-runner.sh"
 
-
-
 export PATH="$TMP/bin:$PATH"
 export SYMPHONY_GITHUB_TOKEN="test-token"
 export RPGK_SUPERVISOR_STATE_ROOT="$TMP/state"
 export RPGK_UNITY_GUARD_DRY_RUN=1
 export RPGK_UNITY_RUNNER="$TMP/fake-unity-runner.sh"
 export FAKE_UNITY_SMOKE_LOG="$TMP/smoke.log"
+export FAKE_HEALTH_BUSY_MARKER="$TMP/health-busy-seen"
 : > "$FAKE_UNITY_SMOKE_LOG"
 
 run_guard() {
@@ -130,57 +126,18 @@ set -e
 [[ "$status" -eq 76 ]] || { echo "expected failed Unity health check to exit 76, got $status" >&2; exit 1; }
 [[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || { echo "health-failed preflight must not leave a lock" >&2; exit 1; }
 
+# An explicitly owned, live readiness smoke can temporarily make health return
+# HostBusy. The guard must retry without treating this as a failed Unity check.
+clear_lock
+write_broker_status running '{"requestId":"GH-123-editmode-test","issue":"GH-123","workspace":"'"$TMP"'/GH-123","operation":"editmode","testFilter":"RPGKingdom.Tests.EditMode.Resources.Core.ResourceRuntimeStateTests.OwnerCanHaveNoResources","clientAlive":true}'
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' FAKE_HEALTH_BUSY_ONCE=1 run_guard >/dev/null
+[[ -f "$FAKE_HEALTH_BUSY_MARKER" ]] || { echo "expected initial busy health result" >&2; exit 1; }
+rm -f "$FAKE_HEALTH_BUSY_MARKER"
+clear_lock
+write_broker_status ready null
+
 export RPGK_UNITY_GUARD_DRY_RUN=0
 export FAKE_UNITY_HEALTH_STATUS=0
-
-# Real-worker persistent Editor label must bypass *only* the batchmode idle
-# check, use its issue-bound host preflight, and acquire the normal exclusive
-# lock. An unrelated Editor or stale grant must fail closed before Codex.
-clear_lock
-export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-optional"},{"name":"completion:report-only"},{"name":"authoring:editor-staged-code"}]'
-export FAKE_UNITY_HEALTH_STATUS=89
-FAKE_PERSISTENT_STATUS=0 run_guard >/dev/null
-[[ "$(cat "$TMP/state/locks/unity-editor.lock/owner")" == "GH-123" ]] || {
-  echo "persistent Editor did not acquire exclusive Unity lease" >&2
-  exit 1
-}
-(cd "$TMP/GH-123" && bash "$ROOT/scripts/release-unity-resource.sh" >/dev/null)
-clear_lock
-set +e
-FAKE_PERSISTENT_STATUS=82 run_guard >/dev/null 2>&1
-status=$?
-set -e
-[[ "$status" -eq 76 ]] || {
-  echo "missing/mismatched stage grant must halt before worker, got $status" >&2
-  exit 1
-}
-[[ ! -d "$TMP/state/locks/unity-editor.lock" ]] || {
-  echo "failed persistent preflight must not acquire Unity lease" >&2
-  exit 1
-}
-clear_lock
-set +e
-FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"},{"name":"completion:report-only"},{"name":"authoring:editor-staged-code"}]' FAKE_PERSISTENT_STATUS=0 run_guard >/dev/null 2>&1
-status=$?
-set -e
-[[ "$status" -eq 75 ]] || {
-  echo "required batchmode validation cannot be combined with persistent Editor trial: $status" >&2
-  exit 1
-}
-clear_lock
-# Normal Unity jobs must NOT inherit the persistent exception.
-set +e
-FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-optional"}]' FAKE_UNITY_HEALTH_STATUS=89 run_guard >/dev/null 2>&1
-status=$?
-set -e
-[[ "$status" -eq 76 ]] || {
-  echo "unlabeled Unity job bypassed normal idle-host check: $status" >&2
-  exit 1
-}
-
-# Restore the normal mock host before exercising existing scene tiers.
-export FAKE_UNITY_HEALTH_STATUS=0
-export FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]'
 
 # Explicit scene-authoring prose without the machine-readable authorization label
 # must fail before Unity health/smoke or a Codex lifetime is consumed.
@@ -307,6 +264,7 @@ set -e
 
 # Two contenders racing the same positively stale lock must never both acquire it.
 write_broker_status ready null
+for race_round in $(seq 1 12); do
 write_lock GH-98
 export FAKE_OWNER_ISSUE_JSON='{"state":"closed","labels":[]}'
 export FAKE_OTHER_ISSUE_JSON='{"state":"open","labels":[{"name":"symphony:ready"}]}'
@@ -321,9 +279,9 @@ set -e
 successes=0
 [[ "$status1" -eq 0 ]] && successes=$((successes + 1))
 [[ "$status2" -eq 0 ]] && successes=$((successes + 1))
-[[ "$successes" -eq 1 ]] || { echo "expected exactly one stale-lock contender to acquire Unity, got statuses $status1/$status2" >&2; exit 1; }
+[[ "$successes" -eq 1 ]] || { echo "round $race_round: expected exactly one stale-lock contender to acquire Unity, got statuses $status1/$status2" >&2; exit 1; }
 owner="$(cat "$TMP/state/locks/unity-editor.lock/owner")"
 [[ "$owner" == "GH-123" || "$owner" == "GH-124" ]] || { echo "unexpected contention winner: $owner" >&2; exit 1; }
-
 rm -rf "$TMP/state/locks/unity-editor.lock"
+done
 echo "unity-resource-guard-test: PASS"
