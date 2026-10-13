@@ -16,9 +16,15 @@ code=$?
 set -e
 [[ "$code" -eq 75 ]]
 [[ ! -d "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" || -z "$(ls -A "$WORKSPACE/Logs/SymphonyUnity/.broker/requests")" ]]
+"${CLI[@]}" diagnose >"$TMP/no-lease-diagnostic.json"
+jq -e '.reason == "no_matching_workspace_lease" and (.matching | length == 0)' "$TMP/no-lease-diagnostic.json" >/dev/null
+
 
 jq -n --arg workspace "$WORKSPACE" --argjson pid "$$" \
   '{workspace:$workspace,pid:$pid,runId:"test-worker-1"}' > "$TMP/state/workers/active/test.json"
+"${CLI[@]}" diagnose >"$TMP/live-diagnostic.json"
+jq -e '.reason == "ready" and .matching[0].pidVisible == true and .owners == ["test-worker-1"]' "$TMP/live-diagnostic.json" >/dev/null
+
 "${CLI[@]}" start --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity >"$TMP/start.json"
 jq -e '.status == "queued" and .operation == "inspect"' "$TMP/start.json" >/dev/null
 id="$(jq -r .jobId "$TMP/start.json")"
