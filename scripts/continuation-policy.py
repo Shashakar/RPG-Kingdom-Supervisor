@@ -142,14 +142,19 @@ def _runtime_progress_decision(
     # Newly exposed failures often require analysis before the next source mutation. Give
     # implementation work two consecutive host-invisible turns by default, then stop normally.
     if "consecutive host-invisible turn" in reason:
-        limit = int_env("RPGK_CONTINUATION_FOLLOW_THROUGH_INVISIBLE_TURNS", 2)
+        # Unity-bound tasks spend turns interpreting host results and preparing a
+        # subsequent request. This grace is bounded independently from quota
+        # and the hard max_turns ceiling (and never applies to report-only work).
+        default_limit = 4 if "resource:unity-editor" in _ACTIVE_LABELS else 2
+        configured_limit = int_env("RPGK_CONTINUATION_FOLLOW_THROUGH_INVISIBLE_TURNS", default_limit)
+        limit = min(4, max(1, configured_limit))
         invisible = int(details.get("consecutiveInvisibleTurns") or 0)
-        if invisible <= max(1, limit):
+        if invisible <= limit:
             details["analysisGraceUsed"] = True
-            details["followThroughAnalysisLimit"] = max(1, limit)
+            details["followThroughAnalysisLimit"] = limit
             return (
                 True,
-                f"follow-through analysis window {invisible}/{max(1, limit)} after prior implementation progress",
+                f"follow-through analysis window {invisible}/{limit} after prior implementation progress",
                 details,
             )
 
