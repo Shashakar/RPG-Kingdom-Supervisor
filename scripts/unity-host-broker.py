@@ -558,6 +558,21 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     return matches[0]
 
 
+def verify_worker_ownership(spec: RequestSpec, state_root: Path) -> dict[str, Any] | None:
+    """The host alone may validate a Codex request's worker PID."""
+    run_id, pid = resolve_worker_lease(state_root, spec.workspace)
+    if spec.requires_worker_lease and (pid is None or run_id != spec.expected_worker_run_id):
+        return response_for_status(
+            spec.request_id, spec.operation, "WorkerLeaseRejected", 75,
+            "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
+            details={"expectedWorkerRunId": spec.expected_worker_run_id,
+                     "resolvedWorkerRunId": run_id, "leaseVerifiedByHost": False},
+        )
+    spec.worker_run_id = run_id
+    spec.worker_pid = pid
+    return None
+
+
 def request_owner_alive(active: ActiveOperation) -> bool:
     if active.spec.worker_pid is not None:
         return process_is_alive(active.spec.worker_pid)
@@ -1158,21 +1173,10 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
-                if prepared.requires_worker_lease and (
-                    worker_pid is None or worker_run_id != prepared.expected_worker_run_id
-                ):
-                    rejected = response_for_status(
-                        prepared.request_id, prepared.operation, "WorkerLeaseRejected", 75,
-                        "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
-                        details={"expectedWorkerRunId": prepared.expected_worker_run_id,
-                                 "resolvedWorkerRunId": worker_run_id,
-                                 "leaseVerifiedByHost": False},
-                    )
-                    write_response(request_path, rejected)
+                owner_error = verify_worker_ownership(prepared, state_root)
+                if owner_error is not None:
+                    write_response(request_path, owner_error)
                     continue
-                prepared.worker_run_id = worker_run_id
-                prepared.worker_pid = worker_pid
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)
