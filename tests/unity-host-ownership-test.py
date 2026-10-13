@@ -19,6 +19,10 @@ with tempfile.TemporaryDirectory() as temp:
     workspace.mkdir(parents=True)
     leases = state / "workers" / "active"
     leases.mkdir(parents=True)
+    lock = state / "locks" / "unity-editor.lock"
+    lock.mkdir(parents=True)
+    (lock / "owner").write_text("GH-321")
+    (lock / "workspace").write_text(str(workspace))
     requests = workspace / "Logs" / "SymphonyUnity" / ".broker" / "requests"
     requests.mkdir(parents=True)
     request = requests / "GH-321-inspect-expected.json"
