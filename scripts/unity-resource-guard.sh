@@ -367,10 +367,34 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-set +e
-health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
-health_status=$?
-set -e
+# An earlier owned readiness smoke may still be finishing when a continuation
+# preflight starts. Health is read-only, but returns HostBusy while the broker
+# owns that operation. Wait only for a verifiably live, same-issue smoke;
+# never bypass failures or wait on a foreign/ambiguous request.
+health_deadline=$((SECONDS + ${RPGK_UNITY_OWNED_PREFLIGHT_WAIT_SECONDS:-600}))
+while true; do
+  set +e
+  health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
+  health_status=$?
+  set -e
+  if (( health_status != 87 )); then
+    break
+  fi
+  if ! jq -e --arg issue "$issue_identifier" --arg filter "$UNITY_SMOKE_FILTER" --arg workspace "$PWD" \
+    '.activeRequest != null and .activeRequest.issue == $issue
+     and .activeRequest.workspace == $workspace
+     and .activeRequest.operation == "editmode"
+     and .activeRequest.testFilter == $filter
+     and .activeRequest.clientAlive == true' "$BROKER_STATUS" >/dev/null 2>&1; then
+    break
+  fi
+  if (( SECONDS >= health_deadline )); then
+    echo "RPG Kingdom Unity guard: owned readiness smoke did not finish within bounded wait" >&2
+    break
+  fi
+  echo "RPG Kingdom Unity guard: waiting for active owned readiness smoke to finish before health preflight"
+  sleep 5
+done
 if (( health_status != 0 )); then
   health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
   halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
