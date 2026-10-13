@@ -15,6 +15,7 @@ set +e
 code=$?
 set -e
 [[ "$code" -eq 75 ]]
+[[ ! -s "$TMP/unowned.json" ]] # denied submission has no success payload
 [[ ! -d "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" || -z "$(ls -A "$WORKSPACE/Logs/SymphonyUnity/.broker/requests")" ]]
 "${CLI[@]}" diagnose >"$TMP/no-lease-diagnostic.json"
 jq -e '.reason == "no_matching_workspace_lease" and (.matching | length == 0)' "$TMP/no-lease-diagnostic.json" >/dev/null
