@@ -544,6 +544,7 @@ python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
 
 # Exercise managed Unity work across the 30-second execution-tool boundary.
 bash "$ROOT/tests/unity-managed-wait-test.sh"
+python3 "$ROOT/tests/unity-request-timing-test.py"
 python3 "$ROOT/tests/unity-host-ownership-test.py"
 
 echo "unity-broker-test: PASS"
