@@ -73,6 +73,25 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
 - Do not merge a pull request or close an issue directly.
 
+### Long-running Unity operations (host-owned broker requests)
+
+Codex execution tools may exit after 30 seconds and use a separate PID namespace. Do **not** detach a runner from Codex, rely on its PID for durability, or treat an empty tool output as Unity completion.
+
+For inspect/capture/EditMode/PlayMode, submit a **single typed request** to the existing host-owned Unity broker through the async helper (requires exactly one live Supervisor worker lease):
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" start --workspace "$PWD" --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
+```
+
+The returned `jobId` is the actual **broker request ID**, not a process ID. Do not submit another request while its terminal response is missing. Poll the same request in bounded tool calls:
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" status --workspace "$PWD" --job-id "GH-264-inspect-REQUEST_ID"
+```
+
+`queued` and `running` are not successful completion. When `completed`, **read the JSON at `responsePath`** and verify `exitCode == 0` and an appropriate broker status before continuing; nonzero codes require honest failure reporting. Poll within one model turn when practical, using bounded sleeps, rather than spending continuation turns reissuing `health`. If no terminal response appears before the authorized worker lifetime ends, stop and report the request ID. The broker owns execution, worker-lifetime cancellation, and Unity serialization. No authoring grants are expanded by this helper.
+
+
 ### Unfinished-turn status contract
 
 Do not spend an extra model turn merely to explain why work stopped. Instead, before returning control from any turn that has **not** successfully completed PR/report handoff, persist the best task-level status you already know from that turn:
