@@ -73,24 +73,23 @@ This worker is intentionally budgeted. A Codex turn is expected to perform subst
 - On a reviewed continuation, do not reuse Unity run IDs from a prior worker lifetime as completion evidence. The preserved attempt marker is the host freshness boundary; produce new relevant runs after rearm.
 - Do not merge a pull request or close an issue directly.
 
-### Long-running Unity operations (managed wait)
+### Long-running Unity operations (host-owned broker requests)
 
-The Codex `exec_command` tool can return after about 30 seconds without waiting for a Unity runner to finish. **Never treat an empty 30-second tool result as a completed Unity operation**, and do not burn continuation turns repeatedly calling `unity-runner.sh health` while your own request is active.
+Codex execution tools may exit after 30 seconds and use a separate PID namespace. Do **not** detach a runner from Codex, rely on its PID for durability, or treat an empty tool output as Unity completion.
 
-For Unity `inspect`, `capture`, `editmode`, or `playmode` operations expected to exceed 30 seconds, invoke the existing broker through the resumable client:
-
-```bash
-python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" start \\
-  --workspace "$PWD" --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
-```
-
-The returned `jobId` identifies one already-running `unity-runner.sh` process; `start` rejects duplicates while it is active. To check that exact operation without submitting another request:
+For inspect/capture/EditMode/PlayMode, submit a **single typed request** to the existing host-owned Unity broker through the async helper (requires exactly one live Supervisor worker lease):
 
 ```bash
-python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" status --workspace "$PWD"
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" start --workspace "$PWD" --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity
 ```
 
-A `running` status is **not** `manual_action_required`. Poll status within the *same model turn* with bounded sleeps (for example, a single shell loop with 5-second intervals and a 20-second total per tool call), then continue until a terminal status is obtained; do not use additional model continuation turns merely for polling. Upon `completed`, inspect `stdoutPath`, `stderrPath`, and `exitCode` before proceeding. A nonzero code remains a genuine validation failure. Upon `lost`, stop and request operator inspection of broker recovery; never launch a duplicate operation. The broker's worker-lease cancellation and Unity locks remain authoritative. Do not use this helper to evade scene-authoring grants.
+The returned `jobId` is the actual **broker request ID**, not a process ID. Do not submit another request while its terminal response is missing. Poll the same request in bounded tool calls:
+
+```bash
+python3 "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-managed-wait.py" status --workspace "$PWD" --job-id "GH-264-inspect-REQUEST_ID"
+```
+
+`queued` and `running` are not successful completion. When `completed`, **read the JSON at `responsePath`** and verify `exitCode == 0` and an appropriate broker status before continuing; nonzero codes require honest failure reporting. Poll within one model turn when practical, using bounded sleeps, rather than spending continuation turns reissuing `health`. If no terminal response appears before the authorized worker lifetime ends, stop and report the request ID. The broker owns execution, worker-lifetime cancellation, and Unity serialization. No authoring grants are expanded by this helper.
 
 
 ### Unfinished-turn status contract
