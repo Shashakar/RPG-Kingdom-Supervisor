@@ -46,18 +46,46 @@ def live(pid):
     except PermissionError:
         return True
 
-def leases(state_root, workspace):
-    found = []
-    for path in (state_root / "workers/active").glob("*.json"):
+def inspect_leases(state_root, workspace):
+    """Diagnostic only: never substitute a historical record for live ownership."""
+    active_dir = state_root / "workers" / "active"
+    matches = []
+    other = 0
+    if not active_dir.is_dir():
+        return {"reason": "active_directory_missing", "stateRoot": str(state_root),
+                "activeDirectory": str(active_dir), "matching": []}
+    for path in sorted(active_dir.glob("*.json")):
         try:
             lease = read(path)
-            if (isinstance(lease, dict) and
-                Path(str(lease.get("workspace", ""))).resolve() == workspace and
-                lease.get("runId") and live(lease.get("pid"))):
-                found.append(str(lease["runId"]))
-        except (OSError, ValueError):
-            continue
-    return found
+            if not isinstance(lease, dict):
+                matches.append({"file": path.name, "reason": "invalid_record"})
+                continue
+            recorded = Path(str(lease.get("workspace") or "")).resolve()
+            if recorded != workspace:
+                other += 1
+                continue
+            pid = lease.get("pid")
+            alive = live(pid)
+            matches.append({"file": path.name, "runId": lease.get("runId"),
+                            "pid": pid, "pidVisible": alive,
+                            "reason": ("live" if alive and lease.get("runId")
+                                       else "pid_not_visible_or_dead" if not alive
+                                       else "run_id_missing")})
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            matches.append({"file": path.name, "reason": "unreadable_record"})
+    owners = [m["runId"] for m in matches if m.get("reason") == "live"]
+    reason = ("ready" if len(owners) == 1 else
+              "multiple_live_leases" if len(owners) > 1 else
+              "matching_lease_not_live" if matches else "no_matching_workspace_lease")
+    return {"reason": reason, "stateRoot": str(state_root),
+            "activeDirectory": str(active_dir), "matching": matches,
+            "otherWorkspaceLeases": other, "owners": owners}
+
+
+def leases(state_root, workspace):
+    report = inspect_leases(state_root, workspace)
+    return report.get("owners", [])
+
 
 def present(workspace, job):
     request_id = job["requestId"]
@@ -77,7 +105,7 @@ def present(workspace, job):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["start", "status"])
+    parser.add_argument("action", choices=["start", "status", "diagnose"])
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--operation", choices=sorted(OPS))
     parser.add_argument("--scene", default="")
@@ -94,6 +122,11 @@ def main():
     state.mkdir(parents=True, exist_ok=True)
     for name in ("requests", "responses", "acks", "history/requests"):
         (root / name).mkdir(parents=True, exist_ok=True)
+    if args.action == "diagnose":
+        state_root = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT",
+                     str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
+        print(json.dumps(inspect_leases(state_root, workspace)))
+        return 0
     with (state / "lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         previous = read(state / "active.json")
@@ -129,7 +162,7 @@ def main():
                      str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
         owners = leases(state_root, workspace)
         if len(owners) != 1:
-            print("Refusing request: exactly one live host-owned worker lease is required.", file=sys.stderr)
+            print("Refusing request: " + json.dumps(inspect_leases(state_root, workspace)), file=sys.stderr)
             return 75
         request_id = f"{workspace.name}-{args.operation}-{uuid.uuid4().hex}"
         envelope = {

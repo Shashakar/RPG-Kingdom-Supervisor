@@ -15,10 +15,29 @@ set +e
 code=$?
 set -e
 [[ "$code" -eq 75 ]]
+[[ ! -s "$TMP/unowned.json" ]] # denied submission has no success payload
 [[ ! -d "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" || -z "$(ls -A "$WORKSPACE/Logs/SymphonyUnity/.broker/requests")" ]]
+"${CLI[@]}" diagnose >"$TMP/no-lease-diagnostic.json"
+jq -e '.reason == "no_matching_workspace_lease" and (.matching | length == 0)' "$TMP/no-lease-diagnostic.json" >/dev/null
+
 
 jq -n --arg workspace "$WORKSPACE" --argjson pid "$$" \
   '{workspace:$workspace,pid:$pid,runId:"test-worker-1"}' > "$TMP/state/workers/active/test.json"
+"${CLI[@]}" diagnose >"$TMP/live-diagnostic.json"
+jq -e '.reason == "ready" and .matching[0].pidVisible == true and .owners == ["test-worker-1"]' "$TMP/live-diagnostic.json" >/dev/null
+
+# A stale matching lease must not authorize a request.
+jq -n --arg workspace "$WORKSPACE" '{workspace:$workspace,pid:999999999,runId:"stale"}' > "$TMP/state/workers/active/stale.json"
+"${CLI[@]}" diagnose >"$TMP/stale-diagnostic.json"
+jq -e '.reason == "ready" and ([.matching[].reason] | index("pid_not_visible_or_dead"))' "$TMP/stale-diagnostic.json" >/dev/null
+rm "$TMP/state/workers/active/stale.json"
+
+# Two live leases fail closed rather than selecting an arbitrary owner.
+cp "$TMP/state/workers/active/test.json" "$TMP/state/workers/active/duplicate.json"
+"${CLI[@]}" diagnose >"$TMP/ambiguous-diagnostic.json"
+jq -e '.reason == "multiple_live_leases"' "$TMP/ambiguous-diagnostic.json" >/dev/null
+rm "$TMP/state/workers/active/duplicate.json"
+
 "${CLI[@]}" start --operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity >"$TMP/start.json"
 jq -e '.status == "queued" and .operation == "inspect"' "$TMP/start.json" >/dev/null
 id="$(jq -r .jobId "$TMP/start.json")"
