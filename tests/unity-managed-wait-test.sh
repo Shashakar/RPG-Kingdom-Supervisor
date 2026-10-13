@@ -43,7 +43,8 @@ jq -e '.status == "queued" and .operation == "inspect"' "$TMP/start.json" >/dev/
 id="$(jq -r .jobId "$TMP/start.json")"
 request="$WORKSPACE/Logs/SymphonyUnity/.broker/requests/$id.json"
 history="$WORKSPACE/Logs/SymphonyUnity/.broker/history/requests/$id.json"
-jq -e '.protocolVersion == 1 and .operation == "inspect" and (.clientPid == null)' "$request" >/dev/null
+jq -e '.protocolVersion == 1 and .operation == "inspect" and (.clientPid == null)
+  and .requiresWorkerLease == true and .expectedWorkerRunId == "test-worker-1"' "$request" >/dev/null
 cmp "$history" "$request"
 
 # A short-lived caller exits; polling continues using broker records only.
