@@ -54,6 +54,8 @@ class RequestSpec:
     capture_height: int = 1080
     workspace: Path = Path(".")
     client_pid: int | None = None
+    expected_worker_run_id: str | None = None
+    requires_worker_lease: bool = False
     worker_run_id: str | None = None
     worker_pid: int | None = None
 
@@ -238,6 +240,17 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        requires_worker_lease = request.get("requiresWorkerLease", False)
+        if not isinstance(requires_worker_lease, bool):
+            raise ValueError("requiresWorkerLease must be boolean")
+        expected_worker_run_id = request.get("expectedWorkerRunId")
+        if requires_worker_lease:
+            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(
+                r"GH-[0-9]+-[A-Za-z0-9_-]+", expected_worker_run_id
+            ):
+                raise ValueError("requiresWorkerLease needs a valid expectedWorkerRunId")
+        elif expected_worker_run_id is not None:
+            raise ValueError("expectedWorkerRunId requires requiresWorkerLease")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -309,6 +322,8 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        requires_worker_lease=requires_worker_lease,
+        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -1144,6 +1159,18 @@ def main() -> int:
                     continue
 
                 worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                if prepared.requires_worker_lease and (
+                    worker_pid is None or worker_run_id != prepared.expected_worker_run_id
+                ):
+                    rejected = response_for_status(
+                        prepared.request_id, prepared.operation, "WorkerLeaseRejected", 75,
+                        "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
+                        details={"expectedWorkerRunId": prepared.expected_worker_run_id,
+                                 "resolvedWorkerRunId": worker_run_id,
+                                 "leaseVerifiedByHost": False},
+                    )
+                    write_response(request_path, rejected)
+                    continue
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
