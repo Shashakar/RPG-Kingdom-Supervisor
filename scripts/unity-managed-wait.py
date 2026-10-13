@@ -34,27 +34,19 @@ def write(path, payload):
     finally:
         temp.unlink(missing_ok=True)
 
-def live(pid):
-    try:
-        pid = int(pid)
-        if pid <= 0:
-            return False
-        # Host-owned leases use host PIDs; do not trust an arbitrary Codex PID.
-        os.kill(pid, 0)
-        return True
-    except (TypeError, ValueError, ProcessLookupError):
-        return False
-    except PermissionError:
-        return True
-
 def inspect_leases(state_root, workspace):
-    """Diagnostic only: never substitute a historical record for live ownership."""
+    """Client-side identity inventory, NEVER host PID liveness/authorization.
+
+    Codex can have a different PID namespace from the host; os.kill(pid, 0)
+    gives neither a reliable positive nor a reliable negative for host PIDs.
+    The broker alone checks whether the selected run ID has a live host lease.
+    """
     active_dir = state_root / "workers" / "active"
     matches = []
     other = 0
     if not active_dir.is_dir():
         return {"reason": "active_directory_missing", "stateRoot": str(state_root),
-                "activeDirectory": str(active_dir), "matching": []}
+                "activeDirectory": str(active_dir), "matching": [], "owners": []}
     for path in sorted(active_dir.glob("*.json")):
         try:
             lease = read(path)
@@ -65,20 +57,19 @@ def inspect_leases(state_root, workspace):
             if recorded != workspace:
                 other += 1
                 continue
+            run_id = lease.get("runId")
             pid = lease.get("pid")
-            alive = live(pid)
-            matches.append({"file": path.name, "runId": lease.get("runId"),
-                            "pid": pid, "pidVisible": alive,
-                            "reason": ("live" if alive and lease.get("runId")
-                                       else "pid_not_visible_or_dead" if not alive
-                                       else "run_id_missing")})
+            valid = isinstance(run_id, str) and bool(run_id) and isinstance(pid, int) and pid > 0
+            matches.append({"file": path.name, "runId": run_id, "pid": pid,
+                            "pidVisible": None, "hostPidLiveness": "unverifiable_from_client",
+                            "reason": "host_liveness_unverified" if valid else "invalid_lease_identity"})
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             matches.append({"file": path.name, "reason": "unreadable_record"})
-    owners = [m["runId"] for m in matches if m.get("reason") == "live"]
-    reason = ("ready" if len(owners) == 1 else
-              "multiple_live_leases" if len(owners) > 1 else
-              "matching_lease_not_live" if matches else "no_matching_workspace_lease")
-    return {"reason": reason, "stateRoot": str(state_root),
+    owners = [m["runId"] for m in matches if m.get("reason") == "host_liveness_unverified"]
+    reason = ("host_verification_required" if len(owners) == 1 else
+              "ambiguous_matching_leases" if len(owners) > 1 else
+              "invalid_matching_lease" if matches else "no_matching_workspace_lease")
+    return {"reason": reason, "authority": "host_broker", "stateRoot": str(state_root),
             "activeDirectory": str(active_dir), "matching": matches,
             "otherWorkspaceLeases": other, "owners": owners}
 
@@ -203,7 +194,7 @@ def main():
                      str(Path.home() / ".local/state/rpg-kingdom-supervisor")))
         matching = [m for m in inspect_leases(state_root, workspace).get("matching", [])
                     if m.get("runId") and m.get("pid") and m.get("reason") in
-                    {"live", "pid_not_visible_or_dead"}]
+                    {"host_liveness_unverified"}]
         owners = [str(m["runId"]) for m in matching]
         if len(owners) != 1:
             print("Refusing request: " + json.dumps(inspect_leases(state_root, workspace)), file=sys.stderr)
