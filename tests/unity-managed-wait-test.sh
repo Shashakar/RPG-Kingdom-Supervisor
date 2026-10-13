@@ -85,13 +85,6 @@ jq -n --arg id "$next" '{requestId:$id,status:"NoTestsMatched",exitCode:91}' \
   > "$WORKSPACE/Logs/SymphonyUnity/.broker/responses/$next.json"
 "${CLI[@]}" status >"$TMP/failure.json"
 jq -e '.status == "completed" and .exitCode == 91 and .brokerStatus == "NoTestsMatched"' "$TMP/failure.json" >/dev/null
-# Pose metadata must be forwarded as typed request fields for capture only.
-"${CLI[@]}" start --operation capture --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity \
-  --position 0,200,20 --rotation 90,0,0 > "$TMP/pose.json"
-pose_id="$(jq -r .jobId "$TMP/pose.json")"
-pose_request="$WORKSPACE/Logs/SymphonyUnity/.broker/requests/$pose_id.json"
-jq -e '.operation == "capture" and .cameraPosition == "0,200,20" and .cameraRotation == "90,0,0"
-  and .requiresWorkerLease == true' "$pose_request" >/dev/null
 for args in '--operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --position 0,200,20' \
             '--operation capture --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --position 0,Infinity,20' \
             '--operation capture --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity --rotation 90,0' ; do
@@ -102,4 +95,11 @@ for args in '--operation inspect --scene Assets/RPGKingdom/Scenes/PlaytestScene.
   set -e
   [[ "$pose_code" -ne 0 ]]
 done
+# Pose metadata must be forwarded as typed request fields for capture only.
+"${CLI[@]}" start --operation capture --scene Assets/RPGKingdom/Scenes/PlaytestScene.unity \
+  --position 0,200,20 --rotation 90,0,0 > "$TMP/pose.json"
+pose_id="$(jq -r .jobId "$TMP/pose.json")"
+pose_request="$WORKSPACE/Logs/SymphonyUnity/.broker/requests/$pose_id.json"
+jq -e '.operation == "capture" and .cameraPosition == "0,200,20" and .cameraRotation == "90,0,0"
+  and .requiresWorkerLease == true' "$pose_request" >/dev/null
 echo "unity-managed-wait-test: PASS"
