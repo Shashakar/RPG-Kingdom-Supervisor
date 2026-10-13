@@ -61,11 +61,21 @@ set -e
 [[ "$(jq -r .jobId "$TMP/repeat.json")" == "$id" ]]
 [[ "$(find "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" -name '*.json' | wc -l)" -eq 1 ]]
 
+# Waiting must not enqueue duplicate requests and must return bounded progress.
+"${CLI[@]}" wait --job-id "$id" --wait-seconds 1 > "$TMP/wait-progress.json"
+jq -e '.status == "running"' "$TMP/wait-progress.json" >/dev/null
+[[ "$(find "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" -name '*.json' | wc -l)" -eq 1 ]]
+set +e
+"${CLI[@]}" wait --wait-seconds 91 > "$TMP/wait-invalid.json" 2>/dev/null
+invalid_code=$?
+set -e
+[[ "$invalid_code" -ne 0 ]]
+
 # Deliberately cross 30 seconds without any helper process alive.
 sleep 33
 jq -n --arg id "$id" '{requestId:$id,status:"Passed",exitCode:0,stdout:"inspected"}' \
   > "$WORKSPACE/Logs/SymphonyUnity/.broker/responses/$id.json"
-"${CLI[@]}" status --job-id "$id" > "$TMP/done.json"
+"${CLI[@]}" wait --job-id "$id" --wait-seconds 1 > "$TMP/done.json"
 jq -e '.status == "completed" and .exitCode == 0 and .brokerStatus == "Passed"' "$TMP/done.json" >/dev/null
 
 # Failed Unity operations are terminal results, never reported as passes.
