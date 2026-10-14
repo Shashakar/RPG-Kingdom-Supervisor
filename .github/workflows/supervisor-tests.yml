@@ -57,3 +57,23 @@ jobs:
             -u RPGK_SUPERVISOR_STATE_ROOT \
             -u RPGK_ALTERNATE_SCREEN \
             bash tests/run.sh
+
+      - name: Stress ambiguous Unity broker recovery (three isolated lifetimes)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "::group::Unity broker recovery run ${attempt}/3"
+            env \
+              -u SYMPHONY_GITHUB_TOKEN \
+              -u GITHUB_TOKEN \
+              -u GH_TOKEN \
+              -u OPENAI_API_KEY \\
+              -u CODEX_HOME \
+              -u RPGK_SUPERVISOR_STATE_ROOT \
+              bash tests/unity-broker-test.sh
+            echo "::endgroup::"
+          done
