@@ -17,13 +17,15 @@ from pathlib import Path
 import re
 import signal
 import sqlite3
-from unity_execution_journal import reserve_execution
 import subprocess
 import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from unity_execution_journal import reserve_execution
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
