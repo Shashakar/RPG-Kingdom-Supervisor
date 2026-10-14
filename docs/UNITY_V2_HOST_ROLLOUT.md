@@ -97,3 +97,9 @@ The new `scripts/unity_worker_process_identity.py` validates a local child proce
 This is a prerequisite, not a completed handoff: the current lock keeper does **not** publish an authenticated PID/start-time record, and the existing Symphony `Port.os_pid` still refers to the keeper in a wrapped launch. Before using the helper in production, an issuer- or registrar-owned side channel must establish the actual worker PID and associate it with one controller-authorized session and workspace, resist PID reuse, and invalidate it when the process or controller is gone. Neither an untrusted JSON file nor a worker-supplied PID may be accepted as the identity source. Remote SSH workers remain excluded.
 
 The current process group cleanup test is necessary but insufficient proof of a clean cgroup after the foreground worker exits. Production readiness still requires a real systemd scope/cgroup test.
+
+## Staged registrar peer-ancestry handoff
+
+The new registrar `registerChild` action obtains the controller-client PID from Linux `SO_PEERCRED`, checks that the requested Codex worker PID is its sibling under a live controller-UID keeper, and revalidates worker UID and immutable kernel process identity before writing the protected lease. The staged Python client now uses `registerChild`.
+
+**Not yet a deployable protocol:** an older `register` action still exists for compatibility with the foundation tests; production must remove/disable it, or the stricter action can be bypassed. The trusted controller/keeper must actually spawn the registrar client as a sibling of the isolated Codex worker; this has not been wired into the local Symphony checkout. The child must also demonstrably be Codex itself after the UID transition rather than a wrapper. Tests must cover client exit races, missing keeper, PID reuse, mismatched workspace, and revocation on all exit paths. No local WSL acceptance has been run.
