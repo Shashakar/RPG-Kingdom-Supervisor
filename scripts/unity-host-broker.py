@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, resolve_unique_live_lease, REJECT_STATUS, REJECT_EXIT
+from unity_admission_receipt import validate_submitted_receipt
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
@@ -1136,6 +1137,21 @@ def main() -> int:
                     write_response(request_path, response_for_status(
                         prepared.request_id, prepared.operation, REJECT_STATUS, REJECT_EXIT,
                         "RPG Kingdom Unity broker: claimed worker is not the unique live host worker lease",
+                    ))
+                    continue
+                try:
+                    raw_request = json.loads(prepared.request_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    raw_request = {}
+                if not validate_submitted_receipt(
+                    raw_request, key_path=os.environ.get("RPGK_UNITY_ADMISSION_KEY_FILE"),
+                    issue=prepared.workspace.name, workspace=str(prepared.workspace),
+                    worker_run_id=worker_run_id, operation=prepared.operation,
+                    request_id=prepared.request_id,
+                ):
+                    write_response(request_path, response_for_status(
+                        prepared.request_id, prepared.operation, REJECT_STATUS, REJECT_EXIT,
+                        "RPG Kingdom Unity broker: invalid or unavailable host admission receipt",
                     ))
                     continue
                 prepared.worker_run_id = worker_run_id
