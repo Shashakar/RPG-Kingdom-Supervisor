@@ -170,6 +170,15 @@ jq -cn \
   --argjson clientPid "$$" \
   '{protocolVersion:1,requestId:$requestId,operation:$operation,testFilter:$testFilter,scenePath:$scenePath,cameraPath:$cameraPath,viewName:$viewName,cameraPosition:$cameraPosition,cameraRotation:$cameraRotation,lookAtPath:$lookAtPath,fieldOfView:($fieldOfView|tonumber),reuseStageLibrary:$reuseStageLibrary,captureWidth:$captureWidth,captureHeight:$captureHeight,requestedAt:$requestedAt,clientPid:$clientPid}' \
   > "$temp_history"
+if [[ -n "${RPGK_UNITY_ADMISSION_SOCKET:-}" && "$command" != "health" ]]; then
+  if ! python3 "$ROOT/scripts/unity-admission-client.py" \
+      --socket "$RPGK_UNITY_ADMISSION_SOCKET" --request "$temp_history" \
+      --workspace "$project" --operation "$command" --request-id "$request_id"; then
+    rm -f "$temp_history"
+    echo "RPG Kingdom Unity runner: trusted host admission failed; refusing submission" >&2
+    exit 75
+  fi
+fi
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$temp_request"
 mv "$temp_request" "$request_path"

@@ -365,9 +365,11 @@ ambiguous_status=$?
 set -e
 [[ "$ambiguous_status" -eq 92 ]] || { echo "unity-broker-test: ambiguous stall should exit 92, got $ambiguous_status" >&2; exit 1; }
 grep -Fq 'StallRecoveryBlocked' <<<"$ambiguous_output" || { echo "unity-broker-test: ambiguous stall must report blocked recovery" >&2; exit 1; }
+# Response publication is the synchronization boundary: a terminal response
+# must never become visible before the matching durable blocked state.
 jq -e '.state == "blocked" and .activeRequest.recoveryBlocked == true and .activeRequest.testFilter == "stall-ambiguous" and .lastResult.status == "StallRecoveryBlocked"' "$STATE/unity-broker/status.json" >/dev/null || {
-  echo "unity-broker-test: terminal response preceded durable blocked recovery state" >&2
-  cat "$STATE/unity-broker/status.json" >&2 || true
+  echo "unity-broker-test: terminal response was visible before durable blocked status" >&2
+  cat "$STATE/unity-broker/status.json" >&2
   exit 1
 }
 ambiguous_pid="$(jq -r '.activeRequest.childPid' "$STATE/unity-broker/status.json")"
@@ -383,8 +385,12 @@ for _ in $(seq 1 80); do
 done
 jq -e '.state == "ready" and .lastResult.status == "StallRecoveryBlocked"' "$STATE/unity-broker/status.json" >/dev/null || {
   echo "unity-broker-test: broker did not reconcile after ambiguous process exited" >&2
+  echo "unity-broker-test: final broker status:" >&2
   cat "$STATE/unity-broker/status.json" >&2 || true
+  echo "unity-broker-test: host process and descendants:" >&2
   ps -eo pid,ppid,pgid,stat,comm | awk -v pid="$ambiguous_pid" '$1 == pid || $2 == pid || $3 == pid || NR == 1' >&2 || true
+  echo "unity-broker-test: broker process:" >&2
+  ps -p "$BROKER_PID" -o pid,ppid,stat,comm >&2 || true
   exit 1
 }
 

@@ -9,17 +9,18 @@ import os
 from pathlib import Path
 import re
 import signal
-import sqlite3
-import sys
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from unity_execution_journal import reserve_execution
-
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from unity_worker_lease import parse_claim, verify_claim, REJECT_STATUS, REJECT_EXIT
+from unity_admission_receipt import validate_submitted_receipt
+from unity_execution_journal import reserve_execution
+import sqlite3
 
 PROTOCOL_VERSION = 1
 SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "opening-encounter-composition"})
@@ -161,6 +162,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         payload = json.loads(request_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("request must be an object")
+        claim = parse_claim(payload)
         if payload.get("protocolVersion") != PROTOCOL_VERSION or payload.get("operation") != "author":
             raise ValueError("unsupported request protocol/operation")
         authoring = payload.get("authoring")
@@ -212,6 +214,32 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     if request_path.parent.resolve() != expected_dir.resolve() or workspace.parent != workspace_root or ISSUE_WORKSPACE.fullmatch(workspace.name) is None:
         return None, None, response(request_id, "rejected", 81, stderr="RPG Kingdom Unity authoring broker: request is outside the configured GH workspace root\n")
 
+    def worker_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    _, _, mismatch = verify_claim(claim, state_root, workspace, worker_alive)
+    if mismatch:
+        return None, None, response(
+            request_id, REJECT_STATUS, REJECT_EXIT,
+            stderr="RPG Kingdom Unity authoring broker: claimed worker is not the unique live host worker lease\\n",
+        )
+    worker_run_id, _, _ = verify_claim(claim, state_root, workspace, worker_alive)
+    if not validate_submitted_receipt(
+        payload, key_path=os.environ.get("RPGK_UNITY_ADMISSION_KEY_FILE"),
+        require_receipt=os.environ.get("RPGK_UNITY_ADMISSION_STRICT") == "1",
+        issue=workspace.name, workspace=str(workspace), worker_run_id=worker_run_id,
+        operation="author", request_id=request_id,
+    ):
+        return None, None, response(
+            request_id, REJECT_STATUS, REJECT_EXIT,
+            stderr="RPG Kingdom Unity authoring broker: invalid or unavailable host admission receipt\n",
+        )
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
