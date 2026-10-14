@@ -985,15 +985,22 @@ def main() -> int:
     def make_terminal(response: dict[str, Any], *, keep_active: bool) -> None:
         nonlocal active, last_result, last_status_write
         assert active is not None
+        # Publish the blocked state before the terminal response. The client
+        # consumes the response as a completion signal and may immediately read
+        # status.json; response-first ordering exposes a stale "running" state.
+        if keep_active:
+            active.recovery_blocked = True
+            last_result = last_result_snapshot(response)
+            write_status("blocked", active_snapshot(active))
+            last_status_write = time.monotonic()
+            if not active.response_written:
+                write_response(active.spec.request_path, response)
+                active.response_written = True
+            return
         if not active.response_written:
             write_response(active.spec.request_path, response)
             active.response_written = True
             last_result = last_result_snapshot(response)
-        if keep_active:
-            active.recovery_blocked = True
-            write_status("blocked", active_snapshot(active))
-            last_status_write = time.monotonic()
-            return
         close_operation(active)
         active = None
         write_status("ready")
