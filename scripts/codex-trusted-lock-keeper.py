@@ -16,6 +16,7 @@ import signal
 import time
 import subprocess
 import sys
+from unity_v2_admission_gate import admit
 
 ISSUE = re.compile(r"^GH-[0-9]+$")
 SLOT = {"implementation": "mutation", "repair": "mutation",
@@ -84,7 +85,7 @@ def registrar_command(client_script: str, socket_path: str, action: str,
 
 def registered_worker_session(child: subprocess.Popen, *, client_script: str,
                               socket_path: str, issue: str,
-                              workspace: str, run_id: str) -> int:
+                              workspace: str, run_id: str, gate_write_fd: int | None = None) -> int:
     """Prototype only: register a sibling child and revoke on every exit path.
 
     This MUST be paired with a start gate before production, because Popen
@@ -104,9 +105,15 @@ def registered_worker_session(child: subprocess.Popen, *, client_script: str,
         ticks = record.get("processStartTicks")
         if not isinstance(ticks, str) or not ticks.isdigit():
             raise PermissionError("missing immutable start time")
+        if gate_write_fd is not None:
+            ticks = admit(gate_write_fd, response, child.pid, run_id)
+            os.close(gate_write_fd)
+            gate_write_fd = None
         registration = ticks
         return wait_for_child(child)
     finally:
+        if gate_write_fd is not None:
+            os.close(gate_write_fd)
         if registration is None:
             if child.poll() is None:
                 try:
