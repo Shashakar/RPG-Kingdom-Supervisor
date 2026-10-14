@@ -1145,6 +1145,7 @@ def main() -> int:
                     raw_request = {}
                 if not validate_submitted_receipt(
                     raw_request, key_path=os.environ.get("RPGK_UNITY_ADMISSION_KEY_FILE"),
+                    require_receipt=os.environ.get("RPGK_UNITY_ADMISSION_STRICT") == "1" and prepared.operation != "health",
                     issue=prepared.workspace.name, workspace=str(prepared.workspace),
                     worker_run_id=worker_run_id, operation=prepared.operation,
                     request_id=prepared.request_id,
