@@ -46,3 +46,24 @@ No running services touched, no broker modifications, no GH-264 rearm, no change
 ### Still outstanding before a protocol decision
 
 Installed-branch `unity-host-ownership-test.py` is **not** present in PR #255 or current main, and its reported behavior must be checked against the original installed host branch before adopting a schema. The new characterization test is not live-host verification. No deployment or worker rearm is authorized by this document.
+
+## Request admission characterization — added V2.0 tests
+
+`tests/unity-v2-request-baseline-test.py` runs `prepare_request` against an isolated fake workspace and lock. It records current v1 behavior: health is admitted without lock or durable worker lease; optional positive `clientPid` is parsed; legacy v1 ignores an `expectedWorkerRunId` claim; malformed protocol/operation/client ID fail with 64; EditMode needs the matching lock and rejects mismatched owner with 82. Unlike the #255 string assertion this imports and executes production request validation code. It does **not** exercise the full broker loop or live Windows Unity.
+
+### Proposed compatibility matrix (requires review against installed callers)
+
+| Case | main v1 observed | installed branch test expectation | V2 target |
+|---|---|---|---|
+| Health preflight, no worker claim | allowed | not yet verified | allow, no worker ownership |
+| Locked EditMode, no run-ID claim | lease resolved if available, client fallback | dependent on `requiresWorkerLease` | allow explicitly only for marked host preflight; reject absent claim for worker-issued validation |
+| Claimed correct live run ID | ignored in main | allow | allow only after unique live lease check |
+| Claimed wrong live run ID | ignored in main | `WorkerLeaseRejected` / 75 | fail-closed, single standardized machine-readable code |
+| Missing/dead/duplicate live lease | resolver returns none | `WorkerLeaseRejected` / 75 | reject worker-owned request; preserve host-only preflight |
+| Claim present but lease-required flag false | flag ignored in main | schema reject / 64 | reject incoherent request; avoid silent fallback |
+| Ambiguous stall PID ownership | `StallRecoveryBlocked` / 92 | same behavior not yet verified | keep request blocked; never kill unrelated process |
+
+Do not implement target policy until caller/host comparison establishes the exact preflight distinction. Avoid reusing existing `91` `Stalled` code for lease rejection without explicit migration handling. Make `status` authoritative and retain compatible v1 response translation until consumers migrate.
+
+### Phase gate still open
+The request parser is now behavior-tested, but *actual broker event-loop authorization* and both authoring/validation broker integration remain to be proven. PR #261 must remain draft, not deployed or merged merely for passing CI.
