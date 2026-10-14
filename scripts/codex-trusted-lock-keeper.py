@@ -138,6 +138,25 @@ def registered_worker_session(child: subprocess.Popen, *, client_script: str,
                 raise PermissionError("worker lease revocation failed")
 
 
+def start_gated_session(command: list[str], *, client_script: str,
+                        socket_path: str, issue: str, workspace: str,
+                        run_id: str) -> int:
+    """Staging-only worker launch; command must come from trusted controller."""
+    read_fd, write_fd = os.pipe()
+    try:
+        child = subprocess.Popen([*command, "--gate-fd", str(read_fd)],
+                                 pass_fds=(read_fd,), start_new_session=True)
+    except BaseException:
+        os.close(write_fd)
+        raise
+    finally:
+        os.close(read_fd)
+    return registered_worker_session(child, client_script=client_script,
+                                     socket_path=socket_path, issue=issue,
+                                     workspace=workspace, run_id=run_id,
+                                     gate_write_fd=write_fd)
+
+
 def run(state_root: Path, role: str, issue: str, command: list[str]) -> int:
     if not command or any(not part for part in command):
         raise ValueError("missing command")
