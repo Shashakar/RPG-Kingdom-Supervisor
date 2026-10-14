@@ -241,7 +241,7 @@ def prepare_request(
             raise ValueError("capture pose fields are valid only for capture")
         expected_worker_run_id = request.get("expectedWorkerRunId")
         if expected_worker_run_id is not None:
-            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(r"GH-\\d+-[A-Za-z0-9_-]{1,160}", expected_worker_run_id):
+            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(r"GH-[0-9]+-[A-Za-z0-9_-]{1,160}", expected_worker_run_id):
                 raise ValueError("expectedWorkerRunId must be a valid GH worker lifetime identifier")
         raw_client_pid = request.get("clientPid")
         client_pid = None
