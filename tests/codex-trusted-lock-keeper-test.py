@@ -2,6 +2,10 @@
 """Test role/issue mutual exclusion and FD isolation for lock keeper."""
 import importlib.util
 import os
+import signal
+import subprocess
+import threading
+import time
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -29,7 +33,26 @@ with TemporaryDirectory() as temp:
         spawn.return_value.wait.return_value=0
         assert m.run(state,"repair","GH-123",["/bin/true"])==0
         assert spawn.call_args.kwargs["close_fds"] is True
+        assert spawn.call_args.kwargs["start_new_session"] is True
         assert slot.exists() and issue.exists()
     # The lock keeper does not add a background process after return.
     assert m.run(state,"repair","GH-123",["/bin/true"])==0
+    # Real process: one worker owns a process group with a descendant.
+    # A SIGTERM to the keeper should forward to the child group; lock release
+    # occurs after child termination.
+    child = subprocess.Popen(["/bin/sh", "-c", "sleep 30"], start_new_session=True)
+    def stop():
+        time.sleep(0.2)
+        os.kill(os.getpid(), signal.SIGTERM)
+    killer=threading.Thread(target=stop)
+    killer.start()
+    try:
+        outcome=m.wait_for_child(child,grace_seconds=0.5)
+        assert outcome != 0
+        assert child.poll() is not None
+    finally:
+        if child.poll() is None:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+    killer.join()
 print("codex-trusted-lock-keeper-test: PASS")
