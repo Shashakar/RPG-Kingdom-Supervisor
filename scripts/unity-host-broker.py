@@ -449,6 +449,16 @@ def complete_finished_operation(active: ActiveOperation) -> dict[str, Any] | Non
 def close_operation(active: ActiveOperation) -> None:
     active.stdout_handle.close()
     active.stderr_handle.close()
+    # A completed request has already copied final progress into last_result.
+    # Remove immutable snapshots so long-running Supervisor hosts do not fill disk.
+    for path in active.progress_path.parent.glob(active.progress_path.name + ".seq.*"):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass  # Cleanup must not disguise the real Unity result.
+
 
 
 def terminate_process_group(process: subprocess.Popen[Any], grace_seconds: float) -> None:
