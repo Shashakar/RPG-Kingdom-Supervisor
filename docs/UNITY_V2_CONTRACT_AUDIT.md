@@ -135,3 +135,9 @@ This design intentionally does not pretend that the current code already enforce
 3. Migrate validation and authoring clients to the host-issued submission path, preserving separate trusted preflight operations.
 4. Audit and disable legacy unsigned worker writes only after end-to-end host verification; ensure restart/rollback is reversible.
 5. Reconcile the installed `unity-real-worker` code before restarting Supervisor. A green CI run on remote `main` does not substitute for this.
+
+## Opt-in verification integration (not yet enforcement)
+
+Both brokers now call `validate_submitted_receipt` before host execution. When a request includes `admissionReceipt`, it must validate against a host-only key file selected by `RPGK_UNITY_ADMISSION_KEY_FILE`, the live worker lease, issue, workspace, operation and request identity. Invalid/missing key or invalid submitted receipt returns `WorkerLeaseRejected`/75. An unsigned legacy request **remains permitted** while clients and protected issuer are unimplemented. These changes are code on the draft branch only.
+
+This is a compatibility-stage feature, **not an authorization barrier** against forgery because a requester can omit `admissionReceipt`; do not claim it blocks an attacker from launching a legacy authorized operation. Before deployment, require signed receipts for the worker path using a separate configured policy gate, preserve an explicit trusted preflight path, and implement host-issued credentials/replay receipts. The key file must be host-managed and never writable or readable by worker processes. No key was generated, written to the repository, or installed on the live host.
