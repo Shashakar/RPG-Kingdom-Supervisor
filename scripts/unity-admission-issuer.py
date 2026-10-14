@@ -103,7 +103,20 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
         raise PermissionError("issuer and worker must use separate Unix identities")
     if socket_path.exists():
         raise FileExistsError("refusing to unlink an existing socket")
-    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    if worker_uid is not None:
+        # Workers need to connect to the socket but must never be able to
+        # unlink/rebind it. The issuer owns the containing directory; group
+        # access permits traversal only. Provision the directory out-of-band.
+        parent_stat = socket_path.parent.stat()
+        parent_mode = stat.S_IMODE(parent_stat.st_mode)
+        if (not stat.S_ISDIR(parent_stat.st_mode)
+                or parent_stat.st_uid != os.getuid()
+                or parent_stat.st_gid != worker_gid
+                or parent_mode & 0o022
+                or not (parent_mode & stat.S_IXGRP)):
+            raise PermissionError("issuer socket directory must be issuer-owned, worker-group traversable, and non-writable to workers")
+    else:
+        socket_path.parent.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(socket_path))
         if worker_uid is not None:
