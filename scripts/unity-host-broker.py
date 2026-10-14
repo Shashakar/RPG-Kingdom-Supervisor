@@ -16,12 +16,16 @@ import os
 from pathlib import Path
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from unity_execution_journal import reserve_execution
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
@@ -1152,6 +1156,23 @@ def main() -> int:
                     continue
 
                 worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                if prepared.operation != "health":
+                    try:
+                        fresh_request = reserve_execution(
+                            state_root, prepared.workspace, prepared.operation, prepared.request_id
+                        )
+                    except (OSError, ValueError, sqlite3.Error) as exc:
+                        write_response(request_path, response_for_status(
+                            prepared.request_id, prepared.operation, "ExecutionJournalUnavailable", 70,
+                            f"RPG Kingdom Unity broker: durable execution admission failed: {type(exc).__name__}",
+                        ))
+                        continue
+                    if not fresh_request:
+                        write_response(request_path, response_for_status(
+                            prepared.request_id, prepared.operation, "DuplicateRequest", 93,
+                            "RPG Kingdom Unity broker: request ID already admitted; replay cannot launch Unity",
+                        ))
+                        continue
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
