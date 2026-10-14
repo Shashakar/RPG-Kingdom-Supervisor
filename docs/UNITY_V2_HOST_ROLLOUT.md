@@ -57,3 +57,13 @@ No sudo, installs, restarts, account creation, or state changes in this command.
 - Enable strict Unity admission only after host acceptance.
 
 **Safety default:** absence of evidence means do not deploy. A green GitHub Actions run for the Supervisor scripts is not a substitute for security verification of the GMKTec host.
+
+## Router findings from the repository (must verify against installed branch)
+
+The configured Codex command invokes `scripts/codex-app-server-router.sh`, rather than a direct `codex app-server`. The repository version of this router sources routing/concurrency policies, fetches issue labels, generates continuation context, writes capability and telemetry state, acquires `flock`-based issue and concurrency slots, executes model compatibility/usage probes, and **finally `exec codex ... app-server`**. Therefore the same OS PID should ultimately become Codex, but it starts as a trusted router executing host-state mutations and privileged credential-bearing scripts.
+
+**Security implication:** running the entire router under the untrusted worker UID would lose access to protected state and GitHub orchestration credentials; running it as the trusted `dex` controller would allow early router/hook execution before worker isolation. The account switch belongs **after all trusted routing, locking and telemetry preparations, and before any arbitrary Codex-controlled command or plugin is executed**. Before using a UID switch, audit each router dependency and both stdout/stdio and inherited file descriptors. In particular the existing inherited `flock` FDs, environment variables, state-owned files, Codex tool capabilities, authentication material, and stderr process substitutions need explicit separation rules. No worker should inherit sensitive FDs, or controller secrets.
+
+There is a second integration issue: the staged `UnityWorkerRegistration.register` is called after `AppServer.start_session` has completed its Codex handshake, so the issuer must NOT allow Unity tool calls until the authenticated registration completes; tests should prove no tool/turn begins before registration. A misconfigured client must halt the attempt before any mutation.
+
+**Host evidence:** the live account check on October 14 showed only `dex` (UID 1000); `rpgk-registrar` and `rpgk-codex` do not exist. `/home/dex` is mode 0750, preventing an isolated worker from traversing it without carefully scoped ACLs or a worker-accessible relocated workspace. Live system services `rpg-kingdom-supervisor` and `rpg-kingdom-diagnostics` both run as `dex`. The live `WORKFLOW.md` sets `command: bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/codex-app-server-router.sh"`. No account creation, chmod, or service changes have been performed.
