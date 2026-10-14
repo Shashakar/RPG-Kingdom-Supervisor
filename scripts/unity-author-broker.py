@@ -10,11 +10,14 @@ from pathlib import Path
 import re
 import signal
 import sqlite3
-from unity_execution_journal import reserve_execution
+import sys
 import subprocess
 import tempfile
 import time
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from unity_execution_journal import reserve_execution
 
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
 
