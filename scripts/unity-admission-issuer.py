@@ -85,14 +85,14 @@ def request_admission(payload: object, *, peer_pid: int, peer_uid: int,
     return {"expectedWorkerRunId": run_id, "requiresWorkerLease": True, "admissionReceipt": receipt}
 
 
-def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path: Path) -> None:
+def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path: Path, worker_uid: int | None = None) -> None:
     mode = key_path.stat().st_mode
     if stat.S_IMODE(mode) & 0o077 or key_path.stat().st_uid != os.getuid():
         raise PermissionError("host signing key must be owned by issuer with mode 0600 or stricter")
     secret = key_path.read_bytes()
     if len(secret) < 32:
         raise ValueError("signing key too short")
-    # The worker must not be able to read the key even with the same UID.\n    # POSIX file modes cannot isolate secrets between processes sharing a UID.\n    # Refuse unsafe deployment until the issuer runs under a distinct identity.\n    if os.geteuid() == os.getuid() and os.environ.get("RPGK_UNITY_ADMISSION_ALLOW_SAME_UID_TEST") != "1":\n        raise PermissionError("issuer requires deployment identity separation; same-UID mode is tests only")\n    if socket_path.exists():\n        raise FileExistsError("refusing to unlink an existing socket")
+    # The worker must not be able to read the key even with the same UID.\n    # POSIX file modes cannot isolate secrets between processes sharing a UID.\n    # Refuse unsafe deployment until the issuer runs under a distinct identity.\n    if worker_uid is not None and worker_uid == os.getuid():\n        raise PermissionError("issuer and worker must use separate Unix identities")\n    if socket_path.exists():\n        raise FileExistsError("refusing to unlink an existing socket")
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(socket_path))
@@ -114,9 +114,9 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
                         if b"\n" not in raw:
                             raise ValueError("unterminated request")
                         request = json.loads(raw.split(b"\n", 1)[0])
-                        result = request_admission(request, peer_pid=pid, peer_uid=uid,
+                        if worker_uid is not None and uid != worker_uid:\n                            raise PermissionError("unexpected worker Unix UID")\n                        result = request_admission(request, peer_pid=pid, peer_uid=uid,
                                                    state_root=state_root, workspace_root=workspace_root,
-                                                   secret=secret)
+                                                   secret=secret, host_uid=uid)
                         reply = {"ok": True, "admission": result}
                     except (ValueError, PermissionError, OSError, json.JSONDecodeError) as exc:
                         reply = {"ok": False, "error": type(exc).__name__}
@@ -131,7 +131,7 @@ def main() -> None:
         parser.add_argument("--"+field, required=True)
     args = parser.parse_args()
     serve(socket_path=Path(args.socket), state_root=Path(args.state_root),
-          workspace_root=Path(args.workspace_root), key_path=Path(args.key_file))
+          workspace_root=Path(args.workspace_root), key_path=Path(args.key_file),\n          worker_uid=args.worker_uid)
 
 
 if __name__ == "__main__":
