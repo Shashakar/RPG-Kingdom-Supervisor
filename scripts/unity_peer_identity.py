@@ -6,7 +6,35 @@ accept peer_pid, worker PID or process ancestry as user-supplied JSON fields.
 from __future__ import annotations
 
 from pathlib import Path
+import socket
+import struct
 from typing import Callable
+
+
+def unix_peer_credentials(connection: socket.socket) -> tuple[int, int, int]:
+    """Read kernel-reported PID/UID/GID on Linux AF_UNIX (never client JSON)."""
+    if connection.family != socket.AF_UNIX or not hasattr(socket, "SO_PEERCRED"):
+        raise ValueError("Linux Unix-domain peer credentials required")
+    size = struct.calcsize("3i")
+    raw = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, size)
+    pid, uid, gid = struct.unpack("3i", raw)
+    if pid <= 1 or uid < 0 or gid < 0:
+        raise ValueError("invalid kernel peer identity")
+    return pid, uid, gid
+
+
+def authorized_worker_peer(peer_pid: int, peer_uid: int, worker_pid: int,
+                           expected_uid: int, *,
+                           get_parent: Callable[[int], int | None] = None) -> bool:
+    """Additional host identity predicate; lease/issue/lock are checked separately."""
+    if type(peer_uid) is not int or type(expected_uid) is not int:
+        return False
+    if peer_uid != expected_uid:
+        return False
+    return is_worker_descendant(
+        peer_pid, worker_pid,
+        get_parent=get_parent if get_parent is not None else read_ppid,
+    )
 
 
 def read_ppid(pid: int, proc_root: Path = Path("/proc")) -> int | None:
