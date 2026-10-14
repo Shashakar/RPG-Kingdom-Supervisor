@@ -15,6 +15,7 @@ import time
 from typing import Any
 
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
+from unity_worker_lease import parse_claim, verify_claim, REJECT_STATUS, REJECT_EXIT
 
 PROTOCOL_VERSION = 1
 SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "opening-encounter-composition"})
@@ -156,6 +157,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         payload = json.loads(request_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("request must be an object")
+        claim = parse_claim(payload)
         if payload.get("protocolVersion") != PROTOCOL_VERSION or payload.get("operation") != "author":
             raise ValueError("unsupported request protocol/operation")
         authoring = payload.get("authoring")
@@ -207,6 +209,21 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     if request_path.parent.resolve() != expected_dir.resolve() or workspace.parent != workspace_root or ISSUE_WORKSPACE.fullmatch(workspace.name) is None:
         return None, None, response(request_id, "rejected", 81, stderr="RPG Kingdom Unity authoring broker: request is outside the configured GH workspace root\n")
 
+    def worker_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    _, _, mismatch = verify_claim(claim, state_root, workspace, worker_alive)
+    if mismatch:
+        return None, None, response(
+            request_id, REJECT_STATUS, REJECT_EXIT,
+            stderr="RPG Kingdom Unity authoring broker: claimed worker is not the unique live host worker lease\\n",
+        )
     error = validate_shared_lock(state_root, workspace)
     if error:
         return None, None, response(request_id, "rejected", 82, stderr=f"RPG Kingdom Unity authoring broker: {error}\n")
