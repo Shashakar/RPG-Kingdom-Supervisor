@@ -23,10 +23,12 @@ with tempfile.TemporaryDirectory() as temp:
     assert not reserve_execution(state,ws,"author",request_id)
     assert reserve_execution(state,ws,"editmode",request_id)
     assert reserve_execution(state,ws,"author","GH-321-author-two")
+    assert reserve_execution(state,ws,"author","ok-1")
+    assert not reserve_execution(state,ws,"author","ok-1")
     for invalid_workspace,operation,identifier in [
         (ws,"health","GH-321-health"),
         (ws,"author","GH-322-author-one"),
-        (ws,"author","bad"),
+        (ws,"author","bad/unsafe"),
         (state/"workspaces"/"not-an-issue","author","GH-321-author-one"),
     ]:
         try:
@@ -36,5 +38,5 @@ with tempfile.TemporaryDirectory() as temp:
         else:
             raise AssertionError("invalid journal scope permitted")
     with sqlite3.connect(state/"unity-execution-journal.sqlite3") as db:
-        assert db.execute("SELECT COUNT(*) FROM reservations").fetchone()[0]==3
+        assert db.execute("SELECT COUNT(*) FROM reservations").fetchone()[0]==4
 print("unity-v2-execution-journal-test: PASS")
