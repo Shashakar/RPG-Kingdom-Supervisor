@@ -1045,6 +1045,15 @@ def main() -> int:
                 refresh_progress(active, now)
                 if reap_completed_active():
                     now = time.monotonic()
+                elif active is not None and active.recovery_blocked:
+                    # A terminal blocked recovery has already been published.
+                    # The transient submitting client may exit after consuming
+                    # that response; do not reclassify the same operation as a
+                    # new ClientAbandonRecoveryBlocked result while its
+                    # ambiguously owned host child is still being reconciled.
+                    if now - last_status_write >= 1.0:
+                        write_status("blocked", active_snapshot(active, now))
+                        last_status_write = now
                 elif active is not None and not request_owner_alive(active):
                     disposition, response = recover_abandoned_operation(
                         active,
@@ -1053,10 +1062,6 @@ def main() -> int:
                     )
                     make_terminal(response, keep_active=disposition == "blocked")
                     now = time.monotonic()
-                elif active is not None and active.recovery_blocked:
-                    if now - last_status_write >= 1.0:
-                        write_status("blocked", active_snapshot(active, now))
-                        last_status_write = now
                 elif active is not None and active.spec.operation in {"editmode", "playmode", "inspect"} and (
                     now - active.last_progress_monotonic >= max(args.stall_seconds, 1.0)
                 ):
