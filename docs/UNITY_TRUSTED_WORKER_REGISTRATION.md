@@ -8,7 +8,7 @@ The current `rpg-kingdom-supervisor.service` runs as Unix user `dex`, and its Co
 
 `scripts/unity-worker-registrar.py` and `scripts/unity_trusted_worker_registry.py` implement a **fail-closed foundation** for a three-identity configuration:
 
-1. Dedicated registry UID owns private `state/workers/active` (mode 0700) and the Unix socket parent directory.
+1. Dedicated registry/issuer UID owns private `state/workers/active` (mode 0700) and the Unix socket parent directory.
 2. Trusted Symphony controller UID alone is authorized, based on kernel `SO_PEERCRED`, to register/revoke worker sessions. It cannot be the registry or worker UID.
 3. Separate Codex worker UID owns the actual session process. The registrar validates its real kernel UID and `/proc/<pid>/stat` start ticks. A Codex worker cannot read/write registry state or connect to the registration socket.
 
@@ -20,7 +20,7 @@ The installed local Symphony at `~/src/openai-symphony/elixir`, branch `rpgk/nam
 
 **Do not call the registrar from today's same-UID controller and claim security.** Before real integration, arrange worker execution under a segregated UID, verify workspace access and remote workers, and add controller-side registration immediately after successful session startup; revoke in `after`; ensure orchestrator task crashes cannot leave valid sessions. The registrar's PID/live check is a safety net, not a substitute for reliable revocation. Explicitly disallow remote SSH session registration using the local port PID.
 
-The current draft V2 issuer (PR #261) independently verifies worker lease, ancestry, lock, and signing-key separation. It must be reconciled with this three-account model. A different signed control channel may be necessary if running a separate privileged controller UID is infeasible. Host editor preflight still requires a separate authenticated route. The SQLite execution journal already merged into main must reside in protected host state for production.
+The current draft V2 issuer (PR #261) independently verifies worker lease, ancestry, lock, and signing-key separation. IMPORTANT: the protected mode-0700 registration directory can only be read by the registrar UID. The V2 issuer must run under the SAME trusted UID as the registrar (with an independently protected HMAC key), or consume an authenticated read-only lease lookup API. A fourth separate issuer UID without such a bridge will fail and MUST NOT be worked around by relaxing the registry directory permissions. It must be reconciled with this three-account model. A different signed control channel may be necessary if running a separate privileged controller UID is infeasible. Host editor preflight still requires a separate authenticated route. The SQLite execution journal already merged into main must reside in protected host state for production.
 
 ## Threat-model limits
 
