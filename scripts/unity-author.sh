@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE_ROOT="${RPGK_SYMPHONY_WORKSPACE_ROOT:-$HOME/code/rpg-kingdom-symphony-workspaces}"
 ACK_TIMEOUT_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_ACK_TIMEOUT_SECONDS:-10}"
 RUN_TIMEOUT_SECONDS="${RPGK_UNITY_AUTHOR_BROKER_TIMEOUT_SECONDS:-3600}"
@@ -78,6 +79,15 @@ jq -cn \
   --slurpfile authoring "$authoring_request" \
   '{protocolVersion:1,requestId:$requestId,operation:"author",requestedAt:$requestedAt,authoring:$authoring[0]}' \
   > "$temp_history"
+if [[ -n "${RPGK_UNITY_ADMISSION_SOCKET:-}" ]]; then
+  if ! python3 "$ROOT/scripts/unity-admission-client.py" \
+      --socket "$RPGK_UNITY_ADMISSION_SOCKET" --request "$temp_history" \
+      --workspace "$project" --operation author --request-id "$request_id"; then
+    rm -f "$temp_history"
+    echo "RPG Kingdom Unity authoring: trusted host admission failed; refusing submission" >&2
+    exit 75
+  fi
+fi
 mv "$temp_history" "$history_request_path"
 cp "$history_request_path" "$request_path.tmp.$$"
 mv "$request_path.tmp.$$" "$request_path"
