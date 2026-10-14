@@ -24,11 +24,12 @@ for peer in (os.getuid(),worker,controller+1):
         pass
     else:
         raise AssertionError("untrusted identity registered")
-with patch.object(module,"verify_controller_sibling",return_value={"pid":4321}) as identity, \\
+with patch.object(module,"verify_controller_sibling",return_value={"pid":4321}) as identity, \
      patch.object(module,"register",return_value={"pid":4321}) as registered:
     result=module.dispatch(record,peer_uid=controller,peer_pid=1111,**kwargs)
     assert result["ok"] and result["registration"]["pid"]==4321
-    assert registered.call_args.kwargs["worker_uid"]==worker\n    assert identity.call_args.kwargs["client_pid"]==1111
+    assert registered.call_args.kwargs["worker_uid"]==worker
+    assert identity.call_args.kwargs["client_pid"]==1111
 with patch.object(module,"revoke",return_value=True):
     result=module.dispatch({"action":"revoke","pid":4321,"runId":"GH-321-test",
                             "processStartTicks":"123"},peer_uid=controller,**kwargs)
