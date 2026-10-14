@@ -165,3 +165,18 @@ The CI failure on commit `13b3fa17` (`unity-broker-test: broker must expose bloc
 ## Follow-up: blocked recovery must not be reclassified by client exit
 
 CI run `38525502364` captured the apparent reconciliation failure with `state=ready` but `lastResult.status=ClientAbandonRecoveryBlocked` (94), although the earlier terminal response had been `StallRecoveryBlocked` (92). The broker checked `not request_owner_alive(active)` **before** `active.recovery_blocked`; the expected client exit after consuming a terminal response caused a second recovery result to overwrite the first. Reordered these branches so an already-terminal blocked request only waits for its host child to exit and preserves the original terminal status. The process never becomes eligible for broad termination. The existing ambiguous-recovery regression now checks the preserved status at the client terminal boundary and after host resolution. This change still requires passing CI and repeated stress verification before host deployment.
+
+## V2.0 host issuer and client prototype (draft PR #261)
+
+A Linux Unix-domain socket issuer is implemented at `scripts/unity-admission-issuer.py`. It obtains `SO_PEERCRED` credentials from the kernel, checks a unique live worker lease, that the calling process is the registered worker or a descendant, matching UID and workspace, editor lock ownership, the worker PID's recorded `processStartTicks`, and presence of an authoring grant for author operations. It issues a scoped, short-lived signed receipt without exposing the host key to clients.
+
+The companion `scripts/unity-admission-client.py` is optionally invoked by `unity-runner.sh` and `unity-author.sh` before enqueuing a request, when `RPGK_UNITY_ADMISSION_SOCKET` is set. It writes the server-returned worker claim and receipt to the request envelope. The request is not enqueued if the issuer refuses it. Unconfigured clients retain legacy behavior; host `health` preflight does not request worker admission. Both brokers already verify submitted receipts, and `RPGK_UNITY_ADMISSION_STRICT=1` enforces signed worker requests.
+
+**Host prerequisites before opting in:**
+- A separately managed host-only key at least 32 bytes, mode 0600, owned by the service account. Never store it in a checkout, workspace, prompts, CI output or shared Windows mount.
+- A protected issuer socket path that is not publicly writable, with the issuer launched as a persistent Supervisor host service.
+- The host worker lease producer currently needs migration to record the kernel `processStartTicks` string on dispatch (as well as runId, PID and workspace) and reliably revoke leases on exit. This draft does **not** modify that external producer; old leases intentionally fail admission.
+- Route worker-launched clients to the socket but **not** the host-origin preflight smoke test. The latter still uses the legacy editmode path and therefore cannot coexist with global strict enforcement until it has a distinct authenticated preflight channel.
+- Broker and issuer must use the same host-only signing key. Operational rollback should remove strict mode and client socket routing together.
+
+**Important:** This is a prototype, not production deployment approval. The issuer must be exercised through its actual socket on WSL with a registered Codex worker process, and strict-mode broker execution and retries must pass on Windows Unity before rollout. The issuer's present `author` check verifies the grant marker exists; the authoring broker remains the authority for its *contents* and operation restrictions. The broker receipt currently authenticates metadata, not an immutable hash of authoring payload bytes; replay/idempotency hardening is still pending.
