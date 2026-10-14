@@ -10,6 +10,7 @@ import argparse
 import os
 from pathlib import Path
 import pwd
+import select
 import stat
 import sys
 
@@ -73,9 +74,19 @@ def close_inherited_fds(keep: tuple[int,...]=(0,1,2)) -> None:
             try: os.close(fd)
             except OSError: pass
 
+def wait_for_admission(fd: int, timeout: float = 5.0) -> None:
+    """Only a keeper-held pipe can release the child; EOF/timeout deny launch."""
+    if not isinstance(fd, int) or fd < 3:
+        raise PermissionError("invalid gate descriptor")
+    ready, _, _ = select.select([fd], [], [], timeout)
+    if not ready or os.read(fd, 1) != b"G":
+        raise PermissionError("worker admission gate not released")
+
+
 def main() -> None:
     parser=argparse.ArgumentParser()
     parser.add_argument("--workspace",required=True)
+    parser.add_argument("--gate-fd",required=True,type=int)
     parser.add_argument("codex_args",nargs=argparse.REMAINDER)
     args=parser.parse_args()
     if os.geteuid()!=0:
@@ -92,11 +103,15 @@ def main() -> None:
         raise PermissionError("Codex binary must be trusted-owned and non-group-writable")
     validate_codex_args(args.codex_args)
     environment=safe_env(home,"/usr/local/bin:/usr/bin:/bin",os.environ)
-    close_inherited_fds()
+    close_inherited_fds(keep=(0,1,2,args.gate_fd))
     os.initgroups(PINNED_WORKER,worker_gid)
     os.setgid(worker_gid)
     os.setuid(worker_uid)
     os.chdir(cwd)
+    try:
+        wait_for_admission(args.gate_fd)
+    finally:
+        os.close(args.gate_fd)
     os.execve(str(binary),[str(binary),*args.codex_args],environment)
 
 if __name__=="__main__":
