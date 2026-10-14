@@ -107,3 +107,9 @@ The new registrar `registerChild` action obtains the controller-client PID from 
 ## Registration handoff status
 
 The old registrar `register` operation is no longer accepted. A sibling-identity-checked `registerChild` operation remains. The lock keeper contains an experimental `registered_worker_session` helper, but its normal `run` path does not call it. Registration currently occurs after a child can start, so the sequence must not be enabled until a trusted startup gate and process supervision are added. Host services remain unchanged.
+
+## Admission gate code handoff (October 14)
+
+The prototype acknowledgement checker `scripts/unity_v2_admission_gate.py` is committed and invoked by the keeper's staged `registered_worker_session`. It only writes a gate release byte when the registrar response contains a matching worker PID, run ID and decimal kernel start ticks. `start_gated_session` creates a keeper-owned pipe, substitutes exactly one `{RPGK_GATE_FD}` token within the **trusted, operator-constructed launch command**, and gives only the read end to the child. The keeper retains the write end. The negative and positive acknowledgement cases are in `tests/unity-v2-admission-gate-test.py`.
+
+This is staging code, **not activated by the live router or by `run`**. The keeper still lacks verified failure-path cleanup across all subprocess/time-out cases, there is no cgroup isolation for descendants, and the pinned launcher requires privileged host provisioning. The issuer and Symphony lifecycle are not wired. A gate receipt alone is not proof the worker executable is Codex after the identity transition. Do not deploy until an actual integration acceptance harness proves no pre-admission side effects, reliable startup/stop/revoke and correct app-server stdio transport.
