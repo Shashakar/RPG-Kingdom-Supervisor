@@ -34,13 +34,6 @@ def dispatch(message: object, *, peer_uid: int, controller_uid: int, peer_pid: i
                           workspace=message["workspace"], pid=message["pid"],
                           worker_uid=worker_uid, run_id=message["runId"])
         return {"ok": True, "registration": record}
-    if operation == "register" and set(message) == {"action", "issue", "workspace", "pid", "runId"}:
-        if type(message["pid"]) is not int:
-            raise ValueError("PID must be integer")
-        record = register(state_root, workspace_root, issue=message["issue"],
-                          workspace=message["workspace"], pid=message["pid"],
-                          worker_uid=worker_uid, run_id=message["runId"])
-        return {"ok": True, "registration": record}
     if operation == "revoke" and set(message) == {"action", "runId", "pid", "processStartTicks"}:
         if type(message["pid"]) is not int or not isinstance(message["processStartTicks"], str):
             raise ValueError("invalid revocation identity")
