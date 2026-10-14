@@ -22,6 +22,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
+from unity_worker_lease import parse_claim, verify_claim, resolve_unique_live_lease, REJECT_STATUS, REJECT_EXIT
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
@@ -54,6 +55,7 @@ class RequestSpec:
     capture_height: int = 1080
     workspace: Path = Path(".")
     client_pid: int | None = None
+    expected_worker_run_id: str | None = None
     worker_run_id: str | None = None
     worker_pid: int | None = None
 
@@ -238,6 +240,7 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        expected_worker_run_id = parse_claim(request)
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -309,6 +312,7 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -521,26 +525,7 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     stronger ownership signal than the transient shell process that submitted a
     Unity request. Ambiguous or dead records are ignored.
     """
-    active_dir = state_root / "workers" / "active"
-    matches: list[tuple[str, int]] = []
-    for path in sorted(active_dir.glob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        try:
-            recorded_workspace = Path(str(payload.get("workspace") or "")).expanduser().resolve()
-            worker_pid = int(payload.get("pid") or 0)
-        except (OSError, TypeError, ValueError):
-            continue
-        run_id = str(payload.get("runId") or "").strip()
-        if recorded_workspace == workspace and worker_pid > 0 and run_id and process_is_alive(worker_pid):
-            matches.append((run_id, worker_pid))
-    if len(matches) != 1:
-        return None, None
-    return matches[0]
+    return resolve_unique_live_lease(state_root, workspace, process_is_alive)
 
 
 def request_owner_alive(active: ActiveOperation) -> bool:
@@ -1143,7 +1128,15 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                worker_run_id, worker_pid, mismatch = verify_claim(
+                    prepared.expected_worker_run_id, state_root, prepared.workspace, process_is_alive
+                )
+                if mismatch:
+                    write_response(request_path, response_for_status(
+                        prepared.request_id, prepared.operation, REJECT_STATUS, REJECT_EXIT,
+                        "RPG Kingdom Unity broker: claimed worker is not the unique live host worker lease",
+                    ))
+                    continue
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
