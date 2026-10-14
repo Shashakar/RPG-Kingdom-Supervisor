@@ -998,15 +998,21 @@ def main() -> int:
     def make_terminal(response: dict[str, Any], *, keep_active: bool) -> None:
         nonlocal active, last_result, last_status_write
         assert active is not None
+        if keep_active:
+            # Publish the durable blocked state before the terminal response.
+            # Clients treat the response as a synchronization boundary.
+            active.recovery_blocked = True
+            last_result = last_result_snapshot(response)
+            write_status("blocked", active_snapshot(active))
+            last_status_write = time.monotonic()
+            if not active.response_written:
+                write_response(active.spec.request_path, response)
+                active.response_written = True
+            return
         if not active.response_written:
             write_response(active.spec.request_path, response)
             active.response_written = True
             last_result = last_result_snapshot(response)
-        if keep_active:
-            active.recovery_blocked = True
-            write_status("blocked", active_snapshot(active))
-            last_status_write = time.monotonic()
-            return
         close_operation(active)
         active = None
         write_status("ready")
@@ -1051,6 +1057,12 @@ def main() -> int:
                 refresh_progress(active, now)
                 if reap_completed_active():
                     now = time.monotonic()
+                elif active is not None and active.recovery_blocked:
+                    # Client exit after a terminal response must not replace an
+                    # already-published StallRecoveryBlocked classification.
+                    if now - last_status_write >= 1.0:
+                        write_status("blocked", active_snapshot(active, now))
+                        last_status_write = now
                 elif active is not None and not request_owner_alive(active):
                     disposition, response = recover_abandoned_operation(
                         active,
@@ -1059,10 +1071,6 @@ def main() -> int:
                     )
                     make_terminal(response, keep_active=disposition == "blocked")
                     now = time.monotonic()
-                elif active is not None and active.recovery_blocked:
-                    if now - last_status_write >= 1.0:
-                        write_status("blocked", active_snapshot(active, now))
-                        last_status_write = now
                 elif active is not None and active.spec.operation in {"editmode", "playmode", "inspect"} and (
                     now - active.last_progress_monotonic >= max(args.stall_seconds, 1.0)
                 ):
