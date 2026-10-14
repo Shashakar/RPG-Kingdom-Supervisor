@@ -36,6 +36,12 @@ with TemporaryDirectory() as temp:
         try: m.checked_identity("rpgk-codex",1000)
         except PermissionError: pass
         else: raise AssertionError("controller account accepted as worker")
+    m.validate_codex_args(["--config",'model="gpt-5.6"',"--config","model_reasoning_effort=high","app-server"])
+    for bad in (["app-server"], ["--config","dangerous=true","app-server"],
+                ["--help","app-server"], ["--config",'model="ok"',"shell","app-server"]):
+        try: m.validate_codex_args(bad)
+        except ValueError: pass
+        else: raise AssertionError("unapproved Codex args accepted")
     # FDs 8/9 are the router's locks; prove test helper closes them.
     read_fd,write_fd=os.pipe()
     try:
