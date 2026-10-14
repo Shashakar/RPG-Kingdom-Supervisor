@@ -11,6 +11,8 @@ import fcntl
 import os
 from pathlib import Path
 import re
+import signal
+import time
 import subprocess
 import sys
 
@@ -24,21 +26,60 @@ def paths(state_root: Path, role: str, issue: str) -> tuple[Path, Path]:
     root=state_root.resolve(strict=True)
     return root / "locks" / ("codex-" + SLOT[role] + ".lock"), root / "locks" / "issues" / (issue + ".lock")
 
+def wait_for_child(child: subprocess.Popen, grace_seconds: float = 3.0) -> int:
+    """Forward termination to the child process group and reap it before unlocking.
+
+    The worker process group must contain all child processes. Detached
+    descendants require separate cgroup supervision in the production service.
+    """
+    previous = {}
+    termination = {"signal": None}
+
+    def forward(signum, _frame):
+        termination["signal"] = signum
+        try:
+            os.killpg(child.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        previous[sig] = signal.signal(sig, forward)
+    try:
+        deadline = None
+        while True:
+            try:
+                result = child.wait(timeout=0.1)
+                return result
+            except subprocess.TimeoutExpired:
+                pass
+            if termination["signal"] is not None:
+                if deadline is None:
+                    deadline = time.monotonic() + grace_seconds
+                elif time.monotonic() >= deadline:
+                    try:
+                        os.killpg(child.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    return child.wait()
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 def run(state_root: Path, role: str, issue: str, command: list[str]) -> int:
     if not command or any(not part for part in command):
         raise ValueError("missing command")
     slot, issue_file=paths(state_root,role,issue)
     if not slot.parent.is_dir() or not issue_file.parent.is_dir():
         raise FileNotFoundError("trusted lock directories absent")
-    # For compatibility with the existing router, lock the same files in the
-    # same order. Controller owns descriptors and child gets close_fds=True.
+    # Compatible paths and acquisition order, without FD inheritance.
     with slot.open("a+b") as slot_handle:
         fcntl.flock(slot_handle,fcntl.LOCK_EX)
         with issue_file.open("a+b") as issue_handle:
             fcntl.flock(issue_handle,fcntl.LOCK_EX)
             try:
-                child=subprocess.Popen(command, close_fds=True)
-                return child.wait()
+                child=subprocess.Popen(command, close_fds=True, start_new_session=True)
+                return wait_for_child(child)
             finally:
                 fcntl.flock(issue_handle,fcntl.LOCK_UN)
                 fcntl.flock(slot_handle,fcntl.LOCK_UN)
