@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as temp:
     server=subprocess.Popen([sys.executable,str(root/"scripts"/"unity-admission-issuer.py"),
         "--socket",str(path),"--state-root",str(state),
         "--workspace-root",str(wsroot),"--key-file",str(key)],
-        stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,\n        env={**os.environ, "RPGK_UNITY_ISSUER_TEST_MODE":"1"})
     try:
         deadline=time.monotonic()+5
         while not path.exists():
