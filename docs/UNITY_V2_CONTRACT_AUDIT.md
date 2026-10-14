@@ -157,3 +157,7 @@ This is staged feature enforcement, not the completed authorization design. No d
 **Not yet implemented:** an actual protected Unix socket listener, authorization decision joining peer identity with fresh lease/lock/grant, host-only key management and receipt issuance, durable request deduplication, or client handoff. Process ancestry alone is also subject to PID-reuse races; the final issuer needs a stable worker process identity (for example recorded Linux process start time) validated at admission. A broker that shares the same Unix UID as worker clients must not rely on socket permissions alone to separate these roles.
 
 Live host deployment remains blocked until these are tested. Current opt-in strict admission would reject ordinary clients.
+
+## Ambiguous-recovery publication-order defect (V2.0)
+
+The CI failure on commit `13b3fa17` (`unity-broker-test: broker must expose blocked ambiguous recovery`) exposed a concrete broker publication race. In `make_terminal(keep_active=True)`, the broker wrote the terminal response before writing `status.json` with `state=blocked`. The worker CLI finishes as soon as the response appears, so an immediate status read could observe stale `running` state. V2 now publishes `active.recovery_blocked`, a matching `lastResult`, and atomic blocked status **before** publishing the response. The existing broker test enforces this ordering without polling. This does not replace load/stress testing of recovery across repeated host operations, but resolves the specific observable ordering defect.
