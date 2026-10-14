@@ -89,3 +89,36 @@ Before enabling mandatory claims or installing on `unity-real-worker`, migrate `
 ## Client migration decision pending
 
 Do **not** modify the worker clients to infer a claim from files readable by arbitrary code in their own workspace and call that authentication. The claim is useful for *binding* an operation to a known run, not alone an authorization boundary. Before making claims mandatory, determine a host-issued request provenance method (e.g. request creation by trusted host shim with a verified worker lease or a protected submission endpoint with matching lifecycle) that distinguishes worker-owned operations from host preflight. Add behavioral tests to ensure a forged valid run ID from another process/workspace does not bypass admission. Preserve existing health/smoke preflight while migrating clients. Until then, the compatibility path accepts legacy unclaimed requests and the main security boundary remains workspace+editor lock+grant.
+
+## Trusted submission migration design (proposed; not yet deployed)
+
+### The trust boundary
+
+The current brokers ingest workspace-writable JSON. A worker can therefore submit any `expectedWorkerRunId` string, and another local process able to write the same workspace may submit the same string. Matching an ID against `workers/active` is a useful consistency check, **not proof of who created the request**. Adding an environment variable to the shell client or having it read the worker telemetry does not solve this.
+
+A reliable migration needs a trusted admission step, independent of model-supplied fields:
+
+1. Supervisor's host dispatch owns the active worker registration, workspace path and editor lock.
+2. A host-side admission shim/service identifies the submitting worker through an operating-system-enforced channel or host-issued short-lived per-worker capability unavailable to unrelated local processes. The authority is bound to issue, workspace, worker lifetime, operation, and protocol version. Do not put reusable credentials in Git-tracked files, logs, Unity artifacts or model prompts.
+3. Admission checks that exactly one live worker lifetime matches the registered workspace, that the shared editor lock is held, that the job's scoped authoring grant applies, and that the bound authority has not expired or been revoked. Authorization is rechecked at execution, not merely at enqueue.
+4. Independent host-origin preflight is a separate operation class, not a worker request forged by omitting the lease claim. Its trusted host caller may run `health` without lock and the existing locked smoke test before Codex is launched.
+5. Broker-owned acknowledgements and terminal receipts are keyed by a durable request ID; retries return the existing receipt or a deterministic in-progress result rather than launching the same authoring job twice.
+
+### Acceptance cases before enabling mandatory identity
+
+| Case | Expected |
+|---|---|
+| Genuine host health and pre-Codex smoke | Allowed with explicit preflight authority |
+| Active worker, correct host-bound provenance | Allowed for scoped operations |
+| Matching run ID forged in worker-writable JSON | Rejected without host-bound provenance |
+| Old or revoked run ID | Rejected |
+| Dead or ambiguous worker lease | Rejected without invoking Windows |
+| Another workspace's authority | Rejected |
+| Expired request or broker restart/retry | Never duplicate mutations |
+| Unclaimed legacy request | Accepted only under explicitly selected compatibility mode, disabled after migration |
+
+This design intentionally does not pretend that the current code already enforces these guarantees. Because deployment credentials and process ownership are host concerns, choose and prototype the actual OS-protected transport with live WSL fixture validation before altering either worker-facing client. Run both old and new protocol tests until the installed `unity-real-worker` consumer compatibility is proven.
+
+### New validation success coverage
+
+`tests/unity-v2-valid-broker-loop-test.py` exercises a correctly claimed live worker through the actual validation broker event loop and a disposable fake host runner, verifying one successful execution. This complements rejection tests but is **not** evidence that a forged matching ID is rejected or that Windows Unity ran.
