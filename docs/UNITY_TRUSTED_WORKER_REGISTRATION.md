@@ -35,3 +35,36 @@ A compromised account capable of modifying the registrar socket directory, confi
 - Verify unique active lease and downstream issuer operation/worker-lock admission.
 - Verify worker crash, server restart, PID reuse, SSH remote worker fail-closed, and revocation race.
 - Run WSL -> Windows Unity end-to-end only after review. Preserve the installed `unity-real-worker` checkout and the currently running services until acceptance.
+
+## Staged Symphony controller lifecycle module (not installed)
+
+`integrations/symphony/unity_worker_registration.ex` is an Elixir module prepared for the **separate** locally modified Symphony checkout; `scripts/unity-worker-registry-client.py` is the registration client. They are staged and not automatically loaded into the running Elixir application. The Elixir module explicitly rejects SSH-remote worker sessions and fails closed if the registration socket or client path is missing.
+
+After the three distinct Unix identities and their protected socket access have been established, a reviewed change to local `AgentRunner.run_codex_turns` can wrap the successful `AppServer.start_session` branch:
+
+```elixir
+with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+  try do
+    with {:ok, registration} <-
+           SymphonyElixir.UnityWorkerRegistration.register(
+             session, issue.identifier, workspace
+           ) do
+      try do
+        do_run_codex_turns(
+          session, workspace, issue, codex_update_recipient, opts,
+          issue_state_fetcher, 1, max_turns
+        )
+      after
+        case SymphonyElixir.UnityWorkerRegistration.revoke(registration) do
+          :ok -> :ok
+          {:error, reason} -> Logger.error("Unity worker revocation failed: #{inspect(reason)}")
+        end
+      end
+    end
+  after
+    AppServer.stop_session(session)
+  end
+end
+```
+
+**Do not copy or activate this snippet under the current same-UID service topology.** The live controller and Codex processes both run as `dex`; registrar admission will correctly reject them. This snippet is an integration illustration, not a verified patch against `rpgk/named-permissions` or its Elixir tests. Even after port-PID registration, the local Codex command must be verified not to spawn a wrapper, the worker process must have a separate UID, and the controller's crash paths require review. Failure to revoke is not permission to blindly restart a mutation: live kernel PID/start ticks remain mandatory at issuance.
