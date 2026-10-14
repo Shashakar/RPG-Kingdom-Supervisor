@@ -55,4 +55,19 @@ with TemporaryDirectory() as temp:
             os.killpg(child.pid, signal.SIGKILL)
             child.wait()
     killer.join()
+    # The registration endpoint must be invoked by the keeper's own
+    # subprocess; the kernel, not JSON, identifies that client process.
+    args=m.registrar_command("/tmp/client.py","/tmp/socket","register",
+                             issue="GH-123",workspace="/srv/rpgk/workspaces/GH-123",
+                             pid=1234,run_id="GH-123-test")
+    assert args[-8:]==["--issue","GH-123","--workspace",
+                       "/srv/rpgk/workspaces/GH-123","--pid","1234",
+                       "--run-id","GH-123-test"]
+    try:
+        m.registrar_command("/tmp/client.py","/tmp/socket","revoke",
+                            issue="GH-123",workspace="/tmp",pid=1234,run_id="GH-123-test")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("revocation without process identity accepted")
 print("codex-trusted-lock-keeper-test: PASS")
