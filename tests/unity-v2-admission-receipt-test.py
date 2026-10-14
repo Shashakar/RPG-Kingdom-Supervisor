@@ -41,9 +41,11 @@ with tempfile.TemporaryDirectory() as temporary:
                  request_id=scope["request_id"])
     # Legacy compatibility remains deliberate until trusted submission is installed.
     assert validate_submitted_receipt({}, **check)
+    assert not validate_submitted_receipt({}, require_receipt=True, **check)
     assert validate_submitted_receipt({"admissionReceipt": receipt}, **check) is False  # expired at real clock
     live_receipt = issue_receipt(secret=secret, **scope)
     assert validate_submitted_receipt({"admissionReceipt": live_receipt}, **check)
+    assert validate_submitted_receipt({"admissionReceipt": live_receipt}, require_receipt=True, **check)
     assert not validate_submitted_receipt({"admissionReceipt": live_receipt}, **{**check, "operation":"editmode"})
     assert not validate_submitted_receipt({"admissionReceipt": live_receipt}, **{**check, "key_path":None})
     bad = copy.deepcopy(live_receipt)
