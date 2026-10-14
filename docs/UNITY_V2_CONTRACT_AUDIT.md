@@ -31,3 +31,18 @@ Installed `unity-real-worker` test `tests/unity-host-ownership-test.py` calls `v
 
 ## Non-goals in this initial commit
 No running services touched, no broker modifications, no GH-264 rearm, no changes to game scene or staging assets. All architectural findings beyond the verified facts above are pending further tests.
+
+## Phase 0 characterization evidence — first executable test
+
+`tests/unity-v2-lease-baseline-test.py` is now wired into `tests/run.sh`. It imports the broker's **actual** `resolve_worker_lease` function and exercises missing, unique live, foreign workspace, dead, duplicated, malformed and invalid-PID lease records. This intentionally records how `main` behaves; it does not assert that resolution alone authorizes a request. The test uses a deterministic mocked liveness predicate and never launches Unity.
+
+### Current broker contract detail
+
+- Validation `prepare_request` accepts `protocolVersion`, operation, test/capture arguments and optional `clientPid`, checks the request is inside the issue's workspace, and requires the shared editor lock for non-health operations. It does **not** presently parse `expectedWorkerRunId` in `main`.
+- Validation broker subsequently calls `resolve_worker_lease`, which only returns a worker tuple when precisely one matching live record exists; otherwise it returns `(None, None)`. An absent worker ID is currently not a rejection by itself, supporting host preflight.
+- Authoring `validate_request` independently checks `protocolVersion`, `operation=author`, tier, scene/assets, operations, shared editor lock and stored authoring grant. No equivalence with validation broker's live worker resolution has been established.
+- The existing stall-recovery regression expects `StallRecoveryBlocked`/92 for ambiguous ownership. The same exit code `91` is used by baseline `Stalled`; PR #255 also proposes `91` for a distinct `WorkerLeaseMismatch`. V2 must make machine-consumable statuses authoritative and explicitly audit numeric exit-code collisions rather than perpetuate assumptions.
+
+### Still outstanding before a protocol decision
+
+Installed-branch `unity-host-ownership-test.py` is **not** present in PR #255 or current main, and its reported behavior must be checked against the original installed host branch before adopting a schema. The new characterization test is not live-host verification. No deployment or worker rearm is authorized by this document.
