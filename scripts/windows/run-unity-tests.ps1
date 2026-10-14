@@ -72,13 +72,14 @@ function Write-ProgressState {
     # The source temp is unique per update; a denied destination replacement can
     # reflect an antivirus/indexer/reader sharing lock, so retry briefly.
     $tempPath = "$ProgressPath.tmp.$PID.$($script:ProgressSequence)"
+    $backupPath = "$ProgressPath.bak.$PID.$($script:ProgressSequence)"
     try {
         [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
         $lastFailure = $null
         for ($attempt = 1; $attempt -le 6; $attempt++) {
             try {
                 if ([System.IO.File]::Exists($ProgressPath)) {
-                    [System.IO.File]::Replace($tempPath, $ProgressPath, $null)
+                    [System.IO.File]::Replace($tempPath, $ProgressPath, $backupPath)
                 }
                 else {
                     [System.IO.File]::Move($tempPath, $ProgressPath)
@@ -100,6 +101,9 @@ function Write-ProgressState {
     finally {
         if ([System.IO.File]::Exists($tempPath)) {
             [System.IO.File]::Delete($tempPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
         }
     }
 }
