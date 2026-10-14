@@ -57,3 +57,13 @@ jobs:
             -u RPGK_SUPERVISOR_STATE_ROOT \
             -u RPGK_ALTERNATE_SCREEN \
             bash tests/run.sh
+
+      - name: Repeat Unity broker recovery regression
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Unity broker recovery repetition $attempt"
+            bash tests/unity-broker-test.sh
+          done
