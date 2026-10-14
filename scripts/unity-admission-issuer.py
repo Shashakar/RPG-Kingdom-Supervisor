@@ -120,17 +120,14 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
                     try:
                         pid, uid, _ = unix_peer_credentials(connection)
                         raw = bytearray()
-                        while b"
-" not in raw and len(raw) < 65536:
+                        while b"\n" not in raw and len(raw) < 65536:
                             chunk = connection.recv(min(4096, 65536-len(raw)))
                             if not chunk:
                                 break
                             raw.extend(chunk)
-                        if b"
-" not in raw:
+                        if b"\n" not in raw:
                             raise ValueError("unterminated request")
-                        request = json.loads(raw.split(b"
-", 1)[0])
+                        request = json.loads(raw.split(b"\n", 1)[0])
                         if worker_uid is not None and uid != worker_uid:
                             raise PermissionError("unexpected worker Unix UID")
                         result = request_admission(request, peer_pid=pid, peer_uid=uid,
@@ -139,8 +136,7 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
                         reply = {"ok": True, "admission": result}
                     except (ValueError, PermissionError, OSError, json.JSONDecodeError) as exc:
                         reply = {"ok": False, "error": type(exc).__name__}
-                    connection.sendall(json.dumps(reply, separators=(",", ":")).encode() + b"
-")
+                    connection.sendall(json.dumps(reply, separators=(",", ":")).encode() + b"\n")
         finally:
             socket_path.unlink(missing_ok=True)
 
