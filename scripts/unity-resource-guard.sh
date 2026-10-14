@@ -17,6 +17,7 @@ UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMo
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
 SKIP_READINESS_SMOKE="${RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE:-0}"
+SMOKE_DIAGNOSIS=""
 STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
 CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
 
@@ -72,6 +73,7 @@ halt_issue() {
 Symphony halted this dispatch during the Unity preflight before launching Codex.
 
 Reason: $reason
+${SMOKE_DIAGNOSIS}
 
 No Unity result was invented and no additional Codex worker lifetime was intentionally consumed. Resolve the Unity scheduling/preflight condition, then explicitly rearm the issue when another bounded attempt is justified.
 EOF
@@ -166,10 +168,13 @@ run_readiness_smoke() {
     return 0
   fi
 
+  local smoke_started_epoch
+  smoke_started_epoch="$(date +%s)"
   set +e
   smoke_output="$(bash "$UNITY_RUNNER" editmode --project "$PWD" --filter "$UNITY_SMOKE_FILTER" 2>&1)"
   smoke_status=$?
   if (( smoke_status != 0 )); then
+    SMOKE_DIAGNOSIS="$(python3 "$ROOT/scripts/unity-preflight-diagnostic.py" --workspace "$PWD" --after-epoch "$smoke_started_epoch" --operation editmode 2>/dev/null || true)"
     smoke_reason="$(tr '\n' ' ' <<<"$smoke_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-400)"
     echo "RPG Kingdom Unity guard: Unity readiness smoke failed (exit $smoke_status): $smoke_reason" >&2
     return "$smoke_status"
