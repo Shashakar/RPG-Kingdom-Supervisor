@@ -54,8 +54,6 @@ class RequestSpec:
     capture_height: int = 1080
     workspace: Path = Path(".")
     client_pid: int | None = None
-    expected_worker_run_id: str | None = None
-    requires_worker_lease: bool = False
     worker_run_id: str | None = None
     worker_pid: int | None = None
 
@@ -240,17 +238,6 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
-        requires_worker_lease = request.get("requiresWorkerLease", False)
-        if not isinstance(requires_worker_lease, bool):
-            raise ValueError("requiresWorkerLease must be boolean")
-        expected_worker_run_id = request.get("expectedWorkerRunId")
-        if requires_worker_lease:
-            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(
-                r"GH-[0-9]+-[A-Za-z0-9_-]+", expected_worker_run_id
-            ):
-                raise ValueError("requiresWorkerLease needs a valid expectedWorkerRunId")
-        elif expected_worker_run_id is not None:
-            raise ValueError("expectedWorkerRunId requires requiresWorkerLease")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -322,8 +309,6 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
-        requires_worker_lease=requires_worker_lease,
-        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -358,7 +343,7 @@ def start_operation(
     progress_path, cancel_path = operation_paths(spec)
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     cancel_path.parent.mkdir(parents=True, exist_ok=True)
-    for path in (progress_path, cancel_path):
+    for path in (progress_path, cancel_path, *progress_path.parent.glob(progress_path.name + ".seq.*")):
         try:
             path.unlink()
         except FileNotFoundError:
@@ -464,6 +449,16 @@ def complete_finished_operation(active: ActiveOperation) -> dict[str, Any] | Non
 def close_operation(active: ActiveOperation) -> None:
     active.stdout_handle.close()
     active.stderr_handle.close()
+    # A completed request has already copied final progress into last_result.
+    # Remove immutable snapshots so long-running Supervisor hosts do not fill disk.
+    for path in active.progress_path.parent.glob(active.progress_path.name + ".seq.*"):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass  # Cleanup must not disguise the real Unity result.
+
 
 
 def terminate_process_group(process: subprocess.Popen[Any], grace_seconds: float) -> None:
@@ -492,13 +487,28 @@ def terminate_process_group(process: subprocess.Popen[Any], grace_seconds: float
 
 
 def read_progress(active: ActiveOperation) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(active.progress_path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict) or payload.get("requestId") != active.spec.request_id:
-        return None
-    return payload
+    # WSL UNC snapshots use write-once sequence paths because Windows File.Replace
+    # does not support overwriting files on this provider. Each snapshot appears
+    # only after a rename; ignore partial, stale and cross-request files.
+    candidates = sorted(
+        active.progress_path.parent.glob(active.progress_path.name + ".seq.*"),
+        reverse=True,
+    )
+    candidates.append(active.progress_path)  # Native Windows legacy publication.
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("requestId") != active.spec.request_id:
+            continue
+        try:
+            sequence = int(payload.get("sequence", -1))
+        except (TypeError, ValueError):
+            continue
+        if sequence > active.last_progress_sequence:
+            return payload
+    return None
 
 
 def refresh_progress(active: ActiveOperation, now: float | None = None) -> bool:
@@ -556,21 +566,6 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     if len(matches) != 1:
         return None, None
     return matches[0]
-
-
-def verify_worker_ownership(spec: RequestSpec, state_root: Path) -> dict[str, Any] | None:
-    """The host alone may validate a Codex request's worker PID."""
-    run_id, pid = resolve_worker_lease(state_root, spec.workspace)
-    if spec.requires_worker_lease and (pid is None or run_id != spec.expected_worker_run_id):
-        return response_for_status(
-            spec.request_id, spec.operation, "WorkerLeaseRejected", 75,
-            "RPG Kingdom Unity broker: expected live worker lease is absent, ambiguous, or mismatched",
-            details={"expectedWorkerRunId": spec.expected_worker_run_id,
-                     "resolvedWorkerRunId": run_id, "leaseVerifiedByHost": False},
-        )
-    spec.worker_run_id = run_id
-    spec.worker_pid = pid
-    return None
 
 
 def request_owner_alive(active: ActiveOperation) -> bool:
@@ -1173,10 +1168,9 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                owner_error = verify_worker_ownership(prepared, state_root)
-                if owner_error is not None:
-                    write_response(request_path, owner_error)
-                    continue
+                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                prepared.worker_run_id = worker_run_id
+                prepared.worker_pid = worker_pid
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)

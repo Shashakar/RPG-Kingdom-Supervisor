@@ -17,6 +17,7 @@ UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMo
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
 SKIP_READINESS_SMOKE="${RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE:-0}"
+SMOKE_DIAGNOSIS=""
 STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
 CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
 
@@ -72,6 +73,7 @@ halt_issue() {
 Symphony halted this dispatch during the Unity preflight before launching Codex.
 
 Reason: $reason
+${SMOKE_DIAGNOSIS}
 
 No Unity result was invented and no additional Codex worker lifetime was intentionally consumed. Resolve the Unity scheduling/preflight condition, then explicitly rearm the issue when another bounded attempt is justified.
 EOF
@@ -166,10 +168,13 @@ run_readiness_smoke() {
     return 0
   fi
 
+  local smoke_started_epoch
+  smoke_started_epoch="$(date +%s)"
   set +e
   smoke_output="$(bash "$UNITY_RUNNER" editmode --project "$PWD" --filter "$UNITY_SMOKE_FILTER" 2>&1)"
   smoke_status=$?
   if (( smoke_status != 0 )); then
+    SMOKE_DIAGNOSIS="$(python3 "$ROOT/scripts/unity-preflight-diagnostic.py" --workspace "$PWD" --after-epoch "$smoke_started_epoch" --operation editmode 2>/dev/null || true)"
     smoke_reason="$(tr '\n' ' ' <<<"$smoke_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-400)"
     echo "RPG Kingdom Unity guard: Unity readiness smoke failed (exit $smoke_status): $smoke_reason" >&2
     return "$smoke_status"
@@ -367,34 +372,10 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-# An earlier owned readiness smoke may still be finishing when a continuation
-# preflight starts. Health is read-only, but returns HostBusy while the broker
-# owns that operation. Wait only for a verifiably live, same-issue smoke;
-# never bypass failures or wait on a foreign/ambiguous request.
-health_deadline=$((SECONDS + ${RPGK_UNITY_OWNED_PREFLIGHT_WAIT_SECONDS:-600}))
-while true; do
-  set +e
-  health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
-  health_status=$?
-  set -e
-  if (( health_status != 87 )); then
-    break
-  fi
-  if ! jq -e --arg issue "$issue_identifier" --arg filter "$UNITY_SMOKE_FILTER" --arg workspace "$PWD" \
-    '.activeRequest != null and .activeRequest.issue == $issue
-     and .activeRequest.workspace == $workspace
-     and .activeRequest.operation == "editmode"
-     and .activeRequest.testFilter == $filter
-     and .activeRequest.clientAlive == true' "$BROKER_STATUS" >/dev/null 2>&1; then
-    break
-  fi
-  if (( SECONDS >= health_deadline )); then
-    echo "RPG Kingdom Unity guard: owned readiness smoke did not finish within bounded wait" >&2
-    break
-  fi
-  echo "RPG Kingdom Unity guard: waiting for active owned readiness smoke to finish before health preflight"
-  sleep 5
-done
+set +e
+health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
+health_status=$?
+set -e
 if (( health_status != 0 )); then
   health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
   halt_issue "Unity runner health check failed (exit $health_status): $health_reason"
@@ -404,20 +385,11 @@ fi
 echo "$health_output"
 
 mkdir -p "$STATE_ROOT/locks"
-# Serialize stale-lock examination/reclamation with acquisition. Directory rename
-# alone is not sufficient: a second contender can rename a *new* owner's lock
-# based on an earlier stale-owner observation (ABA race).
-exec {acquire_fd}>"$STATE_ROOT/locks/.unity-editor-acquire.flock"
-flock -x "$acquire_fd"
 LOCK_BLOCKING_OWNER="unknown"
 if ! acquire_lock; then
-  flock -u "$acquire_fd"
-  exec {acquire_fd}>&-
   halt_issue "the exclusive Unity editor resource is already locked by $LOCK_BLOCKING_OWNER"
   exit 77
 fi
-flock -u "$acquire_fd"
-exec {acquire_fd}>&-
 
 echo "RPG Kingdom Unity guard: acquired unity-editor for $issue_identifier (validation=$validation_mode)"
 

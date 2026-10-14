@@ -68,43 +68,37 @@ function Write-ProgressState {
     }
     $json = $payload | ConvertTo-Json -Compress
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    # Keep readers on either the previous complete JSON or the next complete JSON.
-    # The source temp is unique per update; a denied destination replacement can
-    # reflect an antivirus/indexer/reader sharing lock, so retry briefly.
-    $tempPath = "$ProgressPath.tmp.$PID.$($script:ProgressSequence)"
-    $backupPath = "$ProgressPath.bak.$PID.$($script:ProgressSequence)"
+    # Avoid unsupported overwrite operations on WSL UNC: publish an immutable
+    # sequence-numbered snapshot through an adjacent rename.
+    $isWslUnc = $ProgressPath -match '^\\\\(wsl.localhost|wsl\$)\\'
+    $targetPath = if ($isWslUnc) { "$ProgressPath.seq.$('{0:D10}' -f $script:ProgressSequence)" } else { $ProgressPath }
+    $tempPath = "$targetPath.tmp.$PID"
+    $backupPath = "$targetPath.bak.$PID"
     try {
         [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
         $lastFailure = $null
         for ($attempt = 1; $attempt -le 6; $attempt++) {
             try {
-                if ([System.IO.File]::Exists($ProgressPath)) {
-                    [System.IO.File]::Replace($tempPath, $ProgressPath, $backupPath)
+                if ($isWslUnc) {
+                    [System.IO.File]::Move($tempPath, $targetPath)
+                }
+                elseif ([System.IO.File]::Exists($targetPath)) {
+                    [System.IO.File]::Replace($tempPath, $targetPath, $backupPath)
                 }
                 else {
-                    [System.IO.File]::Move($tempPath, $ProgressPath)
+                    [System.IO.File]::Move($tempPath, $targetPath)
                 }
                 return
             }
-            catch [System.IO.IOException] {
-                $lastFailure = $_.Exception
-            }
-            catch [System.UnauthorizedAccessException] {
-                $lastFailure = $_.Exception
-            }
-            if ($attempt -lt 6) {
-                Start-Sleep -Milliseconds (50 * $attempt)
-            }
+            catch [System.IO.IOException] { $lastFailure = $_.Exception }
+            catch [System.UnauthorizedAccessException] { $lastFailure = $_.Exception }
+            if ($attempt -lt 6) { Start-Sleep -Milliseconds (50 * $attempt) }
         }
         throw "Progress update failed after 6 attempts (request=$RequestId; phase=$Phase; path=$ProgressPath): $($lastFailure.Message)"
     }
     finally {
-        if ([System.IO.File]::Exists($tempPath)) {
-            [System.IO.File]::Delete($tempPath)
-        }
-        if ([System.IO.File]::Exists($backupPath)) {
-            [System.IO.File]::Delete($backupPath)
-        }
+        if ([System.IO.File]::Exists($tempPath)) { [System.IO.File]::Delete($tempPath) }
+        if ([System.IO.File]::Exists($backupPath)) { [System.IO.File]::Delete($backupPath) }
     }
 }
 
