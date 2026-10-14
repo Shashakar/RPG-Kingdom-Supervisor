@@ -92,11 +92,25 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
     secret = key_path.read_bytes()
     if len(secret) < 32:
         raise ValueError("signing key too short")
-    # The worker must not be able to read the key even with the same UID.\n    # POSIX file modes cannot isolate secrets between processes sharing a UID.\n    # Refuse unsafe deployment until the issuer runs under a distinct identity.\n    if worker_uid is None and os.environ.get("RPGK_UNITY_ISSUER_TEST_MODE") != "1":\n        raise PermissionError("explicit worker UID required for deployment")\n    if worker_uid is not None and (worker_gid is None or worker_gid < 0):\n        raise PermissionError("separate worker group required for socket admission")\n    if worker_uid is not None and worker_uid == os.getuid():\n        raise PermissionError("issuer and worker must use separate Unix identities")\n    if socket_path.exists():\n        raise FileExistsError("refusing to unlink an existing socket")
+    # The worker must not be able to read the key even with the same UID.
+    # POSIX file modes cannot isolate secrets between processes sharing a UID.
+    # Refuse unsafe deployment until the issuer runs under a distinct identity.
+    if worker_uid is None and os.environ.get("RPGK_UNITY_ISSUER_TEST_MODE") != "1":
+        raise PermissionError("explicit worker UID required for deployment")
+    if worker_uid is not None and (worker_gid is None or worker_gid < 0):
+        raise PermissionError("separate worker group required for socket admission")
+    if worker_uid is not None and worker_uid == os.getuid():
+        raise PermissionError("issuer and worker must use separate Unix identities")
+    if socket_path.exists():
+        raise FileExistsError("refusing to unlink an existing socket")
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(socket_path))
-        if worker_uid is not None:\n            os.chown(socket_path, os.getuid(), worker_gid)\n            os.chmod(socket_path, 0o660)\n        else:\n            os.chmod(socket_path, 0o600)
+        if worker_uid is not None:
+            os.chown(socket_path, os.getuid(), worker_gid)
+            os.chmod(socket_path, 0o660)
+        else:
+            os.chmod(socket_path, 0o600)
         listener.listen(16)
         try:
             while True:
@@ -106,21 +120,27 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
                     try:
                         pid, uid, _ = unix_peer_credentials(connection)
                         raw = bytearray()
-                        while b"\n" not in raw and len(raw) < 65536:
+                        while b"
+" not in raw and len(raw) < 65536:
                             chunk = connection.recv(min(4096, 65536-len(raw)))
                             if not chunk:
                                 break
                             raw.extend(chunk)
-                        if b"\n" not in raw:
+                        if b"
+" not in raw:
                             raise ValueError("unterminated request")
-                        request = json.loads(raw.split(b"\n", 1)[0])
-                        if worker_uid is not None and uid != worker_uid:\n                            raise PermissionError("unexpected worker Unix UID")\n                        result = request_admission(request, peer_pid=pid, peer_uid=uid,
+                        request = json.loads(raw.split(b"
+", 1)[0])
+                        if worker_uid is not None and uid != worker_uid:
+                            raise PermissionError("unexpected worker Unix UID")
+                        result = request_admission(request, peer_pid=pid, peer_uid=uid,
                                                    state_root=state_root, workspace_root=workspace_root,
                                                    secret=secret, host_uid=uid)
                         reply = {"ok": True, "admission": result}
                     except (ValueError, PermissionError, OSError, json.JSONDecodeError) as exc:
                         reply = {"ok": False, "error": type(exc).__name__}
-                    connection.sendall(json.dumps(reply, separators=(",", ":")).encode() + b"\n")
+                    connection.sendall(json.dumps(reply, separators=(",", ":")).encode() + b"
+")
         finally:
             socket_path.unlink(missing_ok=True)
 
@@ -131,7 +151,8 @@ def main() -> None:
         parser.add_argument("--"+field, required=True)
     args = parser.parse_args()
     serve(socket_path=Path(args.socket), state_root=Path(args.state_root),
-          workspace_root=Path(args.workspace_root), key_path=Path(args.key_file),\n          worker_uid=args.worker_uid, worker_gid=args.worker_gid)
+          workspace_root=Path(args.workspace_root), key_path=Path(args.key_file),
+          worker_uid=args.worker_uid, worker_gid=args.worker_gid)
 
 
 if __name__ == "__main__":
