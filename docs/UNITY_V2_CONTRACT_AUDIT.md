@@ -122,3 +122,16 @@ This design intentionally does not pretend that the current code already enforce
 ### New validation success coverage
 
 `tests/unity-v2-valid-broker-loop-test.py` exercises a correctly claimed live worker through the actual validation broker event loop and a disposable fake host runner, verifying one successful execution. This complements rejection tests but is **not** evidence that a forged matching ID is rejected or that Windows Unity ran.
+
+## Host receipt primitive (implementation candidate)
+
+`scripts/unity_admission_receipt.py` provides HMAC-SHA256 integrity and fixed-scope, short-lived receipts over `issue`, canonical `workspace`, `workerRunId`, `operation`, `requestId`, issued time and expiry (max five minutes). The secret is a **host-owned key**, at least 32 bytes, never a workspace/git/model value. `tests/unity-v2-admission-receipt-test.py` covers tampering, cross-issue/workspace/operation/replay-to-other-request, wrong secret, expiration and malformed receipts. The primitive deliberately cannot grant health-preflight authority.
+
+**This is not active authentication.** Neither broker currently verifies these receipts, and no protected issuer/transport has been implemented. Never inject the host key into a worker environment or serialize it with jobs. Receipt signing must be called only after trusted host-side worker validation. A valid signed receipt can still be replayed for the *same* request until expiry unless terminal request IDs are durably deduplicated; issuer and broker idempotency are remaining phase gates.
+
+### Deployment sequence to avoid protocol downgrade
+1. Install trusted host issuance + restrictive file/socket permissions, without changing worker clients; prove forged matching IDs cannot mint receipts.
+2. Deploy broker verification with explicit temporary v1 compatibility mode, plus acknowledgement/receipt replay cache and authoritative status classification.
+3. Migrate validation and authoring clients to the host-issued submission path, preserving separate trusted preflight operations.
+4. Audit and disable legacy unsigned worker writes only after end-to-end host verification; ensure restart/rollback is reversible.
+5. Reconcile the installed `unity-real-worker` code before restarting Supervisor. A green CI run on remote `main` does not substitute for this.
