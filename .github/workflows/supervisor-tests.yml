@@ -71,7 +71,7 @@ jobs:
               -u SYMPHONY_GITHUB_TOKEN \
               -u GITHUB_TOKEN \
               -u GH_TOKEN \
-              -u OPENAI_API_KEY \\
+              -u OPENAI_API_KEY \
               -u CODEX_HOME \
               -u RPGK_SUPERVISOR_STATE_ROOT \
               bash tests/unity-broker-test.sh
