@@ -52,4 +52,20 @@ with TemporaryDirectory() as temp:
         else: raise AssertionError("inherited FD survived")
     finally:
         os.close(read_fd)
+
+    rfd,wfd=os.pipe()
+    try:
+        os.write(wfd,b"G")
+        m.wait_for_admission(rfd,timeout=0.1)
+    finally:
+        os.close(rfd)
+        os.close(wfd)
+    rfd,wfd=os.pipe()
+    try:
+        os.close(wfd)
+        try: m.wait_for_admission(rfd,timeout=0.1)
+        except PermissionError: pass
+        else: raise AssertionError("EOF released gate")
+    finally:
+        os.close(rfd)
 print("unity-isolated-codex-launch-test: PASS")
