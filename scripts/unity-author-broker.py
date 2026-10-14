@@ -230,6 +230,7 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
     worker_run_id, _, _ = verify_claim(claim, state_root, workspace, worker_alive)
     if not validate_submitted_receipt(
         payload, key_path=os.environ.get("RPGK_UNITY_ADMISSION_KEY_FILE"),
+        require_receipt=os.environ.get("RPGK_UNITY_ADMISSION_STRICT") == "1",
         issue=workspace.name, workspace=str(workspace), worker_run_id=worker_run_id,
         operation="author", request_id=request_id,
     ):
