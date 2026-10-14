@@ -365,8 +365,11 @@ ambiguous_status=$?
 set -e
 [[ "$ambiguous_status" -eq 92 ]] || { echo "unity-broker-test: ambiguous stall should exit 92, got $ambiguous_status" >&2; exit 1; }
 grep -Fq 'StallRecoveryBlocked' <<<"$ambiguous_output" || { echo "unity-broker-test: ambiguous stall must report blocked recovery" >&2; exit 1; }
-jq -e '.state == "blocked" and .activeRequest.recoveryBlocked == true and .activeRequest.testFilter == "stall-ambiguous"' "$STATE/unity-broker/status.json" >/dev/null || {
-  echo "unity-broker-test: broker must expose blocked ambiguous recovery" >&2
+# Response publication is the synchronization boundary: a terminal response
+# must never become visible before the matching durable blocked state.
+jq -e '.state == "blocked" and .activeRequest.recoveryBlocked == true and .activeRequest.testFilter == "stall-ambiguous" and .lastResult.status == "StallRecoveryBlocked"' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: terminal response was visible before durable blocked status" >&2
+  cat "$STATE/unity-broker/status.json" >&2
   exit 1
 }
 ambiguous_pid="$(jq -r '.activeRequest.childPid' "$STATE/unity-broker/status.json")"
