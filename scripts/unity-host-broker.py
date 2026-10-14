@@ -25,6 +25,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, resolve_unique_live_lease, REJECT_STATUS, REJECT_EXIT
 from unity_admission_receipt import validate_submitted_receipt
+from unity_execution_journal import reserve_execution
+import sqlite3
 
 PROTOCOL_VERSION = 1
 ALLOWED_OPERATIONS = {"health", "editmode", "playmode", "capture", "inspect"}
@@ -1167,6 +1169,23 @@ def main() -> int:
                         "RPG Kingdom Unity broker: invalid or unavailable host admission receipt",
                     ))
                     continue
+                if prepared.operation != "health":
+                    try:
+                        fresh_request = reserve_execution(
+                            state_root, prepared.workspace, prepared.operation, prepared.request_id
+                        )
+                    except (OSError, ValueError, sqlite3.Error) as exc:
+                        write_response(request_path, response_for_status(
+                            prepared.request_id, prepared.operation, "ExecutionJournalUnavailable", 70,
+                            f"RPG Kingdom Unity broker: durable execution admission failed: {type(exc).__name__}",
+                        ))
+                        continue
+                    if not fresh_request:
+                        write_response(request_path, response_for_status(
+                            prepared.request_id, prepared.operation, "DuplicateRequest", 93,
+                            "RPG Kingdom Unity broker: request ID already admitted; replay cannot launch Unity",
+                        ))
+                        continue
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
