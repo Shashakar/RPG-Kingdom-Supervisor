@@ -45,7 +45,7 @@ def main() -> int:
     revoke.add_argument("--process-start-ticks",required=True)
     args=parser.parse_args()
     if args.action=="register":
-        request={"action":"register","issue":args.issue,"workspace":args.workspace,
+        request={"action":"registerChild","issue":args.issue,"workspace":args.workspace,
                  "pid":args.pid,"runId":args.run_id}
     else:
         request={"action":"revoke","pid":args.pid,"runId":args.run_id,
