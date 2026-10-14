@@ -70,3 +70,26 @@ def verify_receipt(receipt: object, *, secret: bytes, issue: str, workspace: str
         return False
     expected = hmac.new(secret, canonical_payload(payload), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, mac)
+
+
+def validate_submitted_receipt(request: dict[str, Any], *, key_path: str | None,
+                               issue: str, workspace: str, worker_run_id: str | None,
+                               operation: str, request_id: str) -> bool:
+    """Optional legacy-compatible check; a supplied receipt always requires verification.
+
+    Key material lives outside worker-visible request trees. Mandatory receipts
+    must be enabled only after installing a trusted issuer and migrating clients.
+    """
+    receipt = request.get("admissionReceipt")
+    if receipt is None:
+        return True
+    if not key_path or not worker_run_id:
+        return False
+    from pathlib import Path
+    try:
+        secret = Path(key_path).read_bytes()
+    except OSError:
+        return False
+    return verify_receipt(receipt, secret=secret, issue=issue, workspace=workspace,
+                          worker_run_id=worker_run_id, operation=operation,
+                          request_id=request_id)
