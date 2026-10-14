@@ -66,4 +66,21 @@ with tempfile.TemporaryDirectory() as tmp:
     (state/"authoring").mkdir()
     (state/"authoring"/"GH-321.json").write_text("{}")
     assert issuer.request_admission({**request,"operation":"author"},**kwargs)
+    # A worker-group writable socket directory enables socket replacement.
+    # Even with a protected key file, refuse such deployments.
+    key=base/"issuer.key"
+    key.write_bytes(secret)
+    key.chmod(0o600)
+    unsafe=base/"unsafe-socket-dir"
+    unsafe.mkdir(mode=0o770)
+    unsafe.chmod(0o770)
+    try:
+        issuer.serve(socket_path=unsafe/"admission.sock",state_root=state,
+                     workspace_root=wsroot,key_path=key,
+                     worker_uid=os.getuid()+1000,worker_gid=os.getgid())
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("issuer accepted worker-writable socket directory")
+    assert not (unsafe/"admission.sock").exists()
 print("unity-v2-admission-issuer-test: PASS")
