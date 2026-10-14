@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sqlite3
 
-_REQUEST_ID = re.compile(r"^GH-[0-9]+-[A-Za-z0-9_-]{1,200}$")
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{1,220}$")
 _ISSUE = re.compile(r"^GH-[0-9]+$")
 _OPERATIONS = frozenset({"editmode", "playmode", "capture", "inspect", "author"})
 
@@ -26,8 +26,10 @@ def reserve_execution(state_root: Path, workspace: Path, operation: str, request
         raise ValueError("invalid workspace for durable Unity reservation")
     if operation not in _OPERATIONS or not _REQUEST_ID.fullmatch(request_id):
         raise ValueError("invalid operation or request ID")
-    if not request_id.startswith(workspace.name + "-"):
-        raise ValueError("request ID does not match workspace")
+    if request_id.startswith("GH-"):
+        issue_prefix = re.match(r"^(GH-[0-9]+)-", request_id)
+        if issue_prefix is None or issue_prefix.group(1) != workspace.name:
+            raise ValueError("request ID names a different issue")
     db = state_root / "unity-execution-journal.sqlite3"
     with sqlite3.connect(db, timeout=5, isolation_level=None) as conn:
         conn.execute("PRAGMA busy_timeout=5000")
