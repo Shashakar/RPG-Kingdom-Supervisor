@@ -19,6 +19,8 @@ from gameplay_scene_transaction_policy import AuthorizationError, validate as va
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, REJECT_STATUS, REJECT_EXIT
 from unity_admission_receipt import validate_submitted_receipt
+from unity_execution_journal import reserve_execution
+import sqlite3
 
 PROTOCOL_VERSION = 1
 SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "opening-encounter-composition"})
@@ -341,6 +343,22 @@ def main() -> int:
                 continue
             assert workspace is not None and payload is not None
             request_id = request_path.stem
+            try:
+                fresh_request = reserve_execution(state_root, workspace, "author", request_id)
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                last_result = response(
+                    request_id, "ExecutionJournalUnavailable", 70,
+                    stderr=f"RPG Kingdom Unity authoring broker: durable admission failed: {type(exc).__name__}\\n",
+                )
+                write_response(request_path, last_result)
+                continue
+            if not fresh_request:
+                last_result = response(
+                    request_id, "DuplicateRequest", 93,
+                    stderr="RPG Kingdom Unity authoring broker: request ID already admitted; replay cannot launch Unity\\n",
+                )
+                write_response(request_path, last_result)
+                continue
             ack_path, _ = request_paths(request_path)
             atomic_json(ack_path, {"protocolVersion": 1, "requestId": request_id, "pid": os.getpid(), "acceptedAt": utc_now()})
             authoring = payload["authoring"]
