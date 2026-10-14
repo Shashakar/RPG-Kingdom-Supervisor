@@ -10,11 +10,13 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Any
 
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, REJECT_STATUS, REJECT_EXIT
 
 PROTOCOL_VERSION = 1
