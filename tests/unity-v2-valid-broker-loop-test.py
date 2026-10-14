@@ -57,6 +57,22 @@ with tempfile.TemporaryDirectory() as tmp:
         assert result["status"] not in ("WorkerLeaseRejected","HostBusy"),result
         assert result["exitCode"]==0,result
         assert marker.read_text().splitlines()==["called"],"expected exactly one host invocation"
+        # The worker can delete its response, but that must not remove the
+        # host-owned reservation or relaunch the same operation.
+        response.unlink()
+        request.write_text(json.dumps({
+            "protocolVersion":1,"requestId":request.stem,"operation":"editmode",
+            "requiresWorkerLease":True,"expectedWorkerRunId":run_id,"clientPid":os.getpid()
+        }))
+        deadline=time.monotonic()+10
+        while not response.exists():
+            assert broker.poll() is None,"broker exited during replay"
+            assert time.monotonic()<deadline,"replay timeout"
+            time.sleep(.025)
+        replay=json.loads(response.read_text())
+        assert (replay["status"],replay["exitCode"])==("DuplicateRequest",93),replay
+        assert marker.read_text().splitlines()==["called"],"replay invoked host"
+
     finally:
         broker.terminate()
         try: broker.communicate(timeout=5)
