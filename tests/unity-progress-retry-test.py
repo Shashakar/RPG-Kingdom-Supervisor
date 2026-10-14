@@ -2,8 +2,10 @@
 """Static safety assertions; Windows integration exercised by optional PS test."""
 from pathlib import Path
 script = (Path(__file__).resolve().parents[1] / "scripts/windows/run-unity-tests.ps1").read_text()
-assert '[System.IO.File]::Replace($tempPath, $ProgressPath, $null)' in script
+assert '[System.IO.File]::Replace($tempPath, $ProgressPath, $backupPath)' in script
 assert '[System.IO.File]::Move($tempPath, $ProgressPath)' in script
+assert '$backupPath = ' in script
+assert '[System.IO.File]::Delete($backupPath)' in script
 assert '$attempt -le 6' in script
 assert 'catch [System.IO.IOException]' in script
 assert 'catch [System.UnauthorizedAccessException]' in script
