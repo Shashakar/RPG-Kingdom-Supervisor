@@ -144,7 +144,10 @@ def start_gated_session(command: list[str], *, client_script: str,
     """Staging-only worker launch; command must come from trusted controller."""
     read_fd, write_fd = os.pipe()
     try:
-        child = subprocess.Popen([*command, "--gate-fd", str(read_fd)],
+        if command.count("{RPGK_GATE_FD}") != 1:
+            raise ValueError("trusted launch must contain one gate descriptor placeholder")
+        gated = [str(read_fd) if part == "{RPGK_GATE_FD}" else part for part in command]
+        child = subprocess.Popen(gated,
                                  pass_fds=(read_fd,), start_new_session=True)
     except BaseException:
         os.close(write_fd)
