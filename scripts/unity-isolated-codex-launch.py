@@ -53,7 +53,7 @@ def validate_codex_args(args: list[str]) -> None:
             i += 2
             continue
         raise ValueError("unapproved Codex option")
-    if any("\\x00" in x or "\\n" in x for x in args):
+    if any(chr(0) in x or chr(10) in x for x in args):
         raise ValueError("unsafe argument")
 
 
@@ -90,10 +90,7 @@ def main() -> None:
     if (not binary.is_absolute() or not stat.S_ISREG(st.st_mode)
         or st.st_uid != 0 or st.st_mode & 0o022):
         raise PermissionError("Codex binary must be trusted-owned and non-group-writable")
-    if len(args.codex_args)>MAX_ARGS or not args.codex_args or args.codex_args[-1]!="app-server":
-        raise ValueError("only Codex app-server arguments are permitted")
-    if any("\x00" in x or "\n" in x for x in args.codex_args):
-        raise ValueError("unsafe argument")
+    validate_codex_args(args.codex_args)
     environment=safe_env(home,"/usr/local/bin:/usr/bin:/bin",os.environ)
     close_inherited_fds()
     os.initgroups(PINNED_WORKER,worker_gid)
