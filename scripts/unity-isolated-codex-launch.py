@@ -51,22 +51,21 @@ def main() -> None:
     parser.add_argument("--workspace",required=True)
     parser.add_argument("--workspace-root",required=True)
     parser.add_argument("--worker-user",default="rpgk-codex")
-    parser.add_argument("--codex-binary",required=True)
     parser.add_argument("codex_args",nargs=argparse.REMAINDER)
     args=parser.parse_args()
     if os.geteuid()!=0:
         raise PermissionError("launcher must be invoked by trusted privileged service")
-    controller_uid=int(os.environ.get("RPGK_TRUSTED_CONTROLLER_UID","-1"))
+    controller_uid=pwd.getpwnam("dex").pw_uid
     if controller_uid <= 0 or os.getuid()!=0:
         raise PermissionError("privileged launcher requires root invocation and pinned controller UID")
     if args.worker_user != "rpgk-codex":
         raise PermissionError("worker identity is fixed")
     worker_uid,worker_gid,home=checked_identity(args.worker_user,controller_uid)
     cwd=validate_workspace(args.workspace,args.workspace_root)
-    binary=Path(args.codex_binary)
+    binary=Path("/usr/local/libexec/rpgk/codex-worker")
     st=binary.stat()
     if (not binary.is_absolute() or not stat.S_ISREG(st.st_mode)
-        or st.st_uid not in (0,controller_uid) or st.st_mode & 0o022):
+        or st.st_uid != 0 or st.st_mode & 0o022):
         raise PermissionError("Codex binary must be trusted-owned and non-group-writable")
     if len(args.codex_args)>MAX_ARGS or not args.codex_args or args.codex_args[-1]!="app-server":
         raise ValueError("only Codex app-server arguments are permitted")
