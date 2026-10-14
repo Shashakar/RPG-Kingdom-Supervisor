@@ -73,6 +73,7 @@ def verify_receipt(receipt: object, *, secret: bytes, issue: str, workspace: str
 
 
 def validate_submitted_receipt(request: dict[str, Any], *, key_path: str | None,
+                               require_receipt: bool = False,
                                issue: str, workspace: str, worker_run_id: str | None,
                                operation: str, request_id: str) -> bool:
     """Optional legacy-compatible check; a supplied receipt always requires verification.
@@ -82,7 +83,7 @@ def validate_submitted_receipt(request: dict[str, Any], *, key_path: str | None,
     """
     receipt = request.get("admissionReceipt")
     if receipt is None:
-        return True
+        return not require_receipt
     if not key_path or not worker_run_id:
         return False
     from pathlib import Path
