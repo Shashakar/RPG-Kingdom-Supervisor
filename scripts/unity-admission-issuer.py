@@ -145,6 +145,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     for field in ("socket", "state-root", "workspace-root", "key-file"):
         parser.add_argument("--"+field, required=True)
+    parser.add_argument('--worker-uid', type=int)
+    parser.add_argument('--worker-gid', type=int)
     args = parser.parse_args()
     serve(socket_path=Path(args.socket), state_root=Path(args.state_root),
           workspace_root=Path(args.workspace_root), key_path=Path(args.key_file),
