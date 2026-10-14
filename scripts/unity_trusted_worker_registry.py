@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import re
 import stat
-import uuid
 
 ISSUE = re.compile(r"^GH-[0-9]+$")
 RUN_ID = re.compile(r"^GH-[0-9]+-[A-Za-z0-9_-]{1,160}$")
@@ -20,14 +19,20 @@ RUN_ID = re.compile(r"^GH-[0-9]+-[A-Za-z0-9_-]{1,160}$")
 def start_ticks(pid: int, proc: Path = Path("/proc")) -> str:
     if not isinstance(pid, int) or pid <= 1:
         raise ValueError("invalid process PID")
-    text = (proc / str(pid) / "stat").read_text()
-    return text.rsplit(") ", 1)[1].split()[19]
+    raw = (proc / str(pid) / "stat").read_text()
+    fields = raw.rsplit(") ", 1)[1].split()
+    if len(fields) <= 19 or not fields[19].isdigit():
+        raise ValueError("invalid process start ticks")
+    return fields[19]
 
 
 def process_uid(pid: int, proc: Path = Path("/proc")) -> int:
     for line in (proc / str(pid) / "status").read_text().splitlines():
         if line.startswith("Uid:"):
-            return int(line.split()[1])
+            uids = [int(item) for item in line.split()[1:5]]
+            if len(uids) != 4 or len(set(uids)) != 1:
+                raise PermissionError("worker real/effective/saved/filesystem UIDs differ")
+            return uids[0]
     raise ValueError("missing process real UID")
 
 
