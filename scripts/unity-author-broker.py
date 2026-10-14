@@ -18,6 +18,7 @@ from typing import Any
 from gameplay_scene_transaction_policy import AuthorizationError, validate as validate_gameplay_grant
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, REJECT_STATUS, REJECT_EXIT
+from unity_admission_receipt import validate_submitted_receipt
 
 PROTOCOL_VERSION = 1
 SUPPORTED_TIERS = frozenset({"mechanical", "mechanical-structural", "existing-scene-composition", "new-scene-composition", "prefab-derivative", "opening-encounter-composition"})
@@ -225,6 +226,16 @@ def validate_request(request_path: Path, workspace_root: Path, state_root: Path)
         return None, None, response(
             request_id, REJECT_STATUS, REJECT_EXIT,
             stderr="RPG Kingdom Unity authoring broker: claimed worker is not the unique live host worker lease\\n",
+        )
+    worker_run_id, _, _ = verify_claim(claim, state_root, workspace, worker_alive)
+    if not validate_submitted_receipt(
+        payload, key_path=os.environ.get("RPGK_UNITY_ADMISSION_KEY_FILE"),
+        issue=workspace.name, workspace=str(workspace), worker_run_id=worker_run_id,
+        operation="author", request_id=request_id,
+    ):
+        return None, None, response(
+            request_id, REJECT_STATUS, REJECT_EXIT,
+            stderr="RPG Kingdom Unity authoring broker: invalid or unavailable host admission receipt\n",
         )
     error = validate_shared_lock(state_root, workspace)
     if error:
