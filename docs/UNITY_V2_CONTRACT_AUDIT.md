@@ -141,3 +141,11 @@ This design intentionally does not pretend that the current code already enforce
 Both brokers now call `validate_submitted_receipt` before host execution. When a request includes `admissionReceipt`, it must validate against a host-only key file selected by `RPGK_UNITY_ADMISSION_KEY_FILE`, the live worker lease, issue, workspace, operation and request identity. Invalid/missing key or invalid submitted receipt returns `WorkerLeaseRejected`/75. An unsigned legacy request **remains permitted** while clients and protected issuer are unimplemented. These changes are code on the draft branch only.
 
 This is a compatibility-stage feature, **not an authorization barrier** against forgery because a requester can omit `admissionReceipt`; do not claim it blocks an attacker from launching a legacy authorized operation. Before deployment, require signed receipts for the worker path using a separate configured policy gate, preserve an explicit trusted preflight path, and implement host-issued credentials/replay receipts. The key file must be host-managed and never writable or readable by worker processes. No key was generated, written to the repository, or installed on the live host.
+
+## Strict receipt enforcement — opt-in compatibility gate
+
+`RPGK_UNITY_ADMISSION_STRICT=1` now causes non-health validation jobs and all authoring jobs to reject unsigned requests (`WorkerLeaseRejected`/75). Correctly signed requests remain eligible. Health requests remain available without a receipt for existing preflight. With the variable unset, legacy unsigned operation requests still work. The signing secret is supplied via host-only `RPGK_UNITY_ADMISSION_KEY_FILE`, and a missing secret cannot validate a signed receipt.
+
+**Do not enable strict mode on the installed server yet.** A trusted host issuer and updated clients are still absent; enabling it now would reject normal authoring/test operations. Additionally, `health` is an unsigned compatibility exception, **not an independently authenticated host-preflight endpoint**; the worker-trust split and operator-only transport remain pending. The existing author-broker grant and lock requirements remain active.
+
+This is staged feature enforcement, not the completed authorization design. No deployment or change to the running host is part of this PR.
