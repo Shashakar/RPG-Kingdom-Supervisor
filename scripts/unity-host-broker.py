@@ -22,6 +22,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_worker_lease import parse_claim, verify_claim, resolve_unique_live_lease, REJECT_STATUS, REJECT_EXIT
 
 PROTOCOL_VERSION = 1
