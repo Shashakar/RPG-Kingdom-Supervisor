@@ -103,3 +103,7 @@ The current process group cleanup test is necessary but insufficient proof of a 
 The new registrar `registerChild` action obtains the controller-client PID from Linux `SO_PEERCRED`, checks that the requested Codex worker PID is its sibling under a live controller-UID keeper, and revalidates worker UID and immutable kernel process identity before writing the protected lease. The staged Python client now uses `registerChild`.
 
 **Not yet a deployable protocol:** an older `register` action still exists for compatibility with the foundation tests; production must remove/disable it, or the stricter action can be bypassed. The trusted controller/keeper must actually spawn the registrar client as a sibling of the isolated Codex worker; this has not been wired into the local Symphony checkout. The child must also demonstrably be Codex itself after the UID transition rather than a wrapper. Tests must cover client exit races, missing keeper, PID reuse, mismatched workspace, and revocation on all exit paths. No local WSL acceptance has been run.
+
+## Registration handoff status
+
+The old registrar `register` operation is no longer accepted. A sibling-identity-checked `registerChild` operation remains. The lock keeper contains an experimental `registered_worker_session` helper, but its normal `run` path does not call it. Registration currently occurs after a child can start, so the sequence must not be enabled until a trusted startup gate and process supervision are added. Host services remain unchanged.
