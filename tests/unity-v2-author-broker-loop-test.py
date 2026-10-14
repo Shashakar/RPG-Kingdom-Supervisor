@@ -58,6 +58,25 @@ with tempfile.TemporaryDirectory() as tmp:
         valid=issue("valid",expectedWorkerRunId=live_id,requiresWorkerLease=True)
         assert (valid["status"],valid["exitCode"])==("completed",0),valid
         assert marker.read_text().splitlines()==["called"],"expected one host invocation"
+        # A discarded response must not allow the same non-idempotent author job
+        # to launch again. The host-owned journal survives request re-enqueue.
+        replay_path=reqdir/"GH-321-valid.json"
+        replay_response=respdir/replay_path.name
+        replay_response.unlink()
+        replay_path.write_text(json.dumps({
+            "protocolVersion":1,"requestId":replay_path.stem,"operation":"author",
+            "expectedWorkerRunId":live_id,"requiresWorkerLease":True,
+            "authoring":{"protocolVersion":1,"tier":"existing-scene-composition",
+                         "scene":scene,"operations":[{"kind":"noop"}]}
+        }))
+        deadline=time.monotonic()+10
+        while not replay_response.exists():
+            assert broker.poll() is None,"author broker exited on replay"
+            assert time.monotonic()<deadline,"replay response timeout"
+            time.sleep(.025)
+        replay=json.loads(replay_response.read_text())
+        assert (replay["status"],replay["exitCode"])==("DuplicateRequest",93),replay
+        assert marker.read_text().splitlines()==["called"],"replay invoked Unity author host"
         malformed=issue("malformed",expectedWorkerRunId=live_id,requiresWorkerLease=False)
         assert malformed["exitCode"]==64,malformed
         assert marker.read_text().splitlines()==["called"],"invalid request started host"
