@@ -92,8 +92,7 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path, key_path
     secret = key_path.read_bytes()
     if len(secret) < 32:
         raise ValueError("signing key too short")
-    if socket_path.exists():
-        raise FileExistsError("refusing to unlink an existing socket")
+    # The worker must not be able to read the key even with the same UID.\n    # POSIX file modes cannot isolate secrets between processes sharing a UID.\n    # Refuse unsafe deployment until the issuer runs under a distinct identity.\n    if os.geteuid() == os.getuid() and os.environ.get("RPGK_UNITY_ADMISSION_ALLOW_SAME_UID_TEST") != "1":\n        raise PermissionError("issuer requires deployment identity separation; same-UID mode is tests only")\n    if socket_path.exists():\n        raise FileExistsError("refusing to unlink an existing socket")
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(socket_path))
