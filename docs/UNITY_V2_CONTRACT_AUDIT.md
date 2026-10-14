@@ -67,3 +67,11 @@ Do not implement target policy until caller/host comparison establishes the exac
 
 ### Phase gate still open
 The request parser is now behavior-tested, but *actual broker event-loop authorization* and both authoring/validation broker integration remain to be proven. PR #261 must remain draft, not deployed or merged merely for passing CI.
+
+## Shared lease implementation and test boundary
+
+Both brokers now import `scripts/unity_worker_lease.py`. Under protocol v1, a supplied `expectedWorkerRunId` is verified against the unique live host worker; malformed or internally contradictory `requiresWorkerLease` claims fail schema validation. The shared response chosen for a mismatched claim is `WorkerLeaseRejected`/75; this remains a migration candidate until installed caller compatibility is confirmed. Legacy unclaimed requests still work, so the client-authentication/worker-preflight distinction is **not complete**.
+
+`tests/unity-v2-broker-admission-test.py` exercises validation `prepare_request`, the shared admission predicate and authoring `validate_request` against isolated fixture leases/locks. It confirms mismatched authoring claims are rejected, correct claims reach subsequent authorization, and contradictory claims fail parsing. The validation broker's **outer event loop** and an actual Unity subprocess are not yet exercised by this new test; do not describe it as a full end-to-end integration test.
+
+Before enabling mandatory claims or installing on `unity-real-worker`, migrate `unity-runner.sh` and `unity-author.sh` to attach host-issued unique worker identity only for worker-owned operations, preserve genuine health/smoke preflight, test replays/duplicate claims and compare host error handling. Running host state remains unchanged.
