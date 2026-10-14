@@ -71,13 +71,13 @@ with tempfile.TemporaryDirectory() as temp:
     fake_proc=base/"proc"
     fake_status=fake_proc/"1234"
     fake_status.mkdir(parents=True)
-    (fake_status/"status").write_text("Name:\\tworker\\nUid:\\t1001\\t0\\t1001\\t1001\\n")
+    (fake_status/"status").write_text("Name:\tworker\nUid:\t1001\t0\t1001\t1001\n")
     try:
         registry.process_uid(1234,proc=fake_proc)
     except PermissionError:
         pass
     else:
         raise AssertionError("mixed worker UIDs accepted")
-    (fake_status/"status").write_text("Uid:\\t1001\\t1001\\t1001\\t1001\\n")
+    (fake_status/"status").write_text("Uid:\t1001\t1001\t1001\t1001\n")
     assert registry.process_uid(1234,proc=fake_proc)==1001
 print("unity-trusted-worker-registry-test: PASS")
