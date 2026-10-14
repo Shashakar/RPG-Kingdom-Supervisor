@@ -149,3 +149,11 @@ This is a compatibility-stage feature, **not an authorization barrier** against 
 **Do not enable strict mode on the installed server yet.** A trusted host issuer and updated clients are still absent; enabling it now would reject normal authoring/test operations. Additionally, `health` is an unsigned compatibility exception, **not an independently authenticated host-preflight endpoint**; the worker-trust split and operator-only transport remain pending. The existing author-broker grant and lock requirements remain active.
 
 This is staged feature enforcement, not the completed authorization design. No deployment or change to the running host is part of this PR.
+
+## Trusted issuer transport groundwork
+
+`scripts/unity_peer_identity.py` now implements Linux kernel `SO_PEERCRED` extraction for Unix-domain connections, UID comparison, and bounded parent-process ancestry checks against the registered Supervisor worker process. `tests/unity-v2-peer-identity-test.py` covers cycles, missing/dead PIDs, UID mismatch, fake procfs, and actual local socket kernel credentials. This avoids treating worker-supplied JSON `peerPid` or `runId` as proof of identity.
+
+**Not yet implemented:** an actual protected Unix socket listener, authorization decision joining peer identity with fresh lease/lock/grant, host-only key management and receipt issuance, durable request deduplication, or client handoff. Process ancestry alone is also subject to PID-reuse races; the final issuer needs a stable worker process identity (for example recorded Linux process start time) validated at admission. A broker that shares the same Unix UID as worker clients must not rely on socket permissions alone to separate these roles.
+
+Live host deployment remains blocked until these are tested. Current opt-in strict admission would reject ordinary clients.
