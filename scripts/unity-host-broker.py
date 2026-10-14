@@ -55,6 +55,7 @@ class RequestSpec:
     workspace: Path = Path(".")
     client_pid: int | None = None
     worker_run_id: str | None = None
+    expected_worker_run_id: str | None = None
     worker_pid: int | None = None
 
 
@@ -238,6 +239,10 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        expected_worker_run_id = request.get("expectedWorkerRunId")
+        if expected_worker_run_id is not None:
+            if not isinstance(expected_worker_run_id, str) or not re.fullmatch(r"GH-\\d+-[A-Za-z0-9_-]{1,160}", expected_worker_run_id):
+                raise ValueError("expectedWorkerRunId must be a valid GH worker lifetime identifier")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -309,6 +314,7 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        expected_worker_run_id=expected_worker_run_id,
     )
 
 
@@ -1169,6 +1175,20 @@ def main() -> int:
                     continue
 
                 worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
+                if prepared.expected_worker_run_id is not None and (
+                    worker_run_id != prepared.expected_worker_run_id or worker_pid is None
+                ):
+                    rejected = response_for_status(
+                        prepared.request_id,
+                        prepared.operation,
+                        "WorkerLeaseMismatch",
+                        91,
+                        "RPG Kingdom Unity broker: expectedWorkerRunId is not the unique live host worker lease",
+                        details={"expectedWorkerRunId": prepared.expected_worker_run_id,
+                                 "actualWorkerRunId": worker_run_id},
+                    )
+                    write_response(request_path, rejected)
+                    continue
                 prepared.worker_run_id = worker_run_id
                 prepared.worker_pid = worker_pid
 
