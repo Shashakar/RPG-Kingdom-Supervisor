@@ -7,6 +7,7 @@ For use only by trusted controller code; NOT an escalation endpoint.
 """
 from __future__ import annotations
 import argparse
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -64,6 +65,70 @@ def wait_for_child(child: subprocess.Popen, grace_seconds: float = 3.0) -> int:
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+
+
+def registrar_command(client_script: str, socket_path: str, action: str,
+                      *, issue: str, workspace: str, pid: int,
+                      run_id: str, start_ticks: str | None = None) -> list[str]:
+    args = [sys.executable, client_script, "--socket", socket_path, action]
+    if action == "register":
+        args += ["--issue", issue, "--workspace", workspace,
+                 "--pid", str(pid), "--run-id", run_id]
+    elif action == "revoke" and start_ticks is not None:
+        args += ["--pid", str(pid), "--run-id", run_id,
+                 "--process-start-ticks", start_ticks]
+    else:
+        raise ValueError("unsupported registration operation")
+    return args
+
+
+def registered_worker_session(child: subprocess.Popen, *, client_script: str,
+                              socket_path: str, issue: str,
+                              workspace: str, run_id: str) -> int:
+    """Prototype only: register a sibling child and revoke on every exit path.
+
+    This MUST be paired with a start gate before production, because Popen
+    starts the worker before the registrar acknowledges the lease.
+    """
+    registration = None
+    try:
+        command = registrar_command(client_script, socket_path, "register",
+                                    issue=issue, workspace=workspace,
+                                    pid=child.pid, run_id=run_id)
+        result = subprocess.run(command, capture_output=True, text=True,
+                                check=True, timeout=5, close_fds=True)
+        response = json.loads(result.stdout)
+        record = response.get("registration") or {}
+        if response.get("ok") is not True or record.get("pid") != child.pid or record.get("runId") != run_id:
+            raise PermissionError("registration identity not confirmed")
+        ticks = record.get("processStartTicks")
+        if not isinstance(ticks, str) or not ticks.isdigit():
+            raise PermissionError("missing immutable start time")
+        registration = ticks
+        return wait_for_child(child)
+    finally:
+        if registration is None:
+            if child.poll() is None:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait()
+        else:
+            if child.poll() is None:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait()
+            command = registrar_command(client_script, socket_path, "revoke",
+                                        issue=issue, workspace=workspace,
+                                        pid=child.pid, run_id=run_id,
+                                        start_ticks=registration)
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=5, close_fds=True)
+            if result.returncode != 0:
+                raise PermissionError("worker lease revocation failed")
 
 
 def run(state_root: Path, role: str, issue: str, command: list[str]) -> int:
