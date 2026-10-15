@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 root=Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / "scripts"))
 spec=importlib.util.spec_from_file_location("keeper",root/"scripts"/"codex-trusted-lock-keeper.py")
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
