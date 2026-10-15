@@ -180,6 +180,23 @@ run_readiness_smoke() {
 }
 
 acquire_lock() {
+  local transaction_fd result
+  # Keep this file outside the replaceable lock directory. Serialize inspection,
+  # stale recovery and acquisition so a contender cannot reclaim a new owner
+  # using the stale-owner evidence it read before another contender acquired it.
+  exec {transaction_fd}>"$STATE_ROOT/locks/unity-editor.transaction.lock"
+  flock -x "$transaction_fd"
+  if acquire_lock_transaction; then
+    result=0
+  else
+    result=$?
+  fi
+  flock -u "$transaction_fd"
+  exec {transaction_fd}>&-
+  return "$result"
+}
+
+acquire_lock_transaction() {
   local attempt owner recovery_status
 
   for attempt in 1 2; do

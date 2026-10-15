@@ -11,7 +11,7 @@ When a new dispatch encounters an existing lock, `unity-resource-guard.sh` recla
 
 If either signal is missing, contradictory, unavailable, or ambiguous, Supervisor keeps the existing lock and fails closed exactly as before.
 
-A proven stale lock is reclaimed with an atomic directory rename before the new lease is created. If another contender changes the lock during reconciliation, acquisition is retried against the new state rather than assuming ownership. This prevents two workers from both succeeding after stale-lock recovery.
+A proven stale lock is reclaimed with an atomic directory rename before the new lease is created. Inspection, stale recovery, and acquisition run within one `flock` transaction using the persistent sibling `unity-editor.transaction.lock` file. The file stays outside the replaceable lock directory so contenders share the same transaction lock. This prevents a contender from reclaiming a newly acquired lease using evidence about its previous owner. The host requires the `flock` command.
 
 The guard logs whether a lock was retained because the broker was active/ambiguous, retained because the owner could not be proven inactive, or successfully recovered as stale.
 
