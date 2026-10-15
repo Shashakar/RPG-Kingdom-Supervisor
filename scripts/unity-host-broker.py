@@ -55,6 +55,8 @@ class RequestSpec:
     workspace: Path = Path(".")
     client_pid: int | None = None
     worker_run_id: str | None = None
+    requires_worker_lease: bool = False
+    expected_worker_run_id: str | None = None
     worker_pid: int | None = None
 
 
@@ -238,6 +240,14 @@ def prepare_request(
                 raise ValueError("inspect does not accept camera pose arguments")
         elif scene_path or camera_path or view_name or camera_position or camera_rotation or look_at_path:
             raise ValueError("capture pose fields are valid only for capture")
+        raw_expected = request.get("expectedWorkerRunId")
+        if raw_expected is not None and (not isinstance(raw_expected, str) or not raw_expected.strip() or len(raw_expected) > 200):
+            raise ValueError("expectedWorkerRunId must be a nonempty bounded string")
+        requires_worker_lease = request.get("requiresWorkerLease", False)
+        if not isinstance(requires_worker_lease, bool):
+            raise ValueError("requiresWorkerLease must be boolean")
+        if raw_expected is not None and not requires_worker_lease:
+            raise ValueError("expectedWorkerRunId requires worker lease")
         raw_client_pid = request.get("clientPid")
         client_pid = None
         if raw_client_pid is not None:
@@ -309,6 +319,8 @@ def prepare_request(
         capture_height=capture_height,
         workspace=workspace,
         client_pid=client_pid,
+        requires_worker_lease=requires_worker_lease,
+        expected_worker_run_id=raw_expected,
     )
 
 
@@ -566,6 +578,29 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     if len(matches) != 1:
         return None, None
     return matches[0]
+
+
+def worker_lease_matches(spec: RequestSpec, run_id: str | None, pid: int | None) -> bool:
+    """Honor explicit worker claims; legacy requests retain existing semantics."""
+    if not spec.requires_worker_lease:
+        return True
+    return (
+        run_id is not None and pid is not None and pid > 0
+        and (spec.expected_worker_run_id is None or spec.expected_worker_run_id == run_id)
+    )
+
+
+def verify_worker_ownership(spec: RequestSpec, state_root: Path) -> dict[str, Any] | None:
+    """Resolve once, validate explicit claims, and bind the live workspace owner."""
+    run_id, pid = resolve_worker_lease(state_root, spec.workspace)
+    if not worker_lease_matches(spec, run_id, pid):
+        return response_for_status(
+            spec.request_id, spec.operation, "WorkerLeaseRejected", 75,
+            "RPG Kingdom Unity broker: submitted worker lease does not match the live workspace owner",
+        )
+    spec.worker_run_id = run_id
+    spec.worker_pid = pid
+    return None
 
 
 def request_owner_alive(active: ActiveOperation) -> bool:
@@ -1168,9 +1203,10 @@ def main() -> int:
                     write_response(request_path, busy)
                     continue
 
-                worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
-                prepared.worker_run_id = worker_run_id
-                prepared.worker_pid = worker_pid
+                ownership_error = verify_worker_ownership(prepared, state_root)
+                if ownership_error is not None:
+                    write_response(request_path, ownership_error)
+                    continue
 
                 try:
                     active = start_operation(prepared, state_root, host_runner)

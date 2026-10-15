@@ -42,6 +42,11 @@ command="${1:-}"
 shift || true
 case "$command" in
   health)
+    printf 'health\n' >> "${FAKE_HEALTH_LOG:?}"
+    if [[ "${FAKE_HEALTH_ALWAYS_BUSY:-0}" == "1" ]]; then
+      echo "HostBusy" >&2
+      exit 87
+    fi
     if [[ "${FAKE_HEALTH_BUSY_ONCE:-0}" == "1" && ! -f "${FAKE_HEALTH_BUSY_MARKER:?}" ]]; then
       touch "$FAKE_HEALTH_BUSY_MARKER"
       echo "HostBusy" >&2
@@ -84,6 +89,7 @@ export RPGK_UNITY_GUARD_DRY_RUN=1
 export RPGK_UNITY_RUNNER="$TMP/fake-unity-runner.sh"
 export FAKE_UNITY_SMOKE_LOG="$TMP/smoke.log"
 export FAKE_HEALTH_BUSY_MARKER="$TMP/health-busy-seen"
+export FAKE_HEALTH_LOG="$TMP/health.log"
 : > "$FAKE_UNITY_SMOKE_LOG"
 
 run_guard() {
@@ -133,6 +139,35 @@ write_broker_status running '{"requestId":"GH-123-editmode-test","issue":"GH-123
 FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' FAKE_HEALTH_BUSY_ONCE=1 run_guard >/dev/null
 [[ -f "$FAKE_HEALTH_BUSY_MARKER" ]] || { echo "expected initial busy health result" >&2; exit 1; }
 rm -f "$FAKE_HEALTH_BUSY_MARKER"
+
+# Only this issue's live readiness smoke permits retries. A live client must not
+# override an explicitly dead durable worker, nor may another issue/workspace wait.
+owned_status="$(cat "$TMP/state/unity-broker/status.json")"
+for change in '.issue="GH-124"' '.workspace="/tmp/other"' '.testFilter="Different"' '.clientAlive=false' '.workerPid=42 | .workerAlive=false' '.operation="capture"'; do
+  clear_lock
+  jq ".activeRequest |= ($change)" <<<"$owned_status" > "$TMP/state/unity-broker/status.json"
+  : > "$FAKE_HEALTH_LOG"
+  set +e
+  FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' FAKE_HEALTH_BUSY_ONCE=1 run_guard >/dev/null 2>&1
+  status=$?
+  set -e
+  [[ "$status" -eq 76 && "$(wc -l < "$FAKE_HEALTH_LOG")" -eq 1 ]] || {
+    echo "unexpected health retry for $change (exit $status)" >&2; exit 1;
+  }
+  rm -f "$FAKE_HEALTH_BUSY_MARKER"
+done
+
+# An exhausted retry budget still halts; it never turns HostBusy into success.
+clear_lock
+printf '%s\n' "$owned_status" > "$TMP/state/unity-broker/status.json"
+: > "$FAKE_HEALTH_LOG"
+set +e
+FAKE_LABELS_JSON='[{"name":"resource:unity-editor"},{"name":"validation:unity-required"}]' RPGK_UNITY_PREFLIGHT_BUSY_WAIT_SECONDS=0 FAKE_HEALTH_ALWAYS_BUSY=1 run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 76 && "$(wc -l < "$FAKE_HEALTH_LOG")" -eq 1 ]] || {
+  echo "exhausted busy health wait did not halt" >&2; exit 1;
+}
 clear_lock
 write_broker_status ready null
 
