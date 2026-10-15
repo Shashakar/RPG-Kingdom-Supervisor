@@ -559,6 +559,16 @@ def resolve_worker_lease(state_root: Path, workspace: Path) -> tuple[str | None,
     return matches[0]
 
 
+def worker_lease_matches(spec: RequestSpec, run_id: str | None, pid: int | None) -> bool:
+    """Honor explicit worker claims; legacy requests retain existing semantics."""
+    if not spec.requires_worker_lease:
+        return True
+    return (
+        run_id is not None and pid is not None and pid > 0
+        and (spec.expected_worker_run_id is None or spec.expected_worker_run_id == run_id)
+    )
+
+
 def request_owner_alive(active: ActiveOperation) -> bool:
     if active.spec.worker_pid is not None:
         return process_is_alive(active.spec.worker_pid)
@@ -1168,11 +1178,7 @@ def main() -> int:
                     continue
 
                 worker_run_id, worker_pid = resolve_worker_lease(state_root, prepared.workspace)
-                if prepared.requires_worker_lease and (
-                    worker_run_id is None or worker_pid is None or
-                    (prepared.expected_worker_run_id is not None and
-                     prepared.expected_worker_run_id != worker_run_id)
-                ):
+                if not worker_lease_matches(prepared, worker_run_id, worker_pid):
                     write_response(request_path, response_for_status(
                         prepared.request_id, prepared.operation,
                         "WorkerLeaseRejected", 75,
