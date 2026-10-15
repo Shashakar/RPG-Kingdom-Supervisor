@@ -71,7 +71,7 @@ Phase 5 removes the remaining model-turn infrastructure dependency from PR hando
 - workers prepare their required `codex/*` branch through a typed host request before source edits;
 - source implementation remains model-owned, but `.git` metadata writes and final GitHub push/PR network operations are host-owned;
 - successful Unity run IDs are supplied to final handoff when `validation:unity-required` is present;
-- the host stages/commits the task, refuses force/non-fast-forward history, pushes and verifies the remote SHA, creates or updates the PR, then removes `symphony:ready`;
+- the host stages/commits the task, refuses force/non-fast-forward history, pushes and verifies the remote SHA, creates a draft PR or updates the existing PR, then removes `symphony:ready`;
 - PR merge remains explicitly human-owned.
 
 See [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) for the Git handoff contract.

@@ -211,6 +211,12 @@ def main() -> int:
             "Closes #321",
         )
         assert (pr_number, pr_url, created) == (42, "https://example.invalid/pr/42", True)
+        created_pr_calls = [
+            body for method, path, body in api_calls
+            if method == "POST" and path.endswith("/pulls")
+        ]
+        assert len(created_pr_calls) == 1
+        assert created_pr_calls[0]["draft"] is True
 
         patch_calls_before = sum(1 for method, path, _ in api_calls if method == "PATCH" and "/pulls/42" in path)
         expect_error(
