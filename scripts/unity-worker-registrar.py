@@ -15,18 +15,21 @@ import stat
 import struct
 
 from unity_trusted_worker_registry import register, revoke, protected_directory
+from unity_worker_process_identity import verify_controller_sibling
 
 
-def dispatch(message: object, *, peer_uid: int, controller_uid: int,
+def dispatch(message: object, *, peer_uid: int, controller_uid: int, peer_pid: int | None = None,
              worker_uid: int, state_root: Path, workspace_root: Path) -> dict:
     if peer_uid != controller_uid or controller_uid == worker_uid or os.getuid() in (controller_uid, worker_uid):
         raise PermissionError("registration requires three segregated Unix service identities")
     if not isinstance(message, dict):
         raise ValueError("invalid registration message")
     operation = message.get("action")
-    if operation == "register" and set(message) == {"action", "issue", "workspace", "pid", "runId"}:
-        if type(message["pid"]) is not int:
-            raise ValueError("PID must be integer")
+    if operation == "registerChild" and set(message) == {"action", "issue", "workspace", "pid", "runId"}:
+        if type(message["pid"]) is not int or peer_pid is None:
+            raise PermissionError("kernel peer PID required")
+        verify_controller_sibling(client_pid=peer_pid, child_pid=message["pid"],
+                                  controller_uid=controller_uid, worker_uid=worker_uid)
         record = register(state_root, workspace_root, issue=message["issue"],
                           workspace=message["workspace"], pid=message["pid"],
                           worker_uid=worker_uid, run_id=message["runId"])
@@ -77,7 +80,7 @@ def serve(*, socket_path: Path, state_root: Path, workspace_root: Path,
                         if b"\n" not in data:
                             raise ValueError("incomplete message")
                         message = json.loads(data.split(b"\n", 1)[0])
-                        result = dispatch(message, peer_uid=uid, controller_uid=controller_uid,
+                        result = dispatch(message, peer_uid=uid, controller_uid=controller_uid, peer_pid=pid,
                                           worker_uid=worker_uid, state_root=state_root,
                                           workspace_root=workspace_root)
                     except (OSError, ValueError, PermissionError) as exc:

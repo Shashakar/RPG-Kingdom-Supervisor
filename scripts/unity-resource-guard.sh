@@ -179,7 +179,7 @@ run_readiness_smoke() {
   return 0
 }
 
-acquire_lock() {
+acquire_lock_unlocked() {
   local attempt owner recovery_status
 
   for attempt in 1 2; do
@@ -209,6 +209,20 @@ acquire_lock() {
   [[ -f "$LOCK_DIR/owner" ]] && owner="$(cat "$LOCK_DIR/owner")"
   LOCK_BLOCKING_OWNER="$owner"
   return 1
+}
+
+# Serialize the stale-lock check/recovery/reacquisition transaction. mkdir by
+# itself does not protect recovery from a competing owner.
+acquire_lock() {
+  local lock_fd status
+  mkdir -p "$STATE_ROOT/locks"
+  exec {lock_fd}>"$STATE_ROOT/locks/unity-editor-acquisition.lock"
+  flock -x "$lock_fd"
+  status=0
+  acquire_lock_unlocked || status=$?
+  flock -u "$lock_fd"
+  exec {lock_fd}>&-
+  return "$status"
 }
 
 labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
