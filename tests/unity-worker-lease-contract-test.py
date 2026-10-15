@@ -30,6 +30,12 @@ with tempfile.TemporaryDirectory() as tmp:
     matched=parse({"requiresWorkerLease":True,"expectedWorkerRunId":"GH-264-attempt-7"})
     assert isinstance(matched,m.RequestSpec),matched
     assert matched.requires_worker_lease and matched.expected_worker_run_id=="GH-264-attempt-7"
+    assert m.worker_lease_matches(matched,"GH-264-attempt-7",12345)
+    assert not m.worker_lease_matches(matched,"GH-264-attempt-8",12345)
+    assert not m.worker_lease_matches(matched,None,None)
+    assert not m.worker_lease_matches(matched,"GH-264-attempt-7",None)
+    assert not m.worker_lease_matches(matched,"GH-264-attempt-7",0)
+    assert m.worker_lease_matches(legacy,None,None)
     for invalid in [{"requiresWorkerLease":True,"expectedWorkerRunId":""},
                     {"requiresWorkerLease":"yes"},
                     {"expectedWorkerRunId":"unbound"},
