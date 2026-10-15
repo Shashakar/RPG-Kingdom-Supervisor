@@ -72,8 +72,20 @@ set -e
 [[ "$(find "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" -name '*.json' | wc -l)" -eq 1 ]]
 
 # Waiting must not enqueue duplicate requests and must return bounded progress.
+progress_dir="$WORKSPACE/Logs/SymphonyUnity/.broker/progress"
+mkdir -p "$progress_dir"
+jq -n --arg id "$id" '{requestId:$id,sequence:8,phase:"capture_running",observedAt:"probe-time",editorLogBytes:100}' \
+  > "$progress_dir/$id.json"
+"${CLI[@]}" status --job-id "$id" > "$TMP/canonical-progress.json"
+jq -e '.progress.sequence == 8 and .progress.observedAt == "probe-time"' "$TMP/canonical-progress.json" >/dev/null
+jq -n --arg id "$id" '{requestId:$id,sequence:10,phase:"capture_running",observedAt:"snapshot-time",editorLogBytes:200}' \
+  > "$progress_dir/$id.json.seq.0000000010"
+printf '{broken' > "$progress_dir/$id.json.seq.0000000011"
+printf '{"requestId":"wrong","sequence":12}' > "$progress_dir/$id.json.seq.0000000012"
+printf '{"requestId":"wrong","sequence":99}' > "$progress_dir/$id.json.seq.0000000099.tmp.1"
 "${CLI[@]}" wait --job-id "$id" --wait-seconds 1 > "$TMP/wait-progress.json"
-jq -e '.status == "running"' "$TMP/wait-progress.json" >/dev/null
+jq -e '.status == "running" and .progress.sequence == 10 and .progress.editorLogBytes == 200
+  and .progress.observedAt == "snapshot-time"' "$TMP/wait-progress.json" >/dev/null
 [[ "$(find "$WORKSPACE/Logs/SymphonyUnity/.broker/requests" -name '*.json' | wc -l)" -eq 1 ]]
 set +e
 "${CLI[@]}" wait --wait-seconds 91 > "$TMP/wait-invalid.json" 2>/dev/null

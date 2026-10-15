@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import math
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +32,48 @@ _base_evaluate = _base.evaluate
 _ACTIVE_ROUTE = "luna"
 _ACTIVE_LABELS: set[str] = set()
 _ACTIVE_WORKSPACE: Path | None = None
+
+
+def _active_unity_wait(workspace: Path) -> dict[str, Any] | None:
+    """Recognize bounded, broker-owned work that has not produced a summary yet."""
+    status = read_json(telemetry.state_root() / "unity-broker" / "status.json")
+    active = status.get("activeRequest")
+    worker = active_worker(workspace, workspace.name)
+    if (status.get("protocolVersion") != 1 or status.get("state") != "running"
+            or not isinstance(active, dict) or not worker):
+        return None
+    if (active.get("issue") != workspace.name or active.get("workspace") != str(workspace)
+            or active.get("operation") not in {"inspect", "capture", "editmode", "playmode"}
+            or active.get("ownershipSource") != "worker-lease"
+            or active.get("workerAlive") is not True or active.get("recoveryBlocked")
+            or not worker.get("runId") or active.get("workerRunId") != worker.get("runId")
+            or active.get("workerPid") != worker.get("pid")):
+        return None
+    request_id = active.get("requestId")
+    progress = active.get("progress")
+    if (not isinstance(request_id, str) or not request_id.startswith(workspace.name + "-")
+            or "/" in request_id or "\\" in request_id or not isinstance(progress, dict)
+            or progress.get("requestId") != request_id):
+        return None
+    try:
+        updated = datetime.fromisoformat(str(status.get("updatedAt")).replace("Z", "+00:00"))
+        status_age = (datetime.now(timezone.utc) - updated).total_seconds()
+        observed = datetime.fromisoformat(str(progress.get("observedAt")).replace("Z", "+00:00"))
+        progress_age = (datetime.now(timezone.utc) - observed).total_seconds()
+        stall_limit = float(status.get("stallThresholdSeconds", 0))
+        sequence = int(progress["sequence"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if (not math.isfinite(stall_limit) or stall_limit <= 0 or sequence < 0
+            or not -2 <= status_age <= 10 or not -2 <= progress_age < stall_limit):
+        return None
+    # A persisted running projection must never override a terminal broker response.
+    terminal = workspace / "Logs/SymphonyUnity/.broker/responses" / f"{request_id}.json"
+    if terminal.exists():
+        return None
+    return {"requestId": request_id, "operation": active["operation"],
+            "phase": progress.get("phase"), "sequence": sequence,
+            "progressAgeSeconds": progress_age, "stallThresholdSeconds": stall_limit}
 
 
 def _follow_through_enabled() -> bool:
@@ -134,6 +178,13 @@ def _runtime_progress_decision(
     details = dict(details)
     details.setdefault("followThroughMode", _follow_through_enabled())
     details.setdefault("repeatedFocusedFailureTurns", 0)
+    if (not report_only and _ACTIVE_WORKSPACE is not None
+            and "resource:unity-editor" in _ACTIVE_LABELS
+            and (allowed or "host-invisible turn" in reason)):
+        waiting = _active_unity_wait(_ACTIVE_WORKSPACE)
+        if waiting is not None:
+            details.update(unityInFlight=waiting, consecutiveInvisibleTurns=0)
+            return True, "owned Unity request is still running within its progress/stall bound; awaiting terminal evidence", details
     if allowed or report_only or not _follow_through_enabled():
         return allowed, reason, details
 

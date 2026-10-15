@@ -79,19 +79,39 @@ def leases(state_root, workspace):
     return report.get("owners", [])
 
 
+def read_progress(root, request_id):
+    path = root / "progress" / f"{request_id}.json"
+    candidates = [path]
+    candidates.extend(p for p in path.parent.glob(path.name + ".seq.*")
+                      if re.fullmatch(re.escape(path.name) + r"\.seq\.\d{10}", p.name))
+    latest = None
+    for candidate in candidates:
+        try:
+            value = read(candidate)
+            if not isinstance(value, dict) or value.get("requestId") != request_id:
+                continue
+            sequence = int(value["sequence"])
+            if sequence >= 0 and (latest is None or sequence > int(latest["sequence"])):
+                latest = value
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    return latest
+
+
 def present(workspace, job):
     request_id = job["requestId"]
     root = workspace / "Logs/SymphonyUnity/.broker"
     response = read(root / "responses" / f"{request_id}.json")
     ack = read(root / "acks" / f"{request_id}.json")
-    progress = read(root / "progress" / f"{request_id}.json")
+    progress = read_progress(root, request_id)
     status = "completed" if response is not None else ("running" if ack else "queued")
     payload = {"status": status, "jobId": request_id, "operation": job["operation"]}
     if response is not None:
         payload.update(exitCode=response.get("exitCode"), brokerStatus=response.get("status"),
                        responsePath=str(root / "responses" / f"{request_id}.json"))
     elif progress is not None:
-        payload["progress"] = {"phase": progress.get("phase"), "sequence": progress.get("sequence")}
+        payload["progress"] = {key: progress.get(key) for key in
+                               ("phase", "sequence", "observedAt", "editorLogBytes")}
     print(json.dumps(payload))
     return 0
 

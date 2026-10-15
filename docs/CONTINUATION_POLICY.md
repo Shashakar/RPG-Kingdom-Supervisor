@@ -121,3 +121,27 @@ Lifetime-level usage and current global quota remain separate from per-turn hist
 This policy now answers whether another turn was justified and records what each turn cost/accomplished. It does not attempt to compact or redesign Codex's retained thread context. Supervisor #34 owns plugin/skill/context-routing and context-growth experiments intended to reduce the context cost inside each turn without weakening RPG Kingdom's repository instructions.
 
 The quota probe opens a short-lived model-free App Server connection while the primary worker App Server is idle between turns. It does not start a model turn. If that probe cannot provide a fresh authoritative sample, automatic continuation is denied and the workspace is preserved.
+
+## Active managed Unity work
+
+An unfinished Unity request is not a passing validation result, but it is also not
+an analysis-only turn. For implementation issues holding `resource:unity-editor`,
+the runtime policy resets the invisible-turn counter while fresh broker status
+identifies the exact workspace, request, and current live worker lease. The
+request must be running, not recovery-blocked, have no terminal response, and
+have actual progress newer than the broker's configured stall bound. Broker
+status older than ten seconds, mismatched/dead ownership, terminal responses,
+and overdue progress cannot grant this continuation.
+
+This only affects the no-progress decision. Hard turn ceilings, quota and
+per-turn/lifetime spending limits still apply; waiting never earns a productive
+spending override. The broker continues to own stalls and cancellation after a
+worker truly exits. The policy records `progress.unityInFlight` separately from
+the latest completed Unity summary, so in-flight work cannot satisfy validation
+or Git handoff acceptance.
+
+`unity-managed-wait.py` reads both canonical progress files and the installed
+immutable `.seq.NNNNNNNNNN` snapshots, ignores malformed/cross-request snapshots,
+and reports the latest sequence with its observation timestamp and log-byte
+count. Keep waiting on the same request within bounded tool calls while it is
+running; do not consume model turns repeatedly rechecking health or resubmit.
