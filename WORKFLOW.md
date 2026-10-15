@@ -20,7 +20,7 @@ hooks:
   after_create: |
     git clone https://github.com/Shashakar/RPG-Kingdom.git .
   before_run: |
-    bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/before-run-guard.sh"
+    bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/before-run-guard.sh" &&
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/unity-resource-guard.sh"
   after_run: |
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/release-unity-resource.sh"
@@ -35,6 +35,9 @@ codex:
   approval_policy: never
   permissions: rpgk_supervisor_workspace
   read_timeout_ms: 120000
+  # The watchdog includes before_run, which may spend up to ten minutes in Unity preflight.
+  # Leave one minute for hook termination and polling before declaring the attempt stalled.
+  stall_timeout_ms: 660000
 ---
 
 You are the implementation worker for RPG Kingdom GitHub issue `{{ issue.identifier }}`.

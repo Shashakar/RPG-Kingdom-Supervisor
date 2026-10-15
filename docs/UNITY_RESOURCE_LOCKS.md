@@ -28,3 +28,19 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
 ```
 
 The probe creates a unique ignored evidence directory and verifies three consecutive publications, accepting canonical files or the installed immutable sequence snapshots. Run it against the actual WSL UNC destination; a native Windows temporary directory is not equivalent evidence.
+
+## Preflight and orchestration watchdog
+
+The pinned Symphony orchestrator measures `codex.stall_timeout_ms` from attempt
+dispatch when there is no Codex activity yet, including time spent in `before_run`.
+The five-minute upstream default can therefore kill a healthy Unity readiness
+smoke before the ten-minute hook deadline. The workflow sets a finite eleven-minute
+watchdog (`660000` ms), leaving one minute beyond the hook deadline for termination
+and polling. This setting also lengthens the global no-Codex-activity watchdog;
+the Unity broker retains its separate progress-based stall checks. Turn, quota,
+and continuation budgets remain unchanged.
+
+The budget guard and Unity preflight are joined with `&&`: a refused dispatch
+stops before Unity admission and preserves the original refusal exit code.
+Do not rearm solely because an earlier detached smoke eventually passed; verify
+broker idleness and review the failed attempt first.
