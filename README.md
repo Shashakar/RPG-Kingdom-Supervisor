@@ -71,7 +71,7 @@ Phase 5 removes the remaining model-turn infrastructure dependency from PR hando
 - workers prepare their required `codex/*` branch through a typed host request before source edits;
 - source implementation remains model-owned, but `.git` metadata writes and final GitHub push/PR network operations are host-owned;
 - successful Unity run IDs are supplied to final handoff when `validation:unity-required` is present;
-- the host stages/commits the task, refuses force/non-fast-forward history, pushes and verifies the remote SHA, creates or updates the PR, then removes `symphony:ready`;
+- the host stages/commits the task, refuses force/non-fast-forward history, pushes and verifies the remote SHA, creates a draft PR or updates the existing PR, then removes `symphony:ready`;
 - PR merge remains explicitly human-owned.
 
 See [`docs/GIT_HANDOFF.md`](docs/GIT_HANDOFF.md) for the Git handoff contract.
@@ -124,7 +124,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/run-symphony.sh`](scripts/run-symphony.sh) — operator launcher that loads the scoped tracker secret, reconciles/prunes local telemetry, starts/reuses host services including the autonomous scheduler, and publishes Symphony service state.\n- [`scripts/autonomous-plan.py`](scripts/autonomous-plan.py) — deterministic operating-window, dependency, quota, and human-gate policy.\n- [`scripts/autonomous-scheduler.py`](scripts/autonomous-scheduler.py) — durable host scheduler and operator-control CLI for approved unattended work plans.
 - [`scripts/routing-policy.sh`](scripts/routing-policy.sh) — deterministic label-to-model/effort policy.
 - [`scripts/codex-app-server-router.sh`](scripts/codex-app-server-router.sh) — per-issue Codex App Server launcher and implementation/repair/report-only worker telemetry start boundary.
-- [`scripts/codex-model-compatibility.sh`](scripts/codex-model-compatibility.sh) — cached Codex-version/model compatibility gate that surfaces account/provider model rejection before a worker is recorded as started.
+- [`scripts/codex-model-compatibility.sh`](scripts/codex-model-compatibility.sh) — cached Codex-version/model compatibility gate that closes inherited stdin, then surfaces account/provider model rejection before a worker is recorded as started.
 - [`scripts/codex-usage-snapshot.py`](scripts/codex-usage-snapshot.py) — model-free authoritative Codex App Server rate-limit sampler.
 - [`scripts/supervisor_telemetry.py`](scripts/supervisor_telemetry.py) — durable service/worker/quota correlation, redaction, history, and operations collector.
 - [`scripts/supervisor_activity.py`](scripts/supervisor_activity.py) — read-only GitHub lifecycle queues plus cross-system activity correlation.
@@ -147,6 +147,15 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/unity-runner.sh`](scripts/unity-runner.sh) — worker-facing broker client for Unity health/EditMode/PlayMode validation and bounded visual capture.
 - [`scripts/visual-review-pr.sh`](scripts/visual-review-pr.sh) — host-owned one-shot capture + image-aware review for an existing PR already at the human-review gate.
 - [`scripts/unity-host-broker.py`](scripts/unity-host-broker.py) — host-owned typed Unity request broker and structured status producer.
+- [`scripts/unity-cli-readonly.py`](scripts/unity-cli-readonly.py) — operator-granted, read-only persistent Editor scene summary via the same Unity broker (Stage C1).
+- [`scripts/unity-cli-stage-benchmark.py`](scripts/unity-cli-stage-benchmark.py) — separate opt-in **stage-only fixed scene benchmark** through the Unity broker; no model-supplied C#, source copyback, or generic Editor mutation (Stage C2a). See [`docs/UNITY_CLI_STAGE_BENCHMARK.md`](docs/UNITY_CLI_STAGE_BENCHMARK.md). Windows isolation/attested authoring remain future work.
+- [`scripts/unity-cli-c2b-audit.py`](scripts/unity-cli-c2b-audit.py) — operator-only clean Git worktree vs staged Unity file-hash attestation and **dry-run** stage asset delta audit (no copyback).
+- [`scripts/unity-cli-staged-code.py`](scripts/unity-cli-staged-code.py) — operator-approved existing-Windows-account C# Editor scripts through the issue-owned Supervisor broker, limited to the disposable Unity stage **as a workflow contract**, with asset-change receipts and **no automatic source copyback**. The separate Windows account is optional/deferred. See [`docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md`](docs/UNITY_CLI_SAME_ACCOUNT_AUTHORING.md).
+- [`scripts/unity-c3-real-worker-setup.py`](scripts/unity-c3-real-worker-setup.py) — prepares a clean **real GH-N** game workspace and verifies a newly staged Unity Editor originated from that exact checkout before issuing the operator grant. Trial issue: [RPG Kingdom #261](https://github.com/Shashakar/RPG-Kingdom/issues/261); guide: [`docs/UNITY_C3_REAL_WORKER_TRIAL.md`](docs/UNITY_C3_REAL_WORKER_TRIAL.md).
+
+- [`scripts/windows/check-unity-cli-isolation.ps1`](scripts/windows/check-unity-cli-isolation.ps1) — operator-only Windows process owner SID inspection; deliberately does not declare a secure sandbox without a separate identity and denial tests. See [`docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md`](docs/UNITY_CLI_C2B_ISOLATION_ATTESTATION.md).
+
+
 - [`scripts/unity-runner-host.sh`](scripts/unity-runner-host.sh) — host-only direct WSL/Windows adapter used by the broker.
 - [`scripts/windows/run-unity-tests.ps1`](scripts/windows/run-unity-tests.ps1) — Windows staging, Unity Test Framework execution, result parsing, progress reporting, request-owned cancellation, and artifact return bridge.
 - [`scripts/release-unity-resource.sh`](scripts/release-unity-resource.sh) — ownership-checked Unity lock release hook.
@@ -214,3 +223,17 @@ The dashboard listener remains localhost-bound by default. When the browser reac
 ## Prefab derivative authoring
 
 Prefab derivative authoring is separately authorized and bounded to `create-prefab-derivative` with exact generated-root destinations. It does not broaden scene authoring tiers.
+
+## Unity CLI / Pipeline exploration
+
+A feature-gated migration is being evaluated in [docs/UNITY_CLI_PILOT.md](docs/UNITY_CLI_PILOT.md). The initial implementation is **operator-only, read-only diagnostics** via `bash scripts/unity-cli-pilot.sh`; it does not enable Unity CLI or arbitrary Editor C# for Codex workers, alter the Unity staging/authoring runner, or relax human scene-merge approval. Stage B adds an opt-in, operator-only disposable NTFS project session; see [docs/UNITY_CLI_STAGE.md](docs/UNITY_CLI_STAGE.md). The current brokered Unity path remains authoritative.
+
+C5d (#222) documents a dry-run-only Unity staged asset promotion transaction with fail-closed simulated rollback; see [C5d promotion design](docs/UNITY_C5D_PROMOTION_TRANSACTION.md). No live copyback or promotion authority is enabled.
+
+C5d crash-recovery testing is documented in [the scratch transaction lab](docs/UNITY_C5D_SCRATCH_RECOVERY.md); it never copies actual Unity assets.
+
+C5e host-only read-only Unity stage inspection: [operator instructions and limitations](docs/UNITY_C5E_STAGE_HOST_PREFLIGHT.md). It does not freeze the Editor or authorize asset copyback.
+
+### MVP Unity staged-asset handoff
+
+For a working C3 Unity workflow without extra Windows services or authorization infrastructure, use the operator-run `scripts/unity-stage-simple-handoff.py` to preview exact stage changes and copy selected `Assets/` files (plus changed Unity metadata) to a **new `codex/*` feature branch**. Run normal Unity tests and use the existing `git-handoff.sh handoff` to commit/push/create the PR for human review. No main writes or automatic merge. See [minimal Unity handoff guide](docs/UNITY_STAGE_SIMPLE_HANDOFF.md).

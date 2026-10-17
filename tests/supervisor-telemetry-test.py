@@ -77,6 +77,12 @@ def main() -> int:
         started = telemetry.worker_start("implementation", "gpt-5.6-luna", "medium", "luna", workspace)
         assert started["identifier"] == "GH-321"
         assert started["quotaBefore"]["rateLimits"]["primary"]["remainingPercent"] == 80
+        events = [json.loads(line) for line in (state / "telemetry" / "events.jsonl").read_text().splitlines()]
+        created = [e for e in events if e.get("eventType") == "worker_lease_created"]
+        assert len(created) == 1
+        assert created[0]["readbackMatches"] is True
+        assert created[0]["pidAliveFromHost"] is True
+        assert created[0]["workerPid"] == os.getpid()
         active_workers = telemetry.active_workers()
         assert len(active_workers) == 1
         assert active_workers[0]["runId"] == started["runId"]
@@ -114,6 +120,11 @@ def main() -> int:
         assert completed["outcome"] == "agent-review"
         assert not (state / "workers" / "active" / "implementation.json").exists()
         assert (state / "workers" / "history" / f"{completed['runId']}.json").is_file()
+        events = [json.loads(line) for line in (state / "telemetry" / "events.jsonl").read_text().splitlines()]
+        closed = [e for e in events if e.get("eventType") == "worker_lease_closed"]
+        assert len(closed) == 1
+        assert closed[0]["removal"] == "removed"
+        assert closed[0]["runId"] == started["runId"]
 
         # A dead PID can mean crash/orphaned cleanup rather than success. It must remain available
         # for maintenance reconciliation, but it is not active work and must never reach Active work.

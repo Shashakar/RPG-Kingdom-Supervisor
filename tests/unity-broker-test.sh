@@ -97,7 +97,16 @@ case "$filter" in
     ;;
   stall-owned|client-abandon-owned|worker-abandon-owned)
     write_progress 1 unity_running "$BASHPID"
-    while [[ ! -f "$cancel" ]]; do sleep 0.05; done
+    sequence=1
+    while [[ ! -f "$cancel" ]]; do
+      # Abandonment fixtures stay healthy until the owner exits. Otherwise the
+      # one-second stall timer can win before the test observes published state.
+      if [[ "$filter" != "stall-owned" ]]; then
+        sequence=$((sequence + 1))
+        write_progress "$sequence" unity_running "$BASHPID"
+      fi
+      sleep 0.05
+    done
     write_progress 2 recovery_cancelled "$$"
     echo 'fake request-owned Unity cancelled' >&2
     exit 91
@@ -286,17 +295,19 @@ done
 
 # If the submitting worker/client disappears, a positively-owned Unity request is cancelled
 # without waiting for the much longer stall threshold. This reproduces the GH-182 failure shape.
+# Wait for the fake host to publish Unity ownership before killing the client;
+# a running broker can still be in host_startup, which correctly uses pre-Unity termination.
 env "${COMMON_ENV[@]}" bash "$ROOT/scripts/unity-runner.sh" editmode --project "$WORKSPACE" --filter client-abandon-owned \
   >"$TMP/abandoned-client.log" 2>&1 &
 ACTIVE_CLIENT_PID=$!
 for _ in $(seq 1 80); do
-  if jq -e '.state == "running" and .activeRequest.testFilter == "client-abandon-owned" and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
+  if jq -e '.state == "running" and .activeRequest.testFilter == "client-abandon-owned" and .activeRequest.clientAlive == true and (.activeRequest.unityPid // 0) > 0' "$STATE/unity-broker/status.json" >/dev/null 2>&1; then
     break
   fi
   sleep 0.05
 done
-jq -e '.state == "running" and .activeRequest.clientPid != null and .activeRequest.clientAlive == true' "$STATE/unity-broker/status.json" >/dev/null || {
-  echo "unity-broker-test: broker did not expose live submitting client" >&2
+jq -e '.state == "running" and .activeRequest.testFilter == "client-abandon-owned" and .activeRequest.clientPid != null and .activeRequest.clientAlive == true and (.activeRequest.unityPid // 0) > 0' "$STATE/unity-broker/status.json" >/dev/null || {
+  echo "unity-broker-test: broker did not expose live submitting client with Unity ownership" >&2
   exit 1
 }
 abandoned_request_id="$(jq -r '.activeRequest.requestId' "$STATE/unity-broker/status.json")"
@@ -544,5 +555,10 @@ grep -Fq 'active.spec.operation in {"editmode", "playmode", "inspect"}' "$ROOT/s
 bash -n "$ROOT/scripts/unity-runner.sh"
 bash -n "$ROOT/scripts/unity-runner-host.sh"
 python3 -m py_compile "$ROOT/scripts/unity-host-broker.py"
+
+# Exercise managed Unity work across the 30-second execution-tool boundary.
+bash "$ROOT/tests/unity-managed-wait-test.sh"
+python3 "$ROOT/tests/unity-request-timing-test.py"
+python3 "$ROOT/tests/unity-host-ownership-test.py"
 
 echo "unity-broker-test: PASS"

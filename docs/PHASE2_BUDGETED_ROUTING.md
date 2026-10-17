@@ -295,3 +295,12 @@ The resulting policy is therefore:
 RPG Kingdom #139 showed that the previous highest-cost end-to-end route could consume nearly an entire freshly reset five-hour allowance while still requiring immediate human follow-up for basic player-facing gaps. That evidence motivated making Sol/high the end-to-end default. GPT-6 Sol now replaces the older Sol model as the sole strong Supervisor route; unresolved work should increase Sol reasoning effort or return to human attention rather than escalating to another model.
 
 Continue measuring real production work and tune the spend thresholds from observed outcomes rather than introducing larger unconditional turn counts or automatic high-cost routing.
+
+## Model compatibility probe stdin
+
+The host's cached model compatibility probe passes a prompt argument to `codex exec`
+and explicitly closes its stdin. Current Codex also reads piped stdin when a prompt
+argument is present. Symphony keeps its command pipe open; inheriting that pipe made
+the probe time out before a worker could start and mislabeled the timeout as model
+unavailability. The probe remains bounded and consumes one small model turn only
+when the Codex version/model pair is not already cached.
