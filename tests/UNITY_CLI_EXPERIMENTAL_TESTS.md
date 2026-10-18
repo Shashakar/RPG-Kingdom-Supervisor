@@ -19,3 +19,16 @@ to satisfy these assertions.
 
 Reintroduce these tests into the required suite only after reviewing
 and implementing an explicitly approved broker contract.
+
+The production `scripts/unity-runner.sh` and `scripts/unity-host-broker.py`
+reject all four editor-prefixed operations before any execution. The required
+`tests/unity-runner-policy-test.sh` verifies these denial boundaries.
+
+The normal GitHub Actions workflow runs this experimental suite as a separately
+labeled, non-blocking step. It reports all three files and remains visibly
+unsuccessful until the unsupported contracts are implemented and reviewed.
+The step is not permission to enable arbitrary Unity Editor C# execution:
+`unity-cli-staged-code.py` runs trusted C# as the Windows operator account
+when explicitly enabled and is not a sandbox. The production deployment must
+leave `RPGK_UNITY_STAGED_CODE_ENABLED` unset/disabled, with no worker access
+to operator grants or promotion/copyback mechanisms.
