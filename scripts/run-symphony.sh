@@ -118,6 +118,14 @@ if ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! 
   exit 1
 fi
 
+# Serialize host ownership before maintenance, brokers, scheduler or review can start.
+# Source (not execute) so FD 7 stays held by this host lifetime.
+# shellcheck source=host-instance-lock.sh
+source "$SUPERVISOR_ROOT/scripts/host-instance-lock.sh"
+if ! rpgk_acquire_host_instance_lock; then
+  exit 75
+fi
+
 if [[ ! -d "$SYMPHONY_ROOT" ]]; then
   echo "ERROR: Symphony root does not exist: $SYMPHONY_ROOT" >&2
   exit 1
