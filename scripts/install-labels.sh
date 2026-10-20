@@ -46,7 +46,8 @@ create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults 
 # Agent/provider labels select WHO works; model/effort labels below select WHICH Codex tier.
 # agent:auto (or no agent label) uses the deterministic classification policy.
 create_label "agent:codex" "1D76DB" "Explicit operator override: route this task to Codex"
-create_label "agent:claude" "8B5CF6" "Explicit operator override: Claude manual handoff (no autonomous adapter yet)"
+create_label "agent:claude" "8B5CF6" "Explicit Claude provider; requires dedicated Claude dispatch lease to run"
+create_label "symphony:claude-ready" "8B5CF6" "Dedicated Claude automation queue (requires agent:claude and host opt-in)"
 create_label "agent:auto" "C5DEF5" "Choose recommended provider using work/authoring labels"
 create_label "work:deterministic" "BFD4F2" "Deterministic engineering/tests/tooling; normally route to Codex"
 create_label "work:visual-unity" "D4C5F9" "Visual Unity scene/animation/asset judgment; normally route to Claude"
