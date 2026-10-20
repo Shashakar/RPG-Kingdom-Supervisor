@@ -65,6 +65,38 @@ class TargetTest(unittest.TestCase):
         (self.ws / "AGENTS.md").unlink()
         self.assertEqual(self.run_guard().returncode, 73)
 
+    def test_git_handoff_prepares_from_rekindle_integration_branch(self):
+        import importlib.util
+        import subprocess
+        module_path = ROOT / "scripts/git-handoff-host.py"
+        spec = importlib.util.spec_from_file_location("rpgk_test_migration_handoff", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.BASE_BRANCH = "rekindle-vertical-slice"
+
+        git(self.ws, "switch", "-qc", "rekindle-vertical-slice")
+        git(self.ws, "update-ref", "refs/remotes/origin/rekindle-vertical-slice", "HEAD")
+        original_git = module.run_git
+
+        def offline_fetch(workspace, *args, **kwargs):
+            if args[:3] == ("fetch", "--prune", "origin"):
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return original_git(workspace, *args, **kwargs)
+
+        module.run_git = offline_fetch
+        result = module.prepare_branch(self.ws, "codex/gh-12-migration")
+        self.assertTrue(result["created"])
+        self.assertEqual(result["branch"], "codex/gh-12-migration")
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "-C", str(self.ws), "merge-base",
+                 "codex/gh-12-migration", "rekindle-vertical-slice"], text=True
+            ).strip(),
+            subprocess.check_output(
+                ["git", "-C", str(self.ws), "rev-parse", "rekindle-vertical-slice"], text=True
+            ).strip()
+        )
+
     def test_run_script_has_isolated_profiles(self):
         source = HOST.read_text()
         assert 'RPGK_TARGET_PROFILE:-rekindle' in source
