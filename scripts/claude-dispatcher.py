@@ -122,6 +122,11 @@ def save(number: int, stage: str, **kwargs: object) -> dict:
 
 
 def edit_labels(number: int, *, add: str | None = None, remove: str | None = None) -> None:
+    # GitHub may already have consumed a lease in the broker review transition.
+    if remove and remove not in names(issue(number)):
+        remove = None
+    if not add and not remove:
+        return
     cmd = ["issue", "edit", str(number), "--repo", REPO]
     if add:
         cmd += ["--add-label", add]
@@ -257,10 +262,12 @@ def reconcile(number: int, path: Path, branch: str) -> bool:
     run([sys.executable, str(HERE / "queue-agent-review.py"),
          str(number), str(match["number"]), head], timeout=45)
     save(number, "review", pr=int(match["number"]), head=head)
-    edit_labels(number, remove=READY)
-    # Rearm is one-shot; remove only after durable review state exists.
+    # Broker already clears the old Claude lease. A fast independent reviewer may
+    # have created a NEW repair lease by this point; never delete that generation.
     current = names(issue(number))
-    if "symphony:rearm" in current:
+    if READY in current and "symphony:rework" not in current:
+        edit_labels(number, remove=READY)
+    if "symphony:rearm" in current and "symphony:rework" not in current:
         edit_labels(number, remove="symphony:rearm")
     return True
 
