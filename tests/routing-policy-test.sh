@@ -45,4 +45,54 @@ assert_fails $'symphony:rework\nrepair-route:luna\nrepair-route:sol'
 assert_fails 'model:terra'
 assert_fails $'symphony:rework\nrepair-route:terra'
 
+# Provider policy is orthogonal to model and effort policy.
+assert_provider() {
+  local expected="$1"
+  local labels="$2"
+  local actual
+  actual="$(rpgk_select_provider "$labels")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Expected provider '$expected' but got '$actual' for: $labels" >&2
+    exit 1
+  fi
+}
+
+assert_provider_fails() {
+  if rpgk_select_provider "$1" >/dev/null 2>&1; then
+    echo "Expected invalid provider labels to fail: $1" >&2
+    exit 1
+  fi
+}
+
+assert_provider 
+codex\tdefault\tunclassified' ""
+assert_provider 
+codex\tdefault\tunclassified' "agent:auto"
+assert_provider 
+codex\tauto\twork:deterministic' 
+agent:auto\nwork:deterministic'
+assert_provider 
+claude\tauto\twork:visual-unity' "work:visual-unity"
+assert_provider 
+claude\tauto\tvisual-scene-composition' "authoring:scene-existing-composition"
+assert_provider 
+claude\tauto\tvisual-scene-composition' "authoring:scene-new-composition"
+assert_provider 
+codex\tdefault\tunclassified' 
+resource:unity-editor\nvalidation:unity-required'
+assert_provider 
+codex\toverride\tagent:codex' 
+agent:codex\nwork:visual-unity'
+assert_provider 
+claude\toverride\tagent:claude' 
+agent:claude\nwork:deterministic'
+assert_provider_fails 
+agent:codex\nagent:claude'
+assert_provider_fails 
+agent:auto\nagent:claude'
+assert_provider_fails 
+work:deterministic\nwork:visual-unity'
+assert_provider_fails 
+agent:codex\nwork:deterministic\nwork:visual-unity'
+
 echo "routing-policy-test: PASS"
