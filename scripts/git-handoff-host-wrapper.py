@@ -12,6 +12,8 @@ import sys
 from typing import Any
 from urllib import error, parse, request
 
+BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
+
 BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
 SYNC_EVIDENCE_ENV = "RPGK_CONTINUATION_SYNC_EVIDENCE"
@@ -92,7 +94,7 @@ def hydrate_lfs(workspace: Path, branch: str) -> None:
     if probe.returncode != 0:
         raise RuntimeError("Git LFS is required by the refreshed repository but is unavailable")
 
-    run_git(workspace, "lfs", "fetch", "origin", "main", timeout=300)
+    run_git(workspace, "lfs", "fetch", "origin", BASE_BRANCH, timeout=300)
     if ref_exists(workspace, f"refs/remotes/origin/{branch}"):
         run_git(workspace, "lfs", "fetch", "origin", branch, timeout=300)
     run_git(workspace, "lfs", "checkout", timeout=300)
@@ -102,8 +104,8 @@ def sync_rearmed_main(workspace: Path) -> tuple[bool, str | None, dict[str, Any]
     """Fast-forward a clean rearmed main workspace before dispatch-time preflight."""
     current_result = run_git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     current = current_result.stdout.strip() if current_result.returncode == 0 else ""
-    if current != "main":
-        return False, f"workspace is on '{current or 'detached HEAD'}', not main", {"reason": "not-main"}
+    if current != BASE_BRANCH:
+        return False, f"workspace is on '{current or 'detached HEAD'}', not {BASE_BRANCH}", {"reason": "not-main"}
 
     dirty = dirty_paths(workspace)
     if dirty:
@@ -114,11 +116,11 @@ def sync_rearmed_main(workspace: Path) -> tuple[bool, str | None, dict[str, Any]
 
     old_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
     run_git(workspace, "fetch", "--prune", "origin")
-    if not ref_exists(workspace, "refs/remotes/origin/main"):
-        return False, "origin/main is unavailable after fetch", {"reason": "origin-main-unavailable", "oldHead": old_head}
+    if not ref_exists(workspace, f"refs/remotes/origin/{BASE_BRANCH}"):
+        return False, f"origin/{BASE_BRANCH} is unavailable after fetch", {"reason": "origin-main-unavailable", "oldHead": old_head}
 
-    new_base = run_git(workspace, "rev-parse", "refs/remotes/origin/main").stdout.strip()
-    if not is_ancestor(workspace, old_head, "refs/remotes/origin/main"):
+    new_base = run_git(workspace, "rev-parse", f"refs/remotes/origin/{BASE_BRANCH}").stdout.strip()
+    if not is_ancestor(workspace, old_head, f"refs/remotes/origin/{BASE_BRANCH}"):
         return False, "local main has diverged from origin/main; preserving workspace for review", {
             "reason": "main-diverged",
             "oldHead": old_head,
@@ -126,8 +128,8 @@ def sync_rearmed_main(workspace: Path) -> tuple[bool, str | None, dict[str, Any]
         }
 
     if old_head != new_base:
-        run_git(workspace, "merge", "--ff-only", "refs/remotes/origin/main")
-    hydrate_lfs(workspace, "main")
+        run_git(workspace, "merge", "--ff-only", f"refs/remotes/origin/{BASE_BRANCH}")
+    hydrate_lfs(workspace, BASE_BRANCH)
     new_head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
     if dirty_paths(workspace):
         return False, "main refresh left unexpected source changes", {
@@ -210,12 +212,12 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
     try:
         stash_ref, stash_sha, preserved_paths = stash_dirty_workspace(workspace, branch)
         run_git(workspace, "fetch", "--prune", "origin")
-        if not ref_exists(workspace, "refs/remotes/origin/main"):
+        if not ref_exists(workspace, f"refs/remotes/origin/{BASE_BRANCH}"):
             restore_original_with_stash(workspace, original_head, stash_ref)
             set_sync_evidence(performed=False, result="blocked", oldHead=original_head,
                               preservedPaths=preserved_paths, recoveryStash=stash_sha,
                               reason="origin-main-unavailable")
-            return False, "origin/main is unavailable after fetch"
+            return False, f"origin/{BASE_BRANCH} is unavailable after fetch"
 
         remote_ref = f"refs/remotes/origin/{branch}"
         if ref_exists(workspace, remote_ref):
@@ -233,13 +235,13 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
                                       reason="branch-diverged")
                     return False, f"workspace branch '{branch}' diverged from origin/{branch}; preserving state for review"
 
-        origin_main = run_git(workspace, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+        origin_main = run_git(workspace, "rev-parse", f"refs/remotes/origin/{BASE_BRANCH}").stdout.strip()
         merged_main = False
-        if not is_ancestor(workspace, "refs/remotes/origin/main", "HEAD"):
+        if not is_ancestor(workspace, f"refs/remotes/origin/{BASE_BRANCH}", "HEAD"):
             name = os.environ.get("RPGK_GIT_AUTHOR_NAME", "RPG Kingdom Symphony")
             email = os.environ.get("RPGK_GIT_AUTHOR_EMAIL", "symphony@local.invalid")
             merge = run_git(workspace, "-c", f"user.name={name}", "-c", f"user.email={email}",
-                            "merge", "--no-edit", "refs/remotes/origin/main", check=False)
+                            "merge", "--no-edit", f"refs/remotes/origin/{BASE_BRANCH}", check=False)
             if merge.returncode != 0:
                 message = merge.stderr.strip() or merge.stdout.strip() or "merge conflict"
                 restore_original_with_stash(workspace, original_head, stash_ref)
@@ -390,7 +392,7 @@ def main() -> int:
             "status": "completed",
             "exitCode": 0,
             "operation": operation,
-            "branch": "main",
+            "branch": BASE_BRANCH,
             "head": evidence.get("newHead"),
             "continuationSync": evidence,
         }, separators=(",", ":"), sort_keys=True))

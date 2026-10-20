@@ -3,6 +3,7 @@ set -euo pipefail
 
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
+BASE_BRANCH="${RPGK_BASE_BRANCH:-main}"
 
 fail() {
   echo "RPG Kingdom continuation refresh: $*" >&2
@@ -25,11 +26,11 @@ current_branch="$(git symbolic-ref --quiet --short HEAD || true)"
 # before a later worker can call `git-handoff prepare`, so stale main must be refreshed here through
 # the host-owned broker. The broker permits only a clean, fast-forward-only main sync and fails
 # closed on dirty/diverged state.
-if [[ "$current_branch" == "main" ]]; then
+if [[ "$current_branch" == "$BASE_BRANCH" ]]; then
   result="$(bash "$SUPERVISOR_ROOT/scripts/git-handoff.sh" sync-main --project "$PWD")" || \
     fail "host-owned Git sync-main could not refresh the rearmed workspace"
   head_sha="$(git rev-parse HEAD)"
-  echo "RPG Kingdom continuation refresh: host-owned sync-main refreshed main at $head_sha"
+  echo "RPG Kingdom continuation refresh: host-owned sync-main refreshed $BASE_BRANCH at $head_sha"
   [[ -z "$result" ]] || echo "$result" >&2
   exit 0
 fi

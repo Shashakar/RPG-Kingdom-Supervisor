@@ -1,5 +1,8 @@
 # Supervisor Setup
 
+> This document describes the **legacy RPG Kingdom** host environment. The new Rekindle target profile, target-specific `AGENTS.md` prerequisite, separate workspace and state roots, and operator-only Claude CLI pilot are described in [Phase 2 migration instructions](CLAUDE_PHASE2_REKINDLE.md). Do not apply the legacy tracker/repository instructions to Rekindle without the migration profile.
+
+
 This document covers the evaluated Windows/WSL setup for running official OpenAI Symphony against `Shashakar/RPG-Kingdom` using this repository's `WORKFLOW.md`.
 
 ## 1. Host environment

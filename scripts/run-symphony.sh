@@ -3,6 +3,33 @@ set -uo pipefail
 
 SYMPHONY_ROOT="${SYMPHONY_ROOT:-$HOME/src/openai-symphony/elixir}"
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
+
+# Explicit target profile. Separate workspace and host state roots prevent GH-number collisions.
+# Preserve the original RPG Kingdom workflow for deliberate rollback.
+RPGK_TARGET_PROFILE="${RPGK_TARGET_PROFILE:-rekindle}"
+SELECTED_TARGET_PROFILE="$RPGK_TARGET_PROFILE"
+case "$RPGK_TARGET_PROFILE" in
+  rekindle)
+    export RPGK_REPO="Shashakar/Rekindle-Claude"
+    export RPGK_REPO_OWNER="Shashakar"
+    export RPGK_REPO_NAME="Rekindle-Claude"
+    export RPGK_BASE_BRANCH="rekindle-vertical-slice"
+    export RPGK_SYMPHONY_WORKSPACE_ROOT="$HOME/code/rekindle-symphony-workspaces"
+    export RPGK_SUPERVISOR_STATE_ROOT="$HOME/.local/state/rekindle-supervisor"
+    WORKFLOW_FILE="$SUPERVISOR_ROOT/WORKFLOW.rekindle.md"
+    ;;
+  rpg-kingdom)
+    export RPGK_REPO="Shashakar/RPG-Kingdom"
+    export RPGK_REPO_OWNER="Shashakar"
+    export RPGK_REPO_NAME="RPG-Kingdom"
+    export RPGK_BASE_BRANCH="main"
+    export RPGK_SYMPHONY_WORKSPACE_ROOT="$HOME/code/rpg-kingdom-symphony-workspaces"
+    export RPGK_SUPERVISOR_STATE_ROOT="$HOME/.local/state/rpg-kingdom-supervisor"
+    WORKFLOW_FILE="$SUPERVISOR_ROOT/WORKFLOW.md"
+    ;;
+  *) echo "Unknown RPGK_TARGET_PROFILE: $RPGK_TARGET_PROFILE" >&2; exit 64 ;;
+esac
+export RPGK_TARGET_PROFILE
 SECRETS_FILE="${RPGK_SECRETS_FILE:-$HOME/.config/rpg-kingdom-supervisor/secrets.env}"
 USE_ALT_SCREEN="${RPGK_ALTERNATE_SCREEN:-1}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
@@ -46,6 +73,35 @@ if [[ -f "$SECRETS_FILE" ]]; then
   source "$SECRETS_FILE"
 fi
 
+# Secrets may contain stale RPG Kingdom overrides. Do not permit mismatched tracker,
+# clone, Git handoff or state ownership after choosing an explicit profile above.
+[[ "$RPGK_TARGET_PROFILE" == "$SELECTED_TARGET_PROFILE" ]] || { echo "ERROR: secrets changed selected target profile" >&2; exit 73; }
+case "$RPGK_TARGET_PROFILE" in
+  rekindle)
+    [[ "$RPGK_REPO" == "Shashakar/Rekindle-Claude" &&
+       "$RPGK_REPO_OWNER" == "Shashakar" &&
+       "$RPGK_REPO_NAME" == "Rekindle-Claude" &&
+       "$RPGK_BASE_BRANCH" == "rekindle-vertical-slice" ]] || {
+      echo "ERROR: secrets/environment changed the Rekindle target profile" >&2
+      exit 73
+    }
+    ;;
+  rpg-kingdom)
+    [[ "$RPGK_REPO" == "Shashakar/RPG-Kingdom" &&
+       "$RPGK_REPO_OWNER" == "Shashakar" &&
+       "$RPGK_REPO_NAME" == "RPG-Kingdom" &&
+       "$RPGK_BASE_BRANCH" == "main" ]] || {
+      echo "ERROR: secrets/environment changed the RPG Kingdom target profile" >&2
+      exit 73
+    }
+    ;;
+esac
+[[ "$RPGK_SYMPHONY_WORKSPACE_ROOT" == "$WORKSPACE_ROOT" &&
+   "$RPGK_SUPERVISOR_STATE_ROOT" == "$STATE_ROOT" ]] || {
+  echo "ERROR: target workspace/state root changed after startup profile selection" >&2
+  exit 73
+}
+
 if [[ -z "${SYMPHONY_GITHUB_TOKEN:-}" ]]; then
   echo "ERROR: SYMPHONY_GITHUB_TOKEN is not set." >&2
   echo "Expected secrets file: $SECRETS_FILE" >&2
@@ -67,8 +123,8 @@ if [[ ! -d "$SYMPHONY_ROOT" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
-  echo "ERROR: Supervisor workflow not found: $SUPERVISOR_ROOT/WORKFLOW.md" >&2
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+  echo "ERROR: Supervisor workflow not found: $WORKFLOW_FILE" >&2
   exit 1
 fi
 
@@ -364,7 +420,7 @@ python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state running --p
 
 mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  "$SUPERVISOR_ROOT/WORKFLOW.md"
+  "$WORKFLOW_FILE"
 status=$?
 
 python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state stopped --pid "$$" --exit-code "$status" >/dev/null || true
