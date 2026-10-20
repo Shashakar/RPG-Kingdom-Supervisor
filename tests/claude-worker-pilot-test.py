@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline regression of the operator-only Claude Code pilot."""
 from __future__ import annotations
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -101,6 +102,16 @@ class ClaudePilotTest(unittest.TestCase):
         result = self.run_pilot(env=env)
         self.assertEqual(result.returncode, 75)
         self.assertEqual(json.loads(result.stdout)["status"], "failed")
+
+    def test_existing_worker_lock_refused(self):
+        lock = self.base / "state/locks/issues/GH-11.lock"
+        lock.parent.mkdir(parents=True)
+        with lock.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_pilot()
+            self.assertEqual(result.returncode, 70)
+            self.assertIn("another Supervisor worker", result.stderr)
+        self.assertFalse((self.base / "command.json").exists())
 
     def test_budget_bounds(self):
         result = self.run_pilot("--max-turns", "100")
