@@ -266,7 +266,7 @@ def changed_paths(path: Path) -> list[str]:
     return sorted(set(tracked + untracked))
 
 
-def enforce_scope(paths: list[str]) -> None:
+def enforce_scope(paths: list[str], workspace: Path | None = None) -> None:
     if not paths:
         raise DispatchError("Claude finished without source changes; no empty PR will be created")
     for name in paths:
@@ -276,6 +276,12 @@ def enforce_scope(paths: list[str]) -> None:
                 or normalized.startswith(DISALLOWED_PATHS)
                 or normalized.lower().endswith((".unity", ".prefab", ".asset", ".meta", ".dll", ".exe"))):
             raise DispatchError(f"protected path modified; preserve workspace for human review: {normalized}")
+        if workspace is not None:
+            candidate = workspace / normalized
+            while candidate != workspace:
+                if candidate.is_symlink():
+                    raise DispatchError(f"symlink in changed path; refusing handoff: {normalized}")
+                candidate = candidate.parent
 
 
 def broker(path: Path, operation: str, branch: str, title: str = "") -> str:
@@ -372,7 +378,7 @@ def execute(item: dict) -> str:
         raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
     save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
          reportedCostUsd=result.get("reportedCostUsd"))
-    enforce_scope(changed_paths(path))
+    enforce_scope(changed_paths(path), path)
     save(number, "handoff")
     broker(path, "handoff", branch, f"GH-{number}: {item.get('title') or 'Claude implementation'}")
     if not reconcile(number, path, branch):
