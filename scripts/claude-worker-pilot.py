@@ -14,6 +14,8 @@ import subprocess
 import sys
 import time
 
+from claude_model_policy import EFFORTS, MODELS, read_labels, resolve
+
 ISSUE_DIR = re.compile(r"^GH-[1-9][0-9]*$")
 CLAUDE_BRANCH = re.compile(r"^claude/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 BLOCKED_ENV = {
@@ -63,9 +65,10 @@ def validate(workspace: Path, root: Path, repo: str, mode: str) -> str:
     return branch
 
 
-def command(binary: str, prompt: str, mode: str, turns: int, budget: float) -> list[str]:
+def command(binary: str, prompt: str, mode: str, turns: int, budget: float, model: str, effort: str) -> list[str]:
     return [
         binary, "--print", prompt, "--output-format", "stream-json",
+        "--model", model, "--effort", effort,
         "--verbose", "--permission-mode", "dontAsk",
         "--allowedTools", EDIT_TOOLS if mode == "edit" else READ_TOOLS,
         "--disallowedTools", DISALLOWED, "--max-turns", str(turns),
@@ -102,12 +105,18 @@ def execute(args: argparse.Namespace) -> dict:
     binary = args.claude_bin if os.path.sep in args.claude_bin else shutil.which(args.claude_bin)
     if not binary:
         raise ValueError("Claude Code executable not found on PATH")
-    cli = command(binary, prompt, args.mode, args.max_turns, args.max_budget_usd)
+    selected = resolve(read_labels(args.labels_json_file), cli_model=args.model, cli_effort=args.effort)
+    cli = command(binary, prompt, args.mode, args.max_turns, args.max_budget_usd,
+                  selected["model"], selected["effort"])
     metadata = {
         "issue": workspace.name,
         "repository": args.repo,
         "branch": branch,
         "mode": args.mode,
+        "requestedModel": selected["model"],
+        "requestedEffort": selected["effort"],
+        "modelSource": selected["modelSource"],
+        "effortSource": selected["effortSource"],
         "turnLimit": args.max_turns,
         "budgetUsd": args.max_budget_usd,
         "status": "dry-run" if args.dry_run else "running",
@@ -194,6 +203,9 @@ def main() -> int:
     parser.add_argument("--claude-bin", default="claude")
     parser.add_argument("--state-root", default=os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", "~/.local/state/rekindle-supervisor"))
     parser.add_argument("--mode", choices=("audit", "edit"), default="audit")
+    parser.add_argument("--labels-json-file", help="JSON labels from gh issue view --json labels")
+    parser.add_argument("--model", choices=MODELS, help="Explicit operator model override")
+    parser.add_argument("--effort", choices=EFFORTS, help="Explicit operator effort override")
     parser.add_argument("--enable-edits", action="store_true")
     parser.add_argument("--max-turns", type=int, default=4)
     parser.add_argument("--max-budget-usd", type=float, default=2.0)
