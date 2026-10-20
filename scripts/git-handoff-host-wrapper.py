@@ -12,7 +12,7 @@ import sys
 from typing import Any
 from urllib import error, parse, request
 
-BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", BASE_BRANCH)
+BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
 
 BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
