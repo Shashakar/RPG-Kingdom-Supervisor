@@ -16,7 +16,7 @@ from urllib import error, parse, request
 
 BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
 
-BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
+BRANCH_PATTERN = re.compile(r"^(?:codex|claude)/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
 FORBIDDEN_PATHS = (
@@ -72,7 +72,7 @@ def normalize_repository(url: str) -> str | None:
 def validate_branch(branch: str) -> None:
     if not BRANCH_PATTERN.fullmatch(branch) or ".." in branch or "//" in branch or branch.endswith("/"):
         raise HandoffError(
-            f"branch '{branch}' is not an allowed codex/* branch",
+            f"branch '{branch}' is not an allowed provider/* branch",
             code=64,
             status="InvalidBranch",
         )

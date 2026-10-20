@@ -55,7 +55,7 @@ No description was provided.
 - The integration base is `rekindle-vertical-slice`, **not main**. Read `AGENTS.md`, `README.md`, `Docs/ARCHITECTURE.md`, and only the relevant subsystem docs/source.
 - Do not directly modify the production Hearthmere scene or regenerate the world without explicit issue approval. Do not run PlayMode/full-slice tests until real-save isolation is proven.
 - Unity Editor/scene authoring is disabled in this migration until the target-specific validation gate is approved.
-- Claude-selected tasks are manual-pilot work in Phase 2; this Codex launcher cannot handle them.
+- Claude-selected tasks use an independent, opt-in dispatcher with `symphony:claude-ready`; this Codex App Server launcher must never process them.
 
 ## Worker workflow
 

@@ -19,6 +19,12 @@ fi
 # human/ChatGPT review tool that cannot touch Supervisor host state. Add rearm before ready so
 # Symphony cannot observe the dispatch lease without the corresponding continuation approval.
 gh issue edit "$issue_number" --repo "$repo" --add-label 'symphony:rearm' >/dev/null
-gh issue edit "$issue_number" --repo "$repo" --add-label 'symphony:ready' >/dev/null
-
-echo "Requested one bounded continuation for $issue_identifier. Host preflight will consume symphony:rearm and recover same-issue stale state before Codex starts."
+if grep -Fxiq 'agent:claude' <<<"$labels"; then
+  # Do not ever make a Claude worker eligible for Symphony's Codex-only tracker.
+  gh issue edit "$issue_number" --repo "$repo" --remove-label 'symphony:ready' >/dev/null 2>&1 || true
+  gh issue edit "$issue_number" --repo "$repo" --add-label 'symphony:claude-ready' >/dev/null
+  echo "Requested one Claude continuation for $issue_identifier (symphony:claude-ready)."
+else
+  gh issue edit "$issue_number" --repo "$repo" --add-label 'symphony:ready' >/dev/null
+  echo "Requested one Codex continuation for $issue_identifier (symphony:ready)."
+fi

@@ -742,7 +742,12 @@ def dispatch_rework(number: int, state: dict[str, Any]) -> None:
     add_labels(number, "symphony:rework")
     set_repair_route(number, str(state.get("routingRecommendation") or "unchanged"))
     add_labels(number, "symphony:rearm")
-    add_labels(number, "symphony:ready")
+    current_issue = api("GET", f"/issues/{number}")
+    is_claude = "agent:claude" in labels(current_issue)
+    # Codex polls only symphony:ready. Never expose Claude repairs to the Codex queue.
+    if is_claude:
+        remove_label(number, "symphony:ready")
+    add_labels(number, "symphony:claude-ready" if is_claude else "symphony:ready")
     remove_lifecycle_except(number, {"symphony:rework"})
 
 
@@ -773,7 +778,7 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, 
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
             return True
-        if "symphony:ready" in current or "symphony:rearm" in current:
+        if "symphony:ready" in current or "symphony:claude-ready" in current or "symphony:rearm" in current:
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
             return True
@@ -784,7 +789,7 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, 
         # A completed continuation that advanced the rejected head is eligible for independent review.
         return False
     if state == "rework":
-        if "symphony:ready" in current or "symphony:rearm" in current:
+        if "symphony:ready" in current or "symphony:claude-ready" in current or "symphony:rearm" in current:
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
             return True

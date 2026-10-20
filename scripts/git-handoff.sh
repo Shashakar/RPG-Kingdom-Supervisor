@@ -10,8 +10,8 @@ usage() {
 Usage:
   git-handoff.sh health [--project PATH]
   git-handoff.sh sync-main [--project PATH]
-  git-handoff.sh prepare --branch codex/NAME [--project PATH]
-  git-handoff.sh handoff --branch codex/NAME --commit-message MESSAGE --pr-title TITLE [--pr-body BODY | --pr-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
+  git-handoff.sh prepare --branch codex/NAME|claude/NAME [--project PATH]
+  git-handoff.sh handoff --branch codex/NAME|claude/NAME --commit-message MESSAGE --pr-title TITLE [--pr-body BODY | --pr-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
   git-handoff.sh report-complete [--report-body BODY | --report-body-file PATH] [--validation-run RUN_ID ...] [--project PATH]
 
 Environment overrides:
