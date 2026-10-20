@@ -119,6 +119,19 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertEqual(result.returncode, 70)
         self.assertIn("conflicting Claude", result.stderr)
 
+    def test_autonomous_confinement_scopes_tools_and_disables_hooks(self):
+        result = self.run_pilot("--mode", "edit", "--enable-edits",
+                                "--autonomous-confined")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads((self.base / "command.json").read_text())["argv"]
+        self.assertIn("Read(/**),Edit(/**)", args)
+        self.assertNotIn("Read,Glob,Grep,Edit,Write", args)
+        self.assertIn("Read(~/.config/**)", args[args.index("--disallowedTools") + 1])
+        self.assertIn("Read(.git/**)", args[args.index("--disallowedTools") + 1])
+        self.assertEqual(args[args.index("--setting-sources") + 1], "user")
+        self.assertEqual(args[args.index("--settings") + 1], '{"disableAllHooks":true}')
+        self.assertTrue(json.loads(result.stdout)["autonomousConfined"])
+
     def test_wrong_origin_fails_closed(self):
         git(self.ws, "remote", "set-url", "origin", "https://github.com/Shashakar/RPG-Kingdom.git")
         result = self.run_pilot()
