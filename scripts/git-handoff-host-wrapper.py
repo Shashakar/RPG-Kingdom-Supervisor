@@ -349,6 +349,7 @@ def queue_review_from_handoff(result: dict[str, Any]) -> None:
         "symphony:halted",
         "symphony:rearm",
         "symphony:ready",
+        "symphony:claude-ready",
         "repair-route:luna",
         "repair-route:terra",
         "repair-route:sol",
