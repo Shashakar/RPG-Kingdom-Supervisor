@@ -14,7 +14,7 @@ from urllib import error, parse, request
 
 BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
 
-BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
+BRANCH_PATTERN = re.compile(r"^(?:codex|claude)/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
 SYNC_EVIDENCE_ENV = "RPGK_CONTINUATION_SYNC_EVIDENCE"
 
@@ -197,7 +197,7 @@ def sync_rearmed_branch(workspace: Path, branch: str) -> tuple[bool, str | None]
         return True, None
 
     if not BRANCH_PATTERN.fullmatch(branch) or ".." in branch or "//" in branch or branch.endswith("/"):
-        return False, f"branch '{branch}' is not an allowed codex/* continuation branch"
+        return False, f"branch '{branch}' is not an allowed provider/* continuation branch"
 
     current_result = run_git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     current = current_result.stdout.strip() if current_result.returncode == 0 else ""
