@@ -18,7 +18,7 @@ workspace:
 hooks:
   timeout_ms: 600000
   after_create: |
-    git clone --branch rekindle-vertical-slice --single-branch https://github.com/Shashakar/Rekindle-Claude.git .
+    git clone --branch rekindle-vertical-slice https://github.com/Shashakar/Rekindle-Claude.git .
   before_run: |
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/rekindle-migration-preflight.sh" &&
     bash "$HOME/src/RPG-Kingdom-Supervisor/scripts/before-run-guard.sh" &&
