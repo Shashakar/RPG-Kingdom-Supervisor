@@ -4,11 +4,11 @@ These instructions apply to changes in this repository.
 
 ## Purpose
 
-This repository owns orchestration for autonomous Codex work against `Shashakar/RPG-Kingdom`. It does not own game architecture, Unity gameplay code, or RPG Kingdom system design.
+This repository owns orchestration policy for `Shashakar/Rekindle-Claude` (active default) and `Shashakar/RPG-Kingdom` (legacy rollback). It does not own game architecture or Unity gameplay code. The target game's committed `AGENTS.md` and architecture documentation are authoritative.
 
 ## Boundaries
 
-- Treat `Shashakar/RPG-Kingdom` as the authoritative source for game architecture and implementation rules.
+- Treat the **selected** target repository and integration base as authoritative for game architecture and implementation rules; never assume Rekindle follows RPG Kingdom's scene or save-system contracts.
 - Do not duplicate large portions of RPG Kingdom's `AGENTS.md` or system documentation here. The worker clone must read those files directly.
 - Keep the supervisor thin. Prefer configuration and narrow adapters over a forked orchestration framework when upstream Symphony already provides the needed capability.
 - Do not add automatic merge behavior unless explicitly approved.
