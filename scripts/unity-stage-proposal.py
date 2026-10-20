@@ -78,6 +78,8 @@ def git(args: list[str], workspace: Path) -> str:
 
 
 def validate_source(workspace: Path) -> str:
+    if os.environ.get("RPGK_TARGET_PROFILE") == "rekindle":
+        raise AuditDenied("legacy RPG Kingdom stage proposal is not supported for Rekindle")
     if not ISSUE.fullmatch(workspace.name):
         raise AuditDenied("workspace name must be GH-N")
     head = git(["rev-parse", "HEAD"], workspace)
