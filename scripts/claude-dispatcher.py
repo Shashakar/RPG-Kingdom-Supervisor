@@ -229,7 +229,8 @@ def git_control_fingerprint(workspace: Path) -> str:
     if git_dir.is_symlink() or not git_dir.is_dir():
         raise DispatchError("Git control directory is not a normal isolated directory")
     controls = [
-        git_dir / "config", git_dir / "info" / "exclude",
+        git_dir / "config", git_dir / "HEAD", git_dir / "packed-refs",
+        git_dir / "info" / "exclude",
         git_dir / "info" / "attributes", git_dir / "objects" / "info" / "alternates",
         workspace / ".gitmodules", workspace / ".gitattributes",
     ]
@@ -238,6 +239,11 @@ def git_control_fingerprint(workspace: Path) -> str:
         raise DispatchError("Git hooks directory is a symlink")
     if hooks.exists():
         controls.extend(sorted(hooks.rglob("*")))
+    refs = git_dir / "refs"
+    if refs.is_symlink():
+        raise DispatchError("Git refs directory is a symlink")
+    if refs.exists():
+        controls.extend(sorted(refs.rglob("*")))
     digest = hashlib.sha256()
     for item in controls:
         relative = item.relative_to(workspace)
@@ -342,6 +348,7 @@ def execute(item: dict) -> str:
     broker(path, "prepare", branch)
     save(number, "prepared", preparedHead=run(["git", "rev-parse", "HEAD"], cwd=path))
     git_controls_before = git_control_fingerprint(path)
+    base_head_before = run(["git", "rev-parse", "HEAD"], cwd=path)
     # Labels are provided to the CLI as a JSON file outside the worktree.
     state_dir = STATE / "claude-dispatch"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -361,8 +368,8 @@ def execute(item: dict) -> str:
         result = json.loads(run(command, timeout=3650))
         if result.get("status") != "completed" or result.get("workspaceIdentityPreserved") is not True:
             raise DispatchError("Claude pilot did not complete with a preserved workspace")
-    if git_control_fingerprint(path) != git_controls_before:
-        raise DispatchError("Claude altered Git control files/hooks; refusing credentialed handoff")
+    if git_control_fingerprint(path) != git_controls_before or run(["git", "rev-parse", "HEAD"], cwd=path) != base_head_before:
+        raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
     save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
          reportedCostUsd=result.get("reportedCostUsd"))
     enforce_scope(changed_paths(path))
