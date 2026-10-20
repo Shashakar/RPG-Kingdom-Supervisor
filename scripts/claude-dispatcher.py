@@ -361,7 +361,7 @@ def execute(item: dict) -> str:
                    "--workspace", str(path), "--workspace-root", str(ROOT),
                    "--repo", REPO, "--state-root", str(STATE),
                    "--prompt-file", str(prompt_file), "--labels-json-file", str(labels_file),
-                   "--mode", "edit", "--enable-edits", "--max-turns",
+                   "--mode", "edit", "--enable-edits", "--autonomous-confined", "--max-turns",
                    os.environ.get("RPGK_CLAUDE_MAX_TURNS", "4"),
                    "--max-budget-usd", os.environ.get("RPGK_CLAUDE_MAX_BUDGET_USD", "2"),
                    "--timeout-seconds", os.environ.get("RPGK_CLAUDE_TIMEOUT_SECONDS", "900")]
