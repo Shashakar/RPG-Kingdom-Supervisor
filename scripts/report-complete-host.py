@@ -79,10 +79,10 @@ def validate_report_workspace(workspace: Path) -> str:
             details={"gitStatus": status.splitlines()[:50]},
         )
     head = core.run_git(workspace, "rev-parse", "HEAD").stdout.strip()
-    origin_main = core.run_git(workspace, "rev-parse", "origin/main").stdout.strip()
+    origin_main = core.run_git(workspace, "rev-parse", f"origin/{core.BASE_BRANCH}").stdout.strip()
     if head != origin_main:
         raise core.HandoffError(
-            "report-only completion requires HEAD to match origin/main; committed implementation work must use the normal PR handoff path",
+            "report-only completion requires HEAD to match configured base; committed implementation work must use the normal PR handoff path",
             code=75,
             status="ReportWorkspaceDirty",
             details={"head": head, "originMain": origin_main},
