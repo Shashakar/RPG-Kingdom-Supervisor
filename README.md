@@ -1,5 +1,7 @@
 # RPG Kingdom Supervisor
 
+**Claude model routing and persistent systemd services:** `claude-model:{haiku,sonnet,opus}` and `claude-effort:{low,medium,high}` select the bounded Claude CLI pilot model independently of Codex Luna/Sol. [Service and Claude routing setup](docs/CLAUDE_MODELS_SYSTEMD.md) includes the existing `rpg-kingdom-supervisor.service` and `rpg-kingdom-diagnostics.service` drop-ins, host-wide launch lock, deployment checks, and rollback. Claude remains operator-triggered, not an unattended Symphony worker.
+
 **Active target configuration (Phase 2):** Supervisor now defaults to `Shashakar/Rekindle-Claude` on the `rekindle-vertical-slice` integration branch when launched with `scripts/run-symphony.sh`. The original RPG Kingdom configuration remains selectable with `RPGK_TARGET_PROFILE=rpg-kingdom`, using independent workspaces/state. See [Claude Phase 2 and Rekindle migration](docs/CLAUDE_PHASE2_REKINDLE.md) for prerequisites, host rollout, safety gates, and rollback. Claude runs are an explicitly invoked CLI pilot, **not yet unattended Symphony dispatch**.
 
 
