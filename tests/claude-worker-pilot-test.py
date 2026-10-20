@@ -91,6 +91,34 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertIn("Read,Glob,Grep,Edit,Write", args)
         self.assertIn("Bash,Agent,WebFetch,WebSearch,NotebookEdit", args)
 
+    def test_issue_labels_choose_opus_and_effort(self):
+        labels = self.base / "labels.json"
+        labels.write_text(json.dumps({"labels": [{"name": "risk:architecture"}]}))
+        result = self.run_pilot("--labels-json-file", str(labels))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        metadata = json.loads(result.stdout)
+        self.assertEqual(metadata["requestedModel"], "opus")
+        self.assertEqual(metadata["requestedEffort"], "high")
+        self.assertEqual(metadata["modelSource"], "policy")
+        argv = json.loads((self.base / "command.json").read_text())["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "opus")
+        self.assertEqual(argv[argv.index("--effort") + 1], "high")
+
+    def test_manual_override_and_conflicting_labels(self):
+        labels = self.base / "labels.json"
+        labels.write_text('["claude-model:haiku", "risk:mechanical"]')
+        result = self.run_pilot("--labels-json-file", str(labels), "--model", "sonnet",
+                                "--effort", "high", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        metadata = json.loads(result.stdout)
+        self.assertEqual(metadata["requestedModel"], "sonnet")
+        self.assertEqual(metadata["requestedEffort"], "high")
+        self.assertEqual(metadata["modelSource"], "operator-cli")
+        labels.write_text('["claude-model:opus", "claude-model:sonnet"]')
+        result = self.run_pilot("--labels-json-file", str(labels), "--dry-run")
+        self.assertEqual(result.returncode, 70)
+        self.assertIn("conflicting Claude", result.stderr)
+
     def test_wrong_origin_fails_closed(self):
         git(self.ws, "remote", "set-url", "origin", "https://github.com/Shashakar/RPG-Kingdom.git")
         result = self.run_pilot()
