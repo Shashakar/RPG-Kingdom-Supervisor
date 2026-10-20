@@ -43,6 +43,14 @@ create_label "risk:investigative" "1D76DB" "Ambiguous debugging or multi-layer i
 create_label "risk:architecture" "D4C5F9" "Architecture-sensitive/cross-system work; defaults to GPT-6 Sol / high"
 create_label "risk:end-to-end" "5319E7" "Hardest end-to-end execution; defaults to GPT-6 Sol / high"
 
+# Agent/provider labels select WHO works; model/effort labels below select WHICH Codex tier.
+# agent:auto (or no agent label) uses the deterministic classification policy.
+create_label "agent:codex" "1D76DB" "Explicit operator override: route this task to Codex"
+create_label "agent:claude" "8B5CF6" "Explicit operator override: Claude manual handoff (no autonomous adapter yet)"
+create_label "agent:auto" "C5DEF5" "Choose recommended provider using work/authoring labels"
+create_label "work:deterministic" "BFD4F2" "Deterministic engineering/tests/tooling; normally route to Codex"
+create_label "work:visual-unity" "D4C5F9" "Visual Unity scene/animation/asset judgment; normally route to Claude"
+
 create_label "model:luna" "EDEDED" "Explicitly route this Symphony task to GPT-6 Luna"
 create_label "model:sol" "FFD966" "Explicitly route this Symphony task to GPT-6 Sol"
 
