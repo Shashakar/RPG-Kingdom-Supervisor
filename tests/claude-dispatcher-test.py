@@ -73,6 +73,14 @@ class ClaudeDispatcherTest(unittest.TestCase):
         with self.assertRaisesRegex(self.mod.DispatchError, "empty PR"):
             self.mod.enforce_scope([])
 
+    def test_changed_symlink_denied(self):
+        ws = self.root / "GH-91"
+        (ws / "Assets").mkdir(parents=True)
+        target = ws / "Assets" / "linked.cs"
+        target.symlink_to("/etc/hosts")
+        with self.assertRaisesRegex(self.mod.DispatchError, "symlink"):
+            self.mod.enforce_scope(["Assets/linked.cs"], ws)
+
     def test_git_control_fingerprint_detects_tampering(self):
         path = self.root / "GH-91"
         git_dir = path / ".git"
