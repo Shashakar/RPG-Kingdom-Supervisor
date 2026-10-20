@@ -7,6 +7,7 @@ SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
 # Explicit target profile. Separate workspace and host state roots prevent GH-number collisions.
 # Preserve the original RPG Kingdom workflow for deliberate rollback.
 RPGK_TARGET_PROFILE="${RPGK_TARGET_PROFILE:-rekindle}"
+SELECTED_TARGET_PROFILE="$RPGK_TARGET_PROFILE"
 case "$RPGK_TARGET_PROFILE" in
   rekindle)
     export RPGK_REPO="Shashakar/Rekindle-Claude"
@@ -74,6 +75,7 @@ fi
 
 # Secrets may contain stale RPG Kingdom overrides. Do not permit mismatched tracker,
 # clone, Git handoff or state ownership after choosing an explicit profile above.
+[[ "$RPGK_TARGET_PROFILE" == "$SELECTED_TARGET_PROFILE" ]] || { echo "ERROR: secrets changed selected target profile" >&2; exit 73; }
 case "$RPGK_TARGET_PROFILE" in
   rekindle)
     [[ "$RPGK_REPO" == "Shashakar/Rekindle-Claude" &&
