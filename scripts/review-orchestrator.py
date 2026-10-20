@@ -14,6 +14,7 @@ from typing import Any
 from urllib import error, parse, request
 
 REPO = os.environ.get("RPGK_REPO", "Shashakar/RPG-Kingdom")
+BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
 API_ROOT = os.environ.get("RPGK_GITHUB_API_ROOT", "https://api.github.com").rstrip("/")
 TOKEN = os.environ.get("SYMPHONY_GITHUB_TOKEN", "")
 SUPERVISOR_ROOT = Path(os.environ.get("RPGK_SUPERVISOR_ROOT", str(Path.home() / "src/RPG-Kingdom-Supervisor"))).expanduser()
@@ -522,7 +523,7 @@ def run_git(workspace: Path, *args: str) -> str:
 
 def open_pr(branch: str) -> dict[str, Any] | None:
     owner = REPO.split("/", 1)[0]
-    query = parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "base": "main", "per_page": 10})
+    query = parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "base": BASE_BRANCH, "per_page": 10})
     values = api("GET", f"/pulls?{query}") or []
     return values[0] if values else None
 
@@ -566,7 +567,7 @@ Human-requested rework context:
 
 Review requirements:
 1. Read repository-root AGENTS.md and only the architecture/system docs it requires for the changed scope.
-2. Inspect the actual current diff with `git diff origin/main...HEAD` and changed-file list. Repository state, not prior worker prose or hidden reasoning, is authoritative.
+2. Inspect the actual current diff with `git diff origin/{BASE_BRANCH}...HEAD` and changed-file list. Repository state, not prior worker prose or hidden reasoning, is authoritative.
 3. Inspect relevant tests and the latest Supervisor Unity artifacts under Logs/SymphonyUnity when validation is material.
 4. Check correctness, architecture/system boundaries, regression risk, persistence/save contracts, tests, docs, and whether validation actually proves the changed behavior.
 5. Do not manufacture blockers. Minor non-blocking suggestions may be findings, but `changes_required` means the PR should not enter human integration review yet.
