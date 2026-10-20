@@ -853,6 +853,11 @@ def process(issue: dict[str, Any]) -> None:
         return
 
     prior = latest_state(number)
+    # The first metadata recheck may occur after a halted source-less Claude
+    # attempt. Halted is still a hard gate for ordinary source repair.
+    metadata_recheck = metadata_only_recheck_allowed(pr, prior)
+    if "symphony:halted" in labels(issue) and not metadata_recheck:
+        return
     if prior and reconcile_prior_state(issue, workspace, pr, prior):
         return
 
@@ -888,6 +893,14 @@ def process(issue: dict[str, Any]) -> None:
 
     review_text = state_comment(state, verdict)
     post_comment(int(pr["number"]), review_text)
+
+    if state.get("metadataOnlyRecheck") and verdict["verdict"] != "approved":
+        state["state"] = "human_attention"
+        state["reason"] = "metadata_recheck_failed"
+        persist_state(number, state, review_text + "\\n\\nMetadata-only re-review did not approve; human attention required.")
+        add_labels(number, "symphony:human-attention")
+        remove_lifecycle_except(number, {"symphony:human-attention"})
+        return
 
     if verdict["verdict"] == "approved" and not verdict.get("requires_human"):
         state["state"] = "human_review"
