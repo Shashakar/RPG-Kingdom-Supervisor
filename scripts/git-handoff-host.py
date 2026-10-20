@@ -483,7 +483,7 @@ def create_or_update_pr(
         token,
         "POST",
         f"/repos/{owner}/{repo}/pulls",
-        {"title": title, "head": branch, "base": "main", "body": body, "draft": False},
+        {"title": title, "head": branch, "base": "main", "body": body, "draft": True},
     )
     return int(created["number"]), str(created["html_url"]), True
 

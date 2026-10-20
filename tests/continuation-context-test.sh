@@ -20,7 +20,7 @@ fi
 case "$1" in
   repos/Shashakar/RPG-Kingdom/issues/98/comments?per_page=100)
     cat <<'JSON'
-[{"created_at":"2026-09-10T21:00:00Z","user":{"login":"old"},"body":"Old issue chatter"},{"created_at":"2026-09-10T22:30:00Z","user":{"login":"owner"},"body":"New continuation requirement"}]
+[{"created_at":"2026-09-10T21:00:00Z","user":{"login":"old"},"body":"Old issue chatter"},{"created_at":"2026-09-10T22:10:00Z","user":{"login":"bot"},"body":"## Symphony halt diagnosis\\nHistorical cancelled Unity operation"},{"created_at":"2026-09-10T22:20:00Z","user":{"login":"owner"},"body":"Verified broker is idle <!-- rpgk-unity-recovery-reconciled -->"},{"created_at":"2026-09-10T22:30:00Z","user":{"login":"owner"},"body":"New continuation requirement"}]
 JSON
     ;;
   repos/Shashakar/RPG-Kingdom/pulls?state=open\&head=Shashakar:codex%2Fgh-98-humanoid-animator-fix\&per_page=10)
@@ -70,6 +70,8 @@ grep -Fq 'Review-body authoritative repair' AGENTS.override.md
 grep -Fq '### PR review by reviewer' AGENTS.override.md
 grep -Fq 'Unresolved inline blocker' AGENTS.override.md
 grep -Fq 'New continuation requirement' AGENTS.override.md
+grep -Fq 'Verified broker is idle' AGENTS.override.md
+! grep -Fq 'Historical cancelled Unity operation' AGENTS.override.md
 grep -Fq 'Implement the runtime production repair even though this directive predates the attempt marker.' AGENTS.override.md
 grep -Fq 'New PR continuation comment' AGENTS.override.md
 ! grep -Fq 'Old issue chatter' AGENTS.override.md

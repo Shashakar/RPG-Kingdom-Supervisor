@@ -93,7 +93,7 @@ The host runner fails closed unless all applicable checks pass:
 - when the workspace contains a prior completed-attempt marker, every supplied Unity run is newer than that marker;
 - an existing PR is rewritten only when the remote feature branch advances or the handoff carries fresh current-attempt Unity evidence;
 - push succeeds without force and the remote branch SHA verifies back to the local commit;
-- the PR exists against `main` before the `symphony:ready` dispatch lease is removed.
+- a new PR is created as a draft against `main` before the `symphony:ready` dispatch lease is removed. Updating an existing PR leaves its current draft state to human control.
 
 A normal handoff operation may stage and commit the issue's source changes, but it will not rebase, force-push, delete branches, or mutate another repository. The reviewed-continuation **prepare** path may create a normal merge commit from current `origin/main` when required to refresh a clean preserved branch; it never rewrites the continuation's existing commits.
 

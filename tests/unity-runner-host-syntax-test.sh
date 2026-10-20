@@ -72,7 +72,7 @@ if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v wslpath >/dev/nul
   exit 0
 fi
 
-for script in "$PS_SCRIPT" "$AUTHOR_PS_SCRIPT"; do
+for script in "$PS_SCRIPT" "$AUTHOR_PS_SCRIPT" "$ROOT/scripts/windows/test-unity-progress-publication.ps1"; do
   script_windows="$(wslpath -w "$script")"
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
     "\$tokens = \$null; \$errors = \$null; [System.Management.Automation.Language.Parser]::ParseFile('$script_windows', [ref]\$tokens, [ref]\$errors) | Out-Null; if (\$errors.Count -gt 0) { \$errors | ForEach-Object { [Console]::Error.WriteLine(\$_.Message) }; exit 1 }" \

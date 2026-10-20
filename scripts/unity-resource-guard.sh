@@ -17,6 +17,7 @@ UNITY_SMOKE_FILTER="${RPGK_UNITY_PREFLIGHT_SMOKE_FILTER:-RPGKingdom.Tests.EditMo
 UNITY_SMOKE_STATUS="$STATE_ROOT/unity-broker/readiness-smoke.json"
 DRY_RUN="${RPGK_UNITY_GUARD_DRY_RUN:-0}"
 SKIP_READINESS_SMOKE="${RPGK_UNITY_GUARD_SKIP_READINESS_SMOKE:-0}"
+SMOKE_DIAGNOSIS=""
 STRUCTURAL_PREFLIGHT="${RPGK_STRUCTURAL_PREFLIGHT:-$ROOT/scripts/structural-authoring-preflight.py}"
 CAPABILITY_CONTRACT="${RPGK_SCENE_AUTHORING_CAPABILITY_CONTRACT:-$PWD/Assets/RPGKingdom/Editor/SymphonyMechanicalSceneAuthoringCapabilities.json}"
 
@@ -72,6 +73,7 @@ halt_issue() {
 Symphony halted this dispatch during the Unity preflight before launching Codex.
 
 Reason: $reason
+${SMOKE_DIAGNOSIS}
 
 No Unity result was invented and no additional Codex worker lifetime was intentionally consumed. Resolve the Unity scheduling/preflight condition, then explicitly rearm the issue when another bounded attempt is justified.
 EOF
@@ -83,6 +85,17 @@ EOF
 broker_is_idle() {
   [[ -f "$BROKER_STATUS" ]] || return 1
   jq -e '.protocolVersion == 1 and .state == "ready" and .activeRequest == null' "$BROKER_STATUS" >/dev/null 2>&1
+}
+
+owned_readiness_smoke_is_active() {
+  [[ -f "$BROKER_STATUS" ]] || return 1
+  jq -e --arg issue "$issue_identifier" --arg workspace "$PWD" --arg filter "$UNITY_SMOKE_FILTER" '
+    .protocolVersion == 1 and .state == "running" and
+    .activeRequest.issue == $issue and .activeRequest.workspace == $workspace and
+    .activeRequest.operation == "editmode" and .activeRequest.testFilter == $filter and
+    (if .activeRequest.workerPid != null then .activeRequest.workerAlive == true
+     else .activeRequest.clientAlive == true end)
+  ' "$BROKER_STATUS" >/dev/null 2>&1
 }
 
 owner_issue_is_inactive() {
@@ -166,10 +179,13 @@ run_readiness_smoke() {
     return 0
   fi
 
+  local smoke_started_epoch
+  smoke_started_epoch="$(date +%s)"
   set +e
   smoke_output="$(bash "$UNITY_RUNNER" editmode --project "$PWD" --filter "$UNITY_SMOKE_FILTER" 2>&1)"
   smoke_status=$?
   if (( smoke_status != 0 )); then
+    SMOKE_DIAGNOSIS="$(python3 "$ROOT/scripts/unity-preflight-diagnostic.py" --workspace "$PWD" --after-epoch "$smoke_started_epoch" --operation editmode 2>/dev/null || true)"
     smoke_reason="$(tr '\n' ' ' <<<"$smoke_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-400)"
     echo "RPG Kingdom Unity guard: Unity readiness smoke failed (exit $smoke_status): $smoke_reason" >&2
     return "$smoke_status"
@@ -180,6 +196,23 @@ run_readiness_smoke() {
 }
 
 acquire_lock() {
+  local transaction_fd result
+  # Keep this file outside the replaceable lock directory. Serialize inspection,
+  # stale recovery and acquisition so a contender cannot reclaim a new owner
+  # using the stale-owner evidence it read before another contender acquired it.
+  exec {transaction_fd}>"$STATE_ROOT/locks/unity-editor.transaction.lock"
+  flock -x "$transaction_fd"
+  if acquire_lock_transaction; then
+    result=0
+  else
+    result=$?
+  fi
+  flock -u "$transaction_fd"
+  exec {transaction_fd}>&-
+  return "$result"
+}
+
+acquire_lock_transaction() {
   local attempt owner recovery_status
 
   for attempt in 1 2; do
@@ -367,10 +400,24 @@ if [[ "$resource_mode" == "none" ]]; then
   exit 0
 fi
 
-set +e
-health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"
-health_status=$?
-set -e
+busy_wait_seconds="${RPGK_UNITY_PREFLIGHT_BUSY_WAIT_SECONDS:-30}"
+if [[ ! "$busy_wait_seconds" =~ ^[0-9]{1,3}$ ]] || (( 10#$busy_wait_seconds > 300 )); then
+  echo "RPG Kingdom Unity guard: busy wait must be an integer from 0 to 300 seconds" >&2
+  exit 64
+fi
+health_deadline=$((SECONDS + 10#$busy_wait_seconds))
+while true; do
+  if health_output="$(bash "$UNITY_RUNNER" health --project "$PWD" 2>&1)"; then
+    health_status=0
+  else
+    health_status=$?
+  fi
+  if (( health_status != 87 || SECONDS >= health_deadline )) || ! owned_readiness_smoke_is_active; then
+    break
+  fi
+  echo "RPG Kingdom Unity guard: waiting for this issue's live readiness smoke before retrying health" >&2
+  sleep 0.1
+done
 if (( health_status != 0 )); then
   health_reason="$(tr '\n' ' ' <<<"$health_output" | sed -E 's/[[:space:]]+/ /g' | cut -c1-300)"
   halt_issue "Unity runner health check failed (exit $health_status): $health_reason"

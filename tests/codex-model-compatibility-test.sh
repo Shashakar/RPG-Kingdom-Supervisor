@@ -15,6 +15,18 @@ if [[ "${1:-}" == "--version" ]]; then
   echo "codex-cli test"
   exit 0
 fi
+# A prompt argument does not stop current Codex from reading an inherited pipe.
+# The compatibility gate must give exec EOF even when its caller keeps stdin open.
+if IFS= read -r -t 1 extra_input; then
+  echo "probe received unexpected stdin: $extra_input" >&2
+  exit 91
+else
+  read_status=$?
+  if [[ "$read_status" -ne 1 ]]; then
+    echo "probe stdin remained open (read status $read_status)" >&2
+    exit 92
+  fi
+fi
 printf '%s\n' "$*" >> "${RPGK_TEST_CODEX_CALLS:?}"
 if [[ "$*" == *"--model bad-sol"* ]]; then
   echo "ERROR: The 'bad-sol' model is not supported when using Codex with a ChatGPT account." >&2
@@ -25,7 +37,7 @@ MOCK
 chmod +x "$TMP/bin/codex"
 export RPGK_TEST_CODEX_CALLS="$TMP/calls"
 
-bash "$ROOT/scripts/codex-model-compatibility.sh" --model good-sol --issue GH-1
+bash "$ROOT/scripts/codex-model-compatibility.sh" --model good-sol --issue GH-1 < <(sleep 3)
 [[ ! -e "$TMP/state/model-errors/GH-1.json" ]]
 [[ "$(wc -l < "$TMP/calls")" -eq 1 ]]
 
