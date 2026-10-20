@@ -8,6 +8,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 python3 "$ROOT/tests/unity-stage-simple-handoff-test.py"
 
+python3 "$ROOT/tests/claude-model-policy-test.py"
+python3 "$ROOT/tests/service-profile-test.py"
 python3 "$ROOT/tests/claude-worker-pilot-test.py"
 python3 "$ROOT/tests/rekindle-migration-test.py"
 bash "$ROOT/tests/routing-policy-test.sh"
@@ -100,6 +102,7 @@ python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
   "$ROOT/scripts/claude-worker-pilot.py" \
+  "$ROOT/scripts/claude_model_policy.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
   "$ROOT/scripts/dashboard_update.py" \
   "$ROOT/scripts/finished_tasks.py" \
@@ -143,6 +146,8 @@ python3 -m py_compile \
   "$ROOT/scripts/unity-c3-real-worker-setup.py" \
   "$ROOT/scripts/unity-host-broker.py" \
   "$ROOT/scripts/unity_run_history.py"
+bash -n "$ROOT/scripts/host-instance-lock.sh"
+bash -n "$ROOT/scripts/install-rekindle-service-profile.sh"
 bash -n "$ROOT/scripts/after-run-guard.sh"
 bash -n "$ROOT/scripts/rekindle-migration-preflight.sh"
 bash -n "$ROOT/scripts/before-run-guard.sh"

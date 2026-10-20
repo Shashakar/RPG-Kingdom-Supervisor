@@ -51,6 +51,13 @@ create_label "agent:auto" "C5DEF5" "Choose recommended provider using work/autho
 create_label "work:deterministic" "BFD4F2" "Deterministic engineering/tests/tooling; normally route to Codex"
 create_label "work:visual-unity" "D4C5F9" "Visual Unity scene/animation/asset judgment; normally route to Claude"
 
+# Claude-specific model and effort policy; Codex model:luna/sol labels remain independent.
+create_label "claude-model:haiku" "EDEDED" "Claude operator override: efficient small tasks"
+create_label "claude-model:sonnet" "BFD4F2" "Claude operator override: general coding and Unity design"
+create_label "claude-model:opus" "D4C5F9" "Claude operator override: investigations and architecture"
+create_label "claude-effort:low" "EDEDED" "Claude operator effort override: low"
+create_label "claude-effort:medium" "FBCA04" "Claude operator effort override: medium"
+create_label "claude-effort:high" "B60205" "Claude operator effort override: high"
 create_label "model:luna" "EDEDED" "Explicitly route this Symphony task to GPT-6 Luna"
 create_label "model:sol" "FFD966" "Explicitly route this Symphony task to GPT-6 Sol"
 
