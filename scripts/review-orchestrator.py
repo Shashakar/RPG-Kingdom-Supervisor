@@ -751,6 +751,36 @@ def dispatch_rework(number: int, state: dict[str, Any]) -> None:
     remove_lifecycle_except(number, {"symphony:rework"})
 
 
+def metadata_only_recheck_allowed(pr: dict[str, Any], prior: dict[str, Any]) -> bool:
+    """Permit one re-review of metadata-only findings when the PR description changed.
+
+    A same-head re-review is otherwise forbidden. Only description-only findings
+    qualify; all source, test, security and ambiguous findings require a new commit
+    or human attention. Store the reviewed body in durable state for restart safety.
+    """
+    if prior.get("state") != "rework" or prior.get("prHeadSha") != pr["head"]["sha"]:
+        return False
+    history = prior.get("history") or []
+    if not history or history[-1].get("verdict") != "changes_required":
+        return False
+    findings = history[-1].get("findings") or []
+    if not findings or not all(
+        isinstance(f, dict)
+        and f.get("category") == "docs"
+        and not f.get("path")
+        and any(term in (str(f.get("description", "")) + " " + str(f.get("suggested_action", ""))).lower()
+                for term in ("pr description", "pull request description", "pr body"))
+        for f in findings
+    ):
+        return False
+    previous_body = prior.get("reviewedPrBody")
+    current_body = pr.get("body") or ""
+    if not isinstance(previous_body, str) or current_body == previous_body:
+        return False
+    # Only one same-head metadata re-review per reviewed generation.
+    return not any(entry.get("metadataOnlyRecheck") for entry in history)
+
+
 def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, Any], prior: dict[str, Any]) -> bool:
     number = int(issue["number"])
     current = labels(issue)
@@ -789,6 +819,8 @@ def reconcile_prior_state(issue: dict[str, Any], workspace: Path, pr: dict[str, 
         # A completed continuation that advanced the rejected head is eligible for independent review.
         return False
     if state == "rework":
+        if metadata_only_recheck_allowed(pr, prior):
+            return False
         if "symphony:ready" in current or "symphony:claude-ready" in current or "symphony:rearm" in current:
             add_labels(number, "symphony:rework")
             remove_label(number, "symphony:agent-review")
@@ -829,6 +861,8 @@ def process(issue: dict[str, Any]) -> None:
     state = {
         "state": "agent_review", "issue": number, "prNumber": int(pr["number"]), "prHeadSha": pr["head"]["sha"],
         "reviewCycle": len(prior_history) + 1, "repairAttempts": repairs, "maxRepairAttempts": MAX_REPAIRS,
+        "reviewedPrBody": pr.get("body") or "",
+        "metadataOnlyRecheck": metadata_only_recheck_allowed(pr, prior),
         "history": list(prior_history),
     }
     rework_context = human_rework_context(number, prior, pr["head"]["sha"]) if prior else None
@@ -849,6 +883,8 @@ def process(issue: dict[str, Any]) -> None:
     state["routingRecommendation"] = verdict["routing_recommendation"]
     state["reason"] = verdict.get("reason", "none")
     state["history"].append(history_entry(state, verdict))
+    if state.get("metadataOnlyRecheck"):
+        state["history"][-1]["metadataOnlyRecheck"] = True
 
     review_text = state_comment(state, verdict)
     post_comment(int(pr["number"]), review_text)
