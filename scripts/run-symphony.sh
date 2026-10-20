@@ -72,6 +72,34 @@ if [[ -f "$SECRETS_FILE" ]]; then
   source "$SECRETS_FILE"
 fi
 
+# Secrets may contain stale RPG Kingdom overrides. Do not permit mismatched tracker,
+# clone, Git handoff or state ownership after choosing an explicit profile above.
+case "$RPGK_TARGET_PROFILE" in
+  rekindle)
+    [[ "$RPGK_REPO" == "Shashakar/Rekindle-Claude" &&
+       "$RPGK_REPO_OWNER" == "Shashakar" &&
+       "$RPGK_REPO_NAME" == "Rekindle-Claude" &&
+       "$RPGK_BASE_BRANCH" == "rekindle-vertical-slice" ]] || {
+      echo "ERROR: secrets/environment changed the Rekindle target profile" >&2
+      exit 73
+    }
+    ;;
+  rpg-kingdom)
+    [[ "$RPGK_REPO" == "Shashakar/RPG-Kingdom" &&
+       "$RPGK_REPO_OWNER" == "Shashakar" &&
+       "$RPGK_REPO_NAME" == "RPG-Kingdom" &&
+       "$RPGK_BASE_BRANCH" == "main" ]] || {
+      echo "ERROR: secrets/environment changed the RPG Kingdom target profile" >&2
+      exit 73
+    }
+    ;;
+esac
+[[ "$RPGK_SYMPHONY_WORKSPACE_ROOT" == "$WORKSPACE_ROOT" &&
+   "$RPGK_SUPERVISOR_STATE_ROOT" == "$STATE_ROOT" ]] || {
+  echo "ERROR: target workspace/state root changed after startup profile selection" >&2
+  exit 73
+}
+
 if [[ -z "${SYMPHONY_GITHUB_TOKEN:-}" ]]; then
   echo "ERROR: SYMPHONY_GITHUB_TOKEN is not set." >&2
   echo "Expected secrets file: $SECRETS_FILE" >&2
