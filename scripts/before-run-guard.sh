@@ -10,6 +10,9 @@ WORKER_STATUS=".symphony-worker-status.json"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 LOCK_DIR="$STATE_ROOT/locks/unity-editor.lock"
 
+# shellcheck source=routing-policy.sh
+source "$(dirname "${BASH_SOURCE[0]}")/routing-policy.sh"
+
 ensure_supervisor_state_git_excluded() {
   local exclude_file path pattern
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -105,6 +108,19 @@ api() {
 }
 
 labels_json="$(api GET "/issues/$issue_number/labels?per_page=100")"
+# Reject manual-Claude tasks before consuming rearm approval or acquiring the Unity resource.
+# The launcher also repeats this gate as defense in depth if tracker credentials are missing here.
+provider_labels="$(jq -r '.[].name // empty' <<<"$labels_json")"
+if ! provider_selection="$(rpgk_select_provider "$provider_labels")"; then
+  echo "RPG Kingdom budget guard: conflicting provider/classification labels for $issue_identifier" >&2
+  exit 74
+fi
+IFS=$'\t' read -r provider provider_source provider_reason <<<"$provider_selection"
+if [[ "$provider" != "codex" ]]; then
+  echo "RPG Kingdom budget guard: $issue_identifier is Claude-only ($provider_source: $provider_reason); remove symphony:ready and use manual handoff" >&2
+  exit 74
+fi
+
 rearm_requested=0
 if jq -e '.[] | select((.name | ascii_downcase) == "symphony:rearm")' >/dev/null <<<"$labels_json"; then
   rearm_requested=1
