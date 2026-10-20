@@ -3,6 +3,7 @@ set -euo pipefail
 
 RPGK_REPO_OWNER="${RPGK_REPO_OWNER:-Shashakar}"
 RPGK_REPO_NAME="${RPGK_REPO_NAME:-RPG-Kingdom}"
+BASE_BRANCH="${RPGK_BASE_BRANCH:-main}"
 API_ROOT="${RPGK_GITHUB_API_ROOT:-https://api.github.com}"
 TOKEN="${SYMPHONY_GITHUB_TOKEN:-}"
 MARKER="${RPGK_ATTEMPT_MARKER:-.symphony-attempt-complete}"
@@ -126,7 +127,7 @@ enqueue_agent_review() {
   branch="$(git branch --show-current 2>/dev/null || true)"
   [[ -n "$branch" ]] || return 0
   encoded_branch="$(jq -rn --arg value "$branch" '$value|@uri')"
-  pulls="$(api GET "/pulls?state=open&head=$RPGK_REPO_OWNER:$encoded_branch&base=main&per_page=10")"
+  pulls="$(api GET "/pulls?state=open&head=$RPGK_REPO_OWNER:$encoded_branch&base=$BASE_BRANCH&per_page=10")"
   pr_number="$(jq -r '.[0].number // empty' <<<"$pulls")"
   pr_head="$(jq -r '.[0].head.sha // empty' <<<"$pulls")"
   [[ -n "$pr_number" && -n "$pr_head" ]] || return 0
