@@ -122,3 +122,39 @@ rpgk_select_route() {
 
   printf '%s\t%s\t%s\n' "$model" "$effort" "$route"
 }
+
+# Provider selection is intentionally separate from Codex model/effort selection.
+# Phase 1 is advisory for Claude (manual handoff) and executable for Codex only.
+# Prints: <provider>\t<source>\t<reason>
+# Fails closed on contradictory provider/classification labels.
+rpgk_select_provider() {
+  local labels="${1:-}"
+  local agent_labels=(agent:codex agent:claude agent:auto)
+  local work_labels=(work:deterministic work:visual-unity)
+
+  if (( $(rpgk_count_labels "$labels" "${agent_labels[@]}") > 1 )); then
+    printf 'conflicting agent provider labels\n' >&2
+    return 8
+  fi
+  if (( $(rpgk_count_labels "$labels" "${work_labels[@]}") > 1 )); then
+    printf 'conflicting work classification labels\n' >&2
+    return 9
+  fi
+
+  # Human overrides outrank every automatically inferred recommendation.
+  if rpgk_has_label agent:codex "$labels"; then
+    printf 'codex\toverride\tagent:codex\n'
+  elif rpgk_has_label agent:claude "$labels"; then
+    printf 'claude\toverride\tagent:claude\n'
+  elif rpgk_has_label work:visual-unity "$labels"; then
+    printf 'claude\tauto\twork:visual-unity\n'
+  elif rpgk_has_label work:deterministic "$labels"; then
+    printf 'codex\tauto\twork:deterministic\n'
+  elif rpgk_has_label authoring:scene-existing-composition "$labels" ||
+       rpgk_has_label authoring:scene-new-composition "$labels"; then
+    printf 'claude\tauto\tvisual-scene-composition\n'
+  else
+    # Legacy issues retain the current Codex execution behavior.
+    printf 'codex\tdefault\tunclassified\n'
+  fi
+}

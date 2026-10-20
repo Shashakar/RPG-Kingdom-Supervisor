@@ -23,6 +23,19 @@ identifier="GH-$issue_number"
 
 labels="$(gh issue view "$issue_number" --repo "$RPGK_REPO" --json labels --jq '.labels[].name')"
 
+# Provider is selected before any Codex-specific capability, quota, or telemetry work.
+# Claude tasks are manual-only in Phase 1; never launch them through Codex.
+if ! provider_selection="$(rpgk_select_provider "$labels")"; then
+  echo "RPG Kingdom router: GH-$issue_number has conflicting provider/classification labels" >&2
+  exit 65
+fi
+IFS=$'\t' read -r provider provider_source provider_reason <<<"$provider_selection"
+if [[ "$provider" != "codex" ]]; then
+  echo "RPG Kingdom router: GH-$issue_number routed to Claude ($provider_source: $provider_reason); Claude execution is not integrated in Phase 1." >&2
+  echo "RPG Kingdom router: remove symphony:ready and hand off manually. Only an explicit agent:codex override permits Codex dispatch." >&2
+  exit 66
+fi
+
 if ! route="$(rpgk_select_route "$labels")"; then
   echo "RPG Kingdom router: refusing to start Codex for GH-$issue_number because routing labels conflict" >&2
   exit 65

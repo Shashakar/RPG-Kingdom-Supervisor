@@ -85,6 +85,18 @@ set -e
 [[ "$status" -eq 73 ]] || { echo "expected prior-attempt guard to exit 73 without rearm, got $status" >&2; exit 1; }
 [[ -e "$TMP/GH-456/.symphony-attempt-complete" ]] || { echo "blocked retry unexpectedly removed the attempt marker" >&2; exit 1; }
 
+# A Claude-selected issue must be refused before the one-shot rearm is consumed.
+: > "$TMP/curl.log"
+set +e
+FAKE_LABELS_JSON='[{"name":"symphony:ready"},{"name":"symphony:rearm"},{"name":"agent:claude"}]' run_guard >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 74 ]] || { echo "expected Claude preflight refusal (74), got $status" >&2; exit 1; }
+if grep -Fq '/issues/456/labels/symphony%3Arearm' "$TMP/curl.log"; then
+  echo "Claude refusal consumed rearm authorization" >&2
+  exit 1
+fi
+
 # Reproduce the #98 residue from a handoff that staged the marker before local exclusion existed.
 # Preflight may safely remove this reserved runtime path from the index because it is absent from HEAD,
 # but it must preserve the durable marker on disk.

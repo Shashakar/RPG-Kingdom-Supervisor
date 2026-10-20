@@ -42,6 +42,21 @@ actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
 [[ "$actual" == $'gpt-6-sol\tmedium\tsol' ]]
 
 
+# Claude routing must refuse dispatch even in dry-run mode; explicit Codex wins.
+export RPGK_TEST_LABELS=$'agent:auto\nwork:visual-unity'
+if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
+  echo "Router launched a Claude-recommended task through Codex" >&2
+  exit 1
+fi
+export RPGK_TEST_LABELS='agent:claude'
+if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
+  echo "Router accepted a Claude override as Codex work" >&2
+  exit 1
+fi
+export RPGK_TEST_LABELS=$'agent:codex\nwork:visual-unity\nrisk:investigative'
+actual="$(bash "$ROOT/scripts/codex-app-server-router.sh")"
+[[ "$actual" == $'gpt-6-sol\tmedium\tsol' ]]
+
 export RPGK_TEST_LABELS=$'model:luna\nmodel:sol'
 if bash "$ROOT/scripts/codex-app-server-router.sh" >/dev/null 2>&1; then
   echo "Router accepted conflicting model labels" >&2
