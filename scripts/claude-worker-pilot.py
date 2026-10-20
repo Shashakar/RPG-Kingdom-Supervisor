@@ -135,54 +135,54 @@ def execute(args: argparse.Namespace) -> dict:
             fcntl.flock(issue_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise ValueError("another Supervisor worker holds this mutation slot or issue") from exc
-            start = time.monotonic()
-            process = subprocess.Popen(
-                cli, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                start_new_session=True,
-            )
-            try:
-                stdout, stderr = process.communicate(timeout=args.timeout_seconds)
-                expired = False
-            except subprocess.TimeoutExpired:
-                expired = True
-                os.killpg(process.pid, signal.SIGKILL)
-                stdout, stderr = process.communicate()
-            final = terminal_result(stdout[:2_000_000])
-            # Claude CLI permissions are not an OS sandbox: verify the checkout's Git
-            # identity and refuse to call read-only audit a success if it mutated files.
-            try:
-                post_branch = git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD")
-                post_origin = normalized_origin(git(workspace, "remote", "get-url", "origin"))
-                changed_paths = git(workspace, "status", "--porcelain", "--untracked-files=normal").splitlines()[:80]
-                workspace_ok = post_branch == branch and post_origin == args.repo.lower()
-            except (ValueError, subprocess.SubprocessError):
-                workspace_ok, changed_paths = False, []
-            audit_modified = args.mode == "audit" and bool(changed_paths)
-            succeeded = (
-                not expired and process.returncode == 0 and bool(final)
-                and final.get("is_error") is False and final.get("subtype") == "success"
-                and workspace_ok and not audit_modified
-            )
-            metadata.update({
-                "changedPaths": changed_paths,
-                "workspaceIdentityPreserved": workspace_ok,
-                "status": "completed" if succeeded else ("timed-out" if expired else "failed"),
-                "exitCode": process.returncode,
-                "elapsedSeconds": round(time.monotonic() - start, 2),
-                "sessionId": str(final.get("session_id") or "")[:128],
-                "turns": final.get("num_turns"),
-                # Report only provider-supplied cost; never infer subscription allowances.
-                "reportedCostUsd": final.get("total_cost_usd"),
-                "result": str(final.get("result") or "")[:1200],
-                "stderrExcerpt": stderr[-1500:],
-            })
-            report = dest / "latest.json"
-            tmp = dest / f".{process.pid}.tmp"
-            tmp.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-            os.chmod(tmp, 0o600)
-            tmp.replace(report)
-            return metadata
+        start = time.monotonic()
+        process = subprocess.Popen(
+            cli, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=args.timeout_seconds)
+            expired = False
+        except subprocess.TimeoutExpired:
+            expired = True
+            os.killpg(process.pid, signal.SIGKILL)
+            stdout, stderr = process.communicate()
+        final = terminal_result(stdout[:2_000_000])
+        # Claude CLI permissions are not an OS sandbox: verify the checkout's Git
+        # identity and refuse to call read-only audit a success if it mutated files.
+        try:
+            post_branch = git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD")
+            post_origin = normalized_origin(git(workspace, "remote", "get-url", "origin"))
+            changed_paths = git(workspace, "status", "--porcelain", "--untracked-files=normal").splitlines()[:80]
+            workspace_ok = post_branch == branch and post_origin == args.repo.lower()
+        except (ValueError, subprocess.SubprocessError):
+            workspace_ok, changed_paths = False, []
+        audit_modified = args.mode == "audit" and bool(changed_paths)
+        succeeded = (
+            not expired and process.returncode == 0 and bool(final)
+            and final.get("is_error") is False and final.get("subtype") == "success"
+            and workspace_ok and not audit_modified
+        )
+        metadata.update({
+            "changedPaths": changed_paths,
+            "workspaceIdentityPreserved": workspace_ok,
+            "status": "completed" if succeeded else ("timed-out" if expired else "failed"),
+            "exitCode": process.returncode,
+            "elapsedSeconds": round(time.monotonic() - start, 2),
+            "sessionId": str(final.get("session_id") or "")[:128],
+            "turns": final.get("num_turns"),
+            # Report only provider-supplied cost; never infer subscription allowances.
+            "reportedCostUsd": final.get("total_cost_usd"),
+            "result": str(final.get("result") or "")[:1200],
+            "stderrExcerpt": stderr[-1500:],
+        })
+        report = dest / "latest.json"
+        tmp = dest / f".{process.pid}.tmp"
+        tmp.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(report)
+        return metadata
 
 
 def main() -> int:
