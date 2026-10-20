@@ -272,7 +272,10 @@ def execute(item: dict) -> str:
     existing = read_journal(number)
     rework = "symphony:rework" in names(item)
     if existing.get("stage") == "review" and not rework:
-        raise DispatchError("previous attempt already reached review; rearm requires human reconciliation")
+        path = ROOT / f"GH-{number}"
+        if path.is_dir() and existing.get("pr") and reconcile(number, path, branch):
+            return "reconciled completed review handoff"
+        raise DispatchError("previous attempt already reached review; manual reconciliation required")
     if existing.get("stage") == "handoff":
         path = ROOT / f"GH-{number}"
         if (path.is_dir() and existing.get("preparedHead")
