@@ -136,11 +136,24 @@ def execute(args: argparse.Namespace) -> dict:
         os.killpg(process.pid, signal.SIGKILL)
         stdout, stderr = process.communicate()
     final = terminal_result(stdout[:2_000_000])
+    # Claude CLI permissions are not an OS sandbox: verify the checkout's Git
+    # identity and refuse to call read-only audit a success if it mutated files.
+    try:
+        post_branch = git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD")
+        post_origin = normalized_origin(git(workspace, "remote", "get-url", "origin"))
+        changed_paths = git(workspace, "status", "--porcelain", "--untracked-files=normal").splitlines()[:80]
+        workspace_ok = post_branch == branch and post_origin == args.repo.lower()
+    except (ValueError, subprocess.SubprocessError):
+        workspace_ok, changed_paths = False, []
+    audit_modified = args.mode == "audit" and bool(changed_paths)
     succeeded = (
         not expired and process.returncode == 0 and bool(final)
         and final.get("is_error") is False and final.get("subtype") == "success"
+        and workspace_ok and not audit_modified
     )
     metadata.update({
+        "changedPaths": changed_paths,
+        "workspaceIdentityPreserved": workspace_ok,
         "status": "completed" if succeeded else ("timed-out" if expired else "failed"),
         "exitCode": process.returncode,
         "elapsedSeconds": round(time.monotonic() - start, 2),
