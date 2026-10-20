@@ -14,6 +14,8 @@ import sys
 from typing import Any
 from urllib import error, parse, request
 
+BASE_BRANCH = os.environ.get("RPGK_BASE_BRANCH", "main")
+
 BRANCH_PATTERN = re.compile(r"^codex/[A-Za-z0-9][A-Za-z0-9._/-]*$")
 ISSUE_WORKSPACE = re.compile(r"^GH-(\d+)$")
 ATTEMPT_MARKER = ".symphony-attempt-complete"
@@ -152,16 +154,16 @@ def prepare_branch(workspace: Path, branch: str) -> dict[str, Any]:
     if current == branch:
         return {"branch": branch, "head": run_git(workspace, "rev-parse", "HEAD").stdout.strip(), "created": False}
 
-    if current not in {"", "main"}:
+    if current not in {"", BASE_BRANCH}:
         raise HandoffError(
-            f"workspace is on branch '{current}', not 'main' or requested branch '{branch}'",
+            f"workspace is on branch '{current}', not '{BASE_BRANCH}' or requested branch '{branch}'",
             code=83,
             status="UnexpectedBranch",
         )
 
     if current == "":
         head = run_git(workspace, "rev-parse", "HEAD").stdout.strip()
-        origin_main = run_git(workspace, "rev-parse", "origin/main").stdout.strip()
+        origin_main = run_git(workspace, "rev-parse", f"origin/{BASE_BRANCH}").stdout.strip()
         if head != origin_main:
             raise HandoffError(
                 "detached workspace HEAD is not current origin/main",
@@ -176,7 +178,7 @@ def prepare_branch(workspace: Path, branch: str) -> dict[str, Any]:
         run_git(workspace, "switch", "--track", "-c", branch, f"origin/{branch}")
         created = False
     else:
-        run_git(workspace, "switch", "-c", branch, "origin/main")
+        run_git(workspace, "switch", "-c", branch, f"origin/{BASE_BRANCH}")
         created = True
 
     return {"branch": branch, "head": run_git(workspace, "rev-parse", "HEAD").stdout.strip(), "created": created}
@@ -208,7 +210,7 @@ def reconcile_gameplay_authorization(state_root: Path, workspace: Path, branch: 
     original_branch = grant.get("branch")
     if original_branch == branch:
         return False
-    if original_branch != "main":
+    if original_branch != BASE_BRANCH:
         raise HandoffError("gameplay receipt cannot be rebound from an unrelated branch", code=83, status="InvalidAuthoringGrant")
     # Strictly one host-verified change to the immutable preflight receipt.
     grant["branch"] = branch
@@ -401,9 +403,9 @@ def commit_changes(workspace: Path, message: str) -> tuple[str, bool]:
 
 
 def ensure_safe_history(workspace: Path, branch: str) -> None:
-    if run_git(workspace, "merge-base", "--is-ancestor", "origin/main", "HEAD", check=False).returncode != 0:
+    if run_git(workspace, "merge-base", "--is-ancestor", f"origin/{BASE_BRANCH}", "HEAD", check=False).returncode != 0:
         raise HandoffError(
-            "origin/main is not an ancestor of the handoff commit; integrate current main before handoff",
+            f"origin/{BASE_BRANCH} is not an ancestor of the handoff commit; integrate current main before handoff",
             code=76,
             status="MainNotIntegrated",
         )
@@ -457,7 +459,7 @@ def create_or_update_pr(
 ) -> tuple[int, str, bool]:
     if not title.strip():
         raise HandoffError("PR title is required", code=64, status="InvalidRequest")
-    query = parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "base": "main", "per_page": 20})
+    query = parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "base": BASE_BRANCH, "per_page": 20})
     existing = api_request(api_root, token, "GET", f"/repos/{owner}/{repo}/pulls?{query}")
     if isinstance(existing, list) and existing:
         first = existing[0]
@@ -474,7 +476,7 @@ def create_or_update_pr(
             token,
             "PATCH",
             f"/repos/{owner}/{repo}/pulls/{number}",
-            {"title": title, "body": body, "base": "main"},
+            {"title": title, "body": body, "base": BASE_BRANCH},
         )
         return number, str(updated.get("html_url", first.get("html_url", ""))), False
 
@@ -483,7 +485,7 @@ def create_or_update_pr(
         token,
         "POST",
         f"/repos/{owner}/{repo}/pulls",
-        {"title": title, "head": branch, "base": "main", "body": body, "draft": True},
+        {"title": title, "head": branch, "base": BASE_BRANCH, "body": body, "draft": True},
     )
     return int(created["number"]), str(created["html_url"]), True
 
@@ -572,8 +574,8 @@ def main() -> int:
         commit_sha, committed = commit_changes(workspace, str(payload.get("commitMessage", "")))
         ensure_safe_history(workspace, branch)
 
-        if commit_sha == run_git(workspace, "rev-parse", "origin/main").stdout.strip():
-            raise HandoffError("handoff contains no commit beyond origin/main", code=75, status="NoChanges")
+        if commit_sha == run_git(workspace, "rev-parse", f"origin/{BASE_BRANCH}").stdout.strip():
+            raise HandoffError("handoff contains no commit beyond configured base", code=75, status="NoChanges")
 
         reviewed_continuation = attempt_boundary_ns is not None
         reviewable_progress = handoff_has_reviewable_progress(
