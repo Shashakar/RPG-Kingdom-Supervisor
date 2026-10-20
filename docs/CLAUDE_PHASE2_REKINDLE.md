@@ -1,5 +1,7 @@
 # Phase 2 — Claude execution pilot and Rekindle target migration
 
+**Later phase:** Phase 3 introduces an optional separate Claude dispatcher, preserving this pilot while adding host-owned issue execution. See [Phase 3 Claude autonomous dispatch](CLAUDE_AUTONOMOUS_DISPATCH.md). The Phase 2 manual-only limitations below describe Phase 2 specifically, not the opt-in later adapter.
+
 ## Architecture decision
 
 Official Symphony currently speaks **Codex App Server**, not the Claude Code CLI protocol. Pointing `codex.command` at `claude -p` would fail protocol negotiation. Phase 2 therefore adds an **operator-started Claude pilot** alongside Symphony. It does **not** claim unattended Claude issue dispatch or app-server compatibility. See [Claude headless CLI reference](https://code.claude.com/docs/en/headless).
