@@ -166,7 +166,7 @@ def main() -> int:
     parser.add_argument("--repo", default="Shashakar/Rekindle-Claude")
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--claude-bin", default="claude")
-    parser.add_argument("--state-root", default="~/.local/state/rpg-kingdom-supervisor")
+    parser.add_argument("--state-root", default=os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", "~/.local/state/rekindle-supervisor"))
     parser.add_argument("--mode", choices=("audit", "edit"), default="audit")
     parser.add_argument("--enable-edits", action="store_true")
     parser.add_argument("--max-turns", type=int, default=4)
