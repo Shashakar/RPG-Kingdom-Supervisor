@@ -302,6 +302,9 @@ This is normal bounded implementation work. Read `AGENTS.md`, repository-require
 
 ## Routing policy
 
+Provider selection runs **before** Codex model selection. `agent:codex` and `agent:claude` are mutually exclusive operator overrides; `agent:auto` or an unlabeled issue uses deterministic classification. `work:deterministic` recommends Codex. `work:visual-unity`, `authoring:scene-existing-composition`, or `authoring:scene-new-composition` recommends Claude. An unclassified legacy issue stays on Codex. Resource/validation labels alone do not imply visual work. Conflicting provider or work labels are rejected, not guessed.
+
+**Phase 1 cannot execute Claude.** A Claude recommendation or explicit `agent:claude` prevents this Codex launcher from starting. Claude tasks require manual handoff **without** `symphony:ready`; if that lease is wrongly added, the launcher fails closed and normal halt handling applies. An explicit `agent:codex` override permits Codex routing but does **not** grant Unity authoring rights or relax human merge review. See `docs/PROVIDER_ROUTING_PHASE1.md`.
 The App Server launcher chooses the model before this thread starts:
 
 - `risk:mechanical` -> GPT-6 Luna / low reasoning;
