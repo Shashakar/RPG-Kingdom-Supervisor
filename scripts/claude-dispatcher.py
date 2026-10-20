@@ -8,6 +8,7 @@ host Git broker and independent review orchestrator.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime, timezone
 import json
 import os
@@ -218,6 +219,41 @@ def prompt(item: dict, rework: bool) -> str:
     )
 
 
+def git_control_fingerprint(workspace: Path) -> str:
+    """Detect edits to untracked Git controls before the host's credentialed handoff.
+
+    This is a tamper check, not an OS sandbox. Host migration needs an isolated user
+    or container before accepting untrusted repository content as executable.
+    """
+    git_dir = workspace / ".git"
+    if git_dir.is_symlink() or not git_dir.is_dir():
+        raise DispatchError("Git control directory is not a normal isolated directory")
+    controls = [
+        git_dir / "config", git_dir / "info" / "exclude",
+        git_dir / "info" / "attributes", git_dir / "objects" / "info" / "alternates",
+        workspace / ".gitmodules", workspace / ".gitattributes",
+    ]
+    hooks = git_dir / "hooks"
+    if hooks.is_symlink():
+        raise DispatchError("Git hooks directory is a symlink")
+    if hooks.exists():
+        controls.extend(sorted(hooks.rglob("*")))
+    digest = hashlib.sha256()
+    for item in controls:
+        relative = item.relative_to(workspace)
+        digest.update(str(relative).encode())
+        if item.is_symlink():
+            raise DispatchError(f"Git control path is symlinked: {relative}")
+        if item.is_dir():
+            digest.update(b"directory")
+        elif item.is_file():
+            digest.update(str(item.stat().st_mode & 0o777).encode())
+            digest.update(hashlib.sha256(item.read_bytes()).digest())
+        else:
+            digest.update(b"missing")
+    return digest.hexdigest()
+
+
 def changed_paths(path: Path) -> list[str]:
     tracked = run(["git", "diff", "--name-only", "HEAD"], cwd=path).splitlines()
     untracked = run(["git", "ls-files", "--others", "--exclude-standard"], cwd=path).splitlines()
@@ -305,6 +341,7 @@ def execute(item: dict) -> str:
     run(["bash", str(HERE / "rekindle-migration-preflight.sh")], cwd=path, env=env)
     broker(path, "prepare", branch)
     save(number, "prepared", preparedHead=run(["git", "rev-parse", "HEAD"], cwd=path))
+    git_controls_before = git_control_fingerprint(path)
     # Labels are provided to the CLI as a JSON file outside the worktree.
     state_dir = STATE / "claude-dispatch"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -324,6 +361,8 @@ def execute(item: dict) -> str:
         result = json.loads(run(command, timeout=3650))
         if result.get("status") != "completed" or result.get("workspaceIdentityPreserved") is not True:
             raise DispatchError("Claude pilot did not complete with a preserved workspace")
+    if git_control_fingerprint(path) != git_controls_before:
+        raise DispatchError("Claude altered Git control files/hooks; refusing credentialed handoff")
     save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
          reportedCostUsd=result.get("reportedCostUsd"))
     enforce_scope(changed_paths(path))
