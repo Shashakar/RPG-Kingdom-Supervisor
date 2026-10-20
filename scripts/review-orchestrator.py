@@ -774,6 +774,8 @@ def metadata_only_recheck_allowed(pr: dict[str, Any], prior: dict[str, Any]) -> 
     ):
         return False
     previous_body = prior.get("reviewedPrBody")
+    # Older durable states lack the body snapshot. Never infer a safe metadata
+    # delta from that absence.
     current_body = pr.get("body") or ""
     if not isinstance(previous_body, str) or current_body == previous_body:
         return False
