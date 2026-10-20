@@ -33,6 +33,7 @@ Phase 2 makes that path usage-aware:
 
 The routing policy is grounded in production benchmarks: cheap bounded work stays on Luna, while investigative, architecture-sensitive, and end-to-end work uses GPT-6 Sol. Historical high-cost routing was retired after production evidence showed poor cost/benefit. See [`docs/PHASE2_BUDGETED_ROUTING.md`](docs/PHASE2_BUDGETED_ROUTING.md) for the measurements and routing table.
 
+Provider routing Phase 1 adds a separate **Codex vs Claude** selection policy without changing the existing Luna/Sol model, quota, or review controls. `agent:codex` / `agent:claude` explicitly select a provider; `agent:auto` or no agent label infers from `work:deterministic`, `work:visual-unity`, and explicit scene-composition labels. Legacy/unclassified issues stay on Codex. Claude selection currently **blocks Codex** and requires a **manual Claude handoff**; there is no Claude execution adapter, quota telemetry, or multi-repository auto-dispatch. See [`docs/PROVIDER_ROUTING_PHASE1.md`](docs/PROVIDER_ROUTING_PHASE1.md).
 Phase 3 makes Unity dependence explicit:
 
 - `resource:unity-editor` declares exclusive host-owned Unity Editor access;
