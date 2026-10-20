@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BASE_BRANCH="${RPGK_BASE_BRANCH:-main}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=unity-runner-policy.sh
 source "$ROOT/scripts/unity-runner-policy.sh"
@@ -104,12 +106,12 @@ if [[ "$requested_tier" == "new-scene-composition" ]]; then
     exit 64
   }
 
-  if ! git -C "$project" rev-parse --verify origin/main >/dev/null 2>&1; then
-    echo "RPG Kingdom Unity authoring: origin/main is unavailable; cannot prove target provenance" >&2
+  if ! git -C "$project" rev-parse --verify origin/$BASE_BRANCH >/dev/null 2>&1; then
+    echo "RPG Kingdom Unity authoring: origin/$BASE_BRANCH is unavailable; cannot prove target provenance" >&2
     exit 84
   fi
-  if git -C "$project" cat-file -e "origin/main:$target_scene" 2>/dev/null || git -C "$project" cat-file -e "origin/main:$target_scene.meta" 2>/dev/null; then
-    echo "RPG Kingdom Unity authoring: target '$target_scene' already exists on origin/main and is not eligible for new-scene composition" >&2
+  if git -C "$project" cat-file -e "origin/$BASE_BRANCH:$target_scene" 2>/dev/null || git -C "$project" cat-file -e "origin/$BASE_BRANCH:$target_scene.meta" 2>/dev/null; then
+    echo "RPG Kingdom Unity authoring: target '$target_scene' already exists on origin/$BASE_BRANCH and is not eligible for new-scene composition" >&2
     exit 83
   fi
 
