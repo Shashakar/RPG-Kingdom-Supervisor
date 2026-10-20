@@ -3,6 +3,32 @@ set -uo pipefail
 
 SYMPHONY_ROOT="${SYMPHONY_ROOT:-$HOME/src/openai-symphony/elixir}"
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-$HOME/src/RPG-Kingdom-Supervisor}"
+
+# Explicit target profile. Separate workspace and host state roots prevent GH-number collisions.
+# Preserve the original RPG Kingdom workflow for deliberate rollback.
+RPGK_TARGET_PROFILE="${RPGK_TARGET_PROFILE:-rekindle}"
+case "$RPGK_TARGET_PROFILE" in
+  rekindle)
+    export RPGK_REPO="Shashakar/Rekindle-Claude"
+    export RPGK_REPO_OWNER="Shashakar"
+    export RPGK_REPO_NAME="Rekindle-Claude"
+    export RPGK_BASE_BRANCH="rekindle-vertical-slice"
+    export RPGK_SYMPHONY_WORKSPACE_ROOT="$HOME/code/rekindle-symphony-workspaces"
+    export RPGK_SUPERVISOR_STATE_ROOT="$HOME/.local/state/rekindle-supervisor"
+    WORKFLOW_FILE="$SUPERVISOR_ROOT/WORKFLOW.rekindle.md"
+    ;;
+  rpg-kingdom)
+    export RPGK_REPO="Shashakar/RPG-Kingdom"
+    export RPGK_REPO_OWNER="Shashakar"
+    export RPGK_REPO_NAME="RPG-Kingdom"
+    export RPGK_BASE_BRANCH="main"
+    export RPGK_SYMPHONY_WORKSPACE_ROOT="$HOME/code/rpg-kingdom-symphony-workspaces"
+    export RPGK_SUPERVISOR_STATE_ROOT="$HOME/.local/state/rpg-kingdom-supervisor"
+    WORKFLOW_FILE="$SUPERVISOR_ROOT/WORKFLOW.md"
+    ;;
+  *) echo "Unknown RPGK_TARGET_PROFILE: $RPGK_TARGET_PROFILE" >&2; exit 64 ;;
+esac
+export RPGK_TARGET_PROFILE
 SECRETS_FILE="${RPGK_SECRETS_FILE:-$HOME/.config/rpg-kingdom-supervisor/secrets.env}"
 USE_ALT_SCREEN="${RPGK_ALTERNATE_SCREEN:-1}"
 STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
@@ -67,8 +93,8 @@ if [[ ! -d "$SYMPHONY_ROOT" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SUPERVISOR_ROOT/WORKFLOW.md" ]]; then
-  echo "ERROR: Supervisor workflow not found: $SUPERVISOR_ROOT/WORKFLOW.md" >&2
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+  echo "ERROR: Supervisor workflow not found: $WORKFLOW_FILE" >&2
   exit 1
 fi
 
@@ -364,7 +390,7 @@ python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state running --p
 
 mise exec -- ./bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  "$SUPERVISOR_ROOT/WORKFLOW.md"
+  "$WORKFLOW_FILE"
 status=$?
 
 python3 "$TELEMETRY_SCRIPT" service-write --service symphony --state stopped --pid "$$" --exit-code "$status" >/dev/null || true
