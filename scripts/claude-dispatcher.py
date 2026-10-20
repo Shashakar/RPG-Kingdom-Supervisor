@@ -153,12 +153,17 @@ def clone_or_verify(number: int, *, rework: bool) -> Path:
              f"https://github.com/{REPO}.git", str(path)], timeout=180)
     if path.is_symlink() or not path.is_dir() or path.resolve().parent != ROOT:
         raise DispatchError("workspace path escapes configured root")
-    from claude_worker_pilot import normalized_origin, git
-    if Path(git(path, "rev-parse", "--show-toplevel")).resolve() != path.resolve():
+    def git(*args: str) -> str:
+        return run(["git", *args], cwd=path)
+    if Path(git("rev-parse", "--show-toplevel")).resolve() != path.resolve():
         raise DispatchError("workspace is not Git root")
-    if normalized_origin(git(path, "remote", "get-url", "origin")) != REPO.lower():
+    origin = git("remote", "get-url", "origin")
+    if origin.lower().rstrip("/").removesuffix(".git") not in {
+        f"https://github.com/{REPO}".lower(), f"git@github.com:{REPO}".lower(),
+        f"ssh://git@github.com/{REPO}".lower(),
+    }:
         raise DispatchError("workspace origin does not match target")
-    if git(path, "status", "--porcelain", "--untracked-files=normal"):
+    if git("status", "--porcelain", "--untracked-files=normal"):
         raise DispatchError("workspace has uncommitted changes; preserve for human inspection")
     return path
 
@@ -268,10 +273,14 @@ def execute(item: dict) -> str:
     rework = "symphony:rework" in names(item)
     if existing.get("stage") == "review" and not rework:
         raise DispatchError("previous attempt already reached review; rearm requires human reconciliation")
-    if existing.get("stage") in {"started", "prepared", "executed", "handoff"}:
+    if existing.get("stage") == "handoff":
         path = ROOT / f"GH-{number}"
-        if path.is_dir() and reconcile(number, path, branch):
+        if (path.is_dir() and existing.get("preparedHead")
+                and run(["git", "rev-parse", "HEAD"], cwd=path) != existing["preparedHead"]
+                and reconcile(number, path, branch)):
             return "recovered existing PR; review queued"
+        raise DispatchError("prior interrupted handoff requires human inspection; no automatic replay")
+    if existing.get("stage") in {"started", "prepared", "executed"}:
         raise DispatchError("prior interrupted attempt requires human inspection; no automatic replay")
     if existing and existing.get("stage") == "halted" and "symphony:rearm" not in names(item):
         raise DispatchError("prior halted attempt requires explicit symphony:rearm")
@@ -285,7 +294,7 @@ def execute(item: dict) -> str:
     env["RPGK_REKINDLE_UNITY_READY"] = "0"
     run(["bash", str(HERE / "rekindle-migration-preflight.sh")], cwd=path, env=env)
     broker(path, "prepare", branch)
-    save(number, "prepared")
+    save(number, "prepared", preparedHead=run(["git", "rev-parse", "HEAD"], cwd=path))
     # Labels are provided to the CLI as a JSON file outside the worktree.
     state_dir = STATE / "claude-dispatch"
     state_dir.mkdir(parents=True, exist_ok=True)
