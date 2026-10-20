@@ -65,17 +65,30 @@ def validate(workspace: Path, root: Path, repo: str, mode: str) -> str:
     return branch
 
 
-def command(binary: str, prompt: str, mode: str, turns: int, budget: float, model: str, effort: str) -> list[str]:
-    return [
+def command(binary: str, prompt: str, mode: str, turns: int, budget: float, model: str, effort: str,
+            autonomous_confined: bool = False) -> list[str]:
+    tools = EDIT_TOOLS if mode == "edit" else READ_TOOLS
+    denied = DISALLOWED
+    if autonomous_confined:
+        # Workspace-relative permissions: no bare Read/Grep/Glob allowances to
+        # auto-approve reads of unrelated files in the host user's home.
+        tools = "Read(/**),Edit(/**)" if mode == "edit" else "Read(/**)"
+        denied += ",mcp__*,Skill,PowerShell,Read(~/src/**),Read(~/.ssh/**),Read(~/.config/**),Read(~/.local/state/**),Read(~/.aws/**),Read(~/.gnupg/**),Read(.git/**),Edit(.git/**)"
+    flags = [
         binary, "--print", prompt, "--output-format", "stream-json",
         "--model", model, "--effort", effort,
         "--verbose", "--permission-mode", "dontAsk",
-        "--allowedTools", EDIT_TOOLS if mode == "edit" else READ_TOOLS,
-        "--disallowedTools", DISALLOWED, "--max-turns", str(turns),
+        "--allowedTools", tools,
+        "--disallowedTools", denied, "--max-turns", str(turns),
         "--max-budget-usd", f"{budget:.2f}",
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--no-session-persistence",
     ]
+    if autonomous_confined:
+        # The project may contain executable hooks. The user source retains auth
+        # settings; explicit session settings turn off hooks for unattended work.
+        flags.extend(["--setting-sources", "user", "--settings", '{"disableAllHooks":true}'])
+    return flags
 
 
 def terminal_result(stdout: str) -> dict:
@@ -107,12 +120,13 @@ def execute(args: argparse.Namespace) -> dict:
         raise ValueError("Claude Code executable not found on PATH")
     selected = resolve(read_labels(args.labels_json_file), cli_model=args.model, cli_effort=args.effort)
     cli = command(binary, prompt, args.mode, args.max_turns, args.max_budget_usd,
-                  selected["model"], selected["effort"])
+                  selected["model"], selected["effort"], args.autonomous_confined)
     metadata = {
         "issue": workspace.name,
         "repository": args.repo,
         "branch": branch,
         "mode": args.mode,
+        "autonomousConfined": args.autonomous_confined,
         "requestedModel": selected["model"],
         "requestedEffort": selected["effort"],
         "modelSource": selected["modelSource"],
@@ -207,6 +221,7 @@ def main() -> int:
     parser.add_argument("--model", choices=MODELS, help="Explicit operator model override")
     parser.add_argument("--effort", choices=EFFORTS, help="Explicit operator effort override")
     parser.add_argument("--enable-edits", action="store_true")
+    parser.add_argument("--autonomous-confined", action="store_true", help="Workspace-scoped permissions and disabled hooks for unattended dispatch")
     parser.add_argument("--max-turns", type=int, default=4)
     parser.add_argument("--max-budget-usd", type=float, default=2.0)
     parser.add_argument("--timeout-seconds", type=int, default=900)
