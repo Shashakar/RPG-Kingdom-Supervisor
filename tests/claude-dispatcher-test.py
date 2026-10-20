@@ -73,6 +73,20 @@ class ClaudeDispatcherTest(unittest.TestCase):
         with self.assertRaisesRegex(self.mod.DispatchError, "empty PR"):
             self.mod.enforce_scope([])
 
+    def test_git_control_fingerprint_detects_tampering(self):
+        path = self.root / "GH-91"
+        git_dir = path / ".git"
+        hooks = git_dir / "hooks"
+        hooks.mkdir(parents=True)
+        (git_dir / "config").write_text("[core]\n repositoryformatversion = 0\n")
+        original = self.mod.git_control_fingerprint(path)
+        (hooks / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+        self.assertNotEqual(original, self.mod.git_control_fingerprint(path))
+        (hooks / "pre-commit").unlink()
+        self.assertEqual(original, self.mod.git_control_fingerprint(path))
+        (git_dir / "config").write_text("[core]\n hooksPath = /tmp/evil\n")
+        self.assertNotEqual(original, self.mod.git_control_fingerprint(path))
+
     def test_journal_permissions_and_no_replay_after_crash(self):
         self.mod.save(91, "prepared", preparedHead="old")
         journal = self.mod.journal_path(91)
@@ -111,6 +125,7 @@ class ClaudeDispatcherTest(unittest.TestCase):
              mock.patch.object(self.mod, "run", side_effect=fake_run), \
              mock.patch.object(self.mod, "broker", side_effect=fake_broker), \
              mock.patch.object(self.mod, "changed_paths", return_value=["Assets/Rekindle/Scripts/Inventory.cs"]), \
+             mock.patch.object(self.mod, "git_control_fingerprint", return_value="unchanged"), \
              mock.patch.object(self.mod, "reconcile", return_value=True):
             output = self.mod.execute(self.item)
         self.assertEqual(output, "review queued")
