@@ -66,6 +66,8 @@ REVIEW_PID=""
 REVIEW_WATCHDOG_PID=""
 AUTONOMOUS_PID=""
 AUTONOMOUS_LOG="$STATE_ROOT/autonomous-scheduler.log"
+CLAUDE_DISPATCH_PID=""
+CLAUDE_DISPATCH_LOG="$STATE_ROOT/claude-dispatcher.log"
 ALT_SCREEN_ACTIVE=0
 
 if [[ -f "$SECRETS_FILE" ]]; then
@@ -205,6 +207,14 @@ stop_review_watchdog() {
   fi
 }
 
+stop_claude_dispatcher() {
+  if [[ -n "$CLAUDE_DISPATCH_PID" ]]; then
+    kill "$CLAUDE_DISPATCH_PID" 2>/dev/null || true
+    wait "$CLAUDE_DISPATCH_PID" 2>/dev/null || true
+    CLAUDE_DISPATCH_PID=""
+  fi
+}
+
 stop_autonomous_scheduler() {
   if [[ -n "$AUTONOMOUS_PID" ]]; then
     kill "$AUTONOMOUS_PID" 2>/dev/null || true
@@ -223,6 +233,7 @@ stop_review_orchestrator() {
 
 cleanup_all() {
   cleanup_screen
+  stop_claude_dispatcher
   stop_autonomous_scheduler
   stop_review_watchdog
   stop_review_orchestrator
@@ -394,6 +405,27 @@ start_autonomous_scheduler() {
   echo "RPG Kingdom autonomous scheduler: ready (PID $AUTONOMOUS_PID)"
 }
 
+start_claude_dispatcher() {
+  if [[ "${RPGK_CLAUDE_AUTONOMOUS:-0}" != "1" ]]; then
+    echo "Claude autonomous dispatcher: disabled (RPGK_CLAUDE_AUTONOMOUS=1 to opt in)"
+    return 0
+  fi
+  if [[ "$RPGK_TARGET_PROFILE" != "rekindle" ]]; then
+    echo "ERROR: Claude autonomous dispatcher only supports the Rekindle target" >&2
+    return 1
+  fi
+  mkdir -p "$STATE_ROOT"
+  python3 -u "$SUPERVISOR_ROOT/scripts/claude-dispatcher.py" run >>"$CLAUDE_DISPATCH_LOG" 2>&1 &
+  CLAUDE_DISPATCH_PID=$!
+  sleep 0.2
+  if ! kill -0 "$CLAUDE_DISPATCH_PID" 2>/dev/null; then
+    echo "ERROR: Claude autonomous dispatcher exited at startup" >&2
+    tail -n 30 "$CLAUDE_DISPATCH_LOG" >&2 2>/dev/null || true
+    return 1
+  fi
+  echo "Claude autonomous dispatcher: ready (PID $CLAUDE_DISPATCH_PID)"
+}
+
 start_review_watchdog() {
   RPGK_REVIEW_WATCHDOG_SECONDS="${RPGK_REVIEW_WATCHDOG_SECONDS:-5}" \
     bash "$SUPERVISOR_ROOT/scripts/review-orchestrator-watchdog.sh" "$REVIEW_PID" "$$" "$REVIEW_LOG" &
@@ -414,6 +446,9 @@ if ! start_review_orchestrator; then
 fi
 start_review_watchdog
 if ! start_autonomous_scheduler; then
+  exit 1
+fi
+if ! start_claude_dispatcher; then
   exit 1
 fi
 
