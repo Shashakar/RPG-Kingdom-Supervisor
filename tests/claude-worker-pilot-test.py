@@ -46,7 +46,8 @@ class ClaudePilotTest(unittest.TestCase):
             "print(json.dumps({'type':'system','subtype':'init','session_id':'fake'}))\n"
             "print(json.dumps({'type':'result','subtype':'error' if os.getenv('MOCK_ERROR') else 'success',"
             "'is_error':bool(os.getenv('MOCK_ERROR')),'num_turns':1,"
-            "'total_cost_usd':0.02,'result':'checked','session_id':'fake'}))\n"
+            "'total_cost_usd':0.02,'result':os.getenv('MOCK_WORKER_RESULT','checked'),"
+            + "'session_id':'fake'}))\n"
         )
         self.binary.chmod(0o755)
         self.env = dict(os.environ,
@@ -141,6 +142,46 @@ class ClaudePilotTest(unittest.TestCase):
         result = self.run_pilot(env=env)
         self.assertEqual(result.returncode, 75)
         self.assertEqual(json.loads(result.stdout)["status"], "failed")
+
+    def test_structured_blocker_outcome_requires_explicit_valid_marker(self):
+        marker = ('<!-- rpgk-worker-outcome\n'
+                  '{"protocolVersion":1,"outcome":"blocked",'
+                  '"category":"missing-approved-assets",'
+                  '"reportPath":"Docs/ISSUE_BLOCKER.md"}\n-->')
+        env = dict(self.env, MOCK_WORKER_RESULT=marker)
+        result = self.run_pilot(env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        metadata = json.loads(result.stdout)
+        self.assertEqual(metadata["workerOutcome"]["outcome"], "blocked")
+        self.assertEqual(metadata["workerOutcome"]["reportPath"], "Docs/ISSUE_BLOCKER.md")
+        self.assertEqual(metadata["resultSubtype"], "success")
+
+    def test_unstructured_prose_never_gets_blocked_privileges(self):
+        env = dict(self.env, MOCK_WORKER_RESULT="I am blocked: missing assets")
+        result = self.run_pilot(env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["workerOutcome"], {"outcome": "unspecified"})
+
+    def test_malformed_or_unsafe_marker_fails_closed(self):
+        for report in ("../../outside.md", "Docs/escape/../outside.md",
+                       "Docs/unsafe.txt", "Assets/ignore.md"):
+            marker = ('<!-- rpgk-worker-outcome\n'
+                      '{"protocolVersion":1,"outcome":"blocked",'
+                      '"category":"other","reportPath":"' + report + '"}\n-->')
+            env = dict(self.env, MOCK_WORKER_RESULT=marker)
+            result = self.run_pilot(env=env)
+            self.assertEqual(result.returncode, 75, (report, result.stderr))
+            metadata = json.loads(result.stdout)
+            self.assertEqual(metadata["workerOutcome"]["outcome"], "invalid")
+            self.assertTrue(metadata["outcomeParseError"])
+
+    def test_cli_error_reports_subtype_in_private_metadata(self):
+        env = dict(self.env, MOCK_ERROR="1")
+        result = self.run_pilot(env=env)
+        self.assertEqual(result.returncode, 75)
+        metadata = json.loads(result.stdout)
+        self.assertEqual(metadata["resultSubtype"], "error")
+        self.assertTrue(metadata["resultIsError"])
 
     def test_existing_worker_lock_refused(self):
         lock = self.base / "state/locks/issues/GH-11.lock"
