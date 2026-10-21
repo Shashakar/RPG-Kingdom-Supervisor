@@ -215,7 +215,19 @@ def prompt(item: dict, rework: bool) -> str:
         "Do not assume a render/test succeeded if it has not run. "
         "Use host Git handoff for branch preparation and PR publication; do not merge. "
         "If the host Unity capability is unavailable, complete independent code work "
-        "where permitted and report the outstanding validation requirement.\n\n"
+        "where permitted and report the outstanding validation requirement. "
+        "If a genuine external dependency blocks completion, write a short Markdown "
+        "blocker report under Docs/ without licensed source or secrets. End your "
+        "final response with this exact machine-readable marker (use the correct "
+        "category and path):\n"
+        "<!-- rpgk-worker-outcome\n"
+        "{\"protocolVersion\":1,\"outcome\":\"blocked\","
+        "\"category\":\"missing-approved-assets\","
+        "\"reportPath\":\"Docs/ISSUE_BLOCKER.md\"}\n-->\n"
+        "Allowed categories: missing-approved-assets, license-review, rights-review, "
+        "host-unavailable, external-dependency, other. A blocker requests human "
+        "attention; it is NOT implementation, Unity validation, or permission "
+        "to disclose licensed assets.\n\n"
         + ("REWORK: Address independent review findings on the EXISTING branch. "
            "Preserve the PR and review gates.\n"
            f"Last durable review:\n{last_review(item)}\n" if rework else "")
@@ -408,14 +420,12 @@ def common_unity_resource(item: dict, workspace: Path):
     (lock / "owner").write_text(f"GH-{number}\n", encoding="utf-8")
     (lock / "workspace").write_text(str(workspace.resolve()) + "\n", encoding="utf-8")
     (lock / "acquired-at").write_text(now() + "\n", encoding="utf-8")
-    succeeded = False
     try:
         yield
-        succeeded = True
     finally:
-        # Like the Codex host broker, retain ownership after an ambiguous
-        # crash/timeout until the Windows/WSL Unity child is inspected.
-        if succeeded:
+        # Release even after an exception if, and only if, both brokers and the
+        # Windows editor prove idle. Otherwise retain the lock for inspection.
+        if host_unity_quiescent(workspace):
             if ((lock / "owner").read_text(encoding="utf-8").strip() != f"GH-{number}"
                     or (lock / "workspace").read_text(encoding="utf-8").strip()
                         != str(workspace.resolve())):
@@ -510,6 +520,13 @@ def execute(item: dict) -> str:
             raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
         save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
              reportedCostUsd=result.get("reportedCostUsd"))
+        worker_outcome = result.get("workerOutcome") or {}
+        if worker_outcome.get("outcome") == "blocked":
+            if ("resource:unity-editor" in names(item)
+                    and not host_unity_quiescent(path)):
+                raise DispatchError("blocked Claude worker but Unity host is not provably idle; retaining lock")
+            block_for_human(number, path, worker_outcome)
+            return "blocked for human attention"
         enforce_scope(changed_paths(path), path)
         save(number, "handoff")
         title = f"GH-{number}: {item.get('title') or 'Claude implementation'}"
@@ -537,7 +554,10 @@ def once() -> dict:
     for number in issues:
         item = issue(number)
         try:
-            return {"issue": number, "result": execute(item)}
+            value = execute(item)
+            if value == "blocked for human attention":
+                return {"issue": number, "state": "blocked", "result": value}
+            return {"issue": number, "result": value}
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
             if isinstance(exc, DispatchError) and "requires open issue" in str(exc):
