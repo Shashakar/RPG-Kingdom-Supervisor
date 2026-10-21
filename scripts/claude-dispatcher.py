@@ -325,6 +325,73 @@ def reconcile(number: int, path: Path, branch: str) -> bool:
     return True
 
 
+def host_unity_quiescent(workspace: Path) -> bool:
+    """Verify both brokers and Windows Editor are idle before releasing a Unity lock.
+
+    Missing or ambiguous evidence retains the lease for operator inspection.
+    """
+    try:
+        for service in ("unity-broker", "unity-author-broker"):
+            status_file = STATE / service / "status.json"
+            if not status_file.is_file() or status_file.is_symlink():
+                return False
+            value = json.loads(status_file.read_text(encoding="utf-8"))
+            if (not isinstance(value, dict) or value.get("state") != "ready"
+                    or value.get("activeRequest") is not None
+                    or Path(str(value.get("workspaceRoot", ""))).resolve() != ROOT):
+                return False
+            pid = value.get("pid")
+            if type(pid) is not int or pid <= 0:
+                return False
+            os.kill(pid, 0)
+        output = run(["bash", str(HERE / "unity-runner-host.sh"), "health",
+                      "--project", str(workspace)], cwd=workspace, timeout=120)
+        value = json.loads(output.splitlines()[-1])
+        return isinstance(value, dict) and value.get("status") == "ready"
+    except (OSError, ValueError, TypeError, IndexError, DispatchError, subprocess.TimeoutExpired):
+        return False
+
+
+def preserve_blocker(number: int, workspace: Path, outcome: dict) -> dict:
+    """Snapshot only a bounded Markdown report in host-controlled private state."""
+    relative = str(outcome.get("reportPath") or "")
+    if (not re.fullmatch(r"Docs/[A-Za-z0-9._/-]+\.md", relative)
+            or ".." in relative.split("/") or "//" in relative):
+        raise DispatchError("blocked outcome report path is invalid")
+    report = workspace / relative
+    cursor = report
+    while cursor != workspace:
+        if cursor.is_symlink():
+            raise DispatchError("blocked outcome report contains symlinks")
+        cursor = cursor.parent
+    if not report.is_file() or report.stat().st_size > 128_000:
+        raise DispatchError("blocked outcome Markdown report missing or oversized")
+    snapshot_dir = STATE / "claude-dispatch" / "blocked" / f"GH-{number}"
+    snapshot_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    snapshot = snapshot_dir / "report.md"
+    with tempfile.NamedTemporaryFile(mode="wb", dir=snapshot_dir, delete=False) as tmp:
+        tmp.write(report.read_bytes())
+        tmp_path = Path(tmp.name)
+    os.chmod(tmp_path, 0o600)
+    tmp_path.replace(snapshot)
+    return {"category": outcome["category"], "reportPath": relative,
+            "changedPaths": changed_paths(workspace), "preservedReport": str(snapshot)}
+
+
+def block_for_human(number: int, workspace: Path, outcome: dict) -> None:
+    details = preserve_blocker(number, workspace, outcome)
+    save(number, "blocked", **details)
+    # Remove READY first, so a comment/API interruption cannot enqueue replay.
+    edit_labels(number, remove=READY)
+    edit_labels(number, remove="symphony:rearm")
+    edit_labels(number, add="symphony:human-attention")
+    comment(number, "Claude requires human attention; no Unity test or implementation "
+            "completion is claimed.\n\n"
+            f"Category: {details['category']}\n"
+            f"Local report: {details['reportPath']} (preserved in host state).\n"
+            "The workspace is retained for inspection. No automatic rearm or merge.")
+
+
 @contextmanager
 def common_unity_resource(item: dict, workspace: Path):
     """Same exclusive host Unity editor lease used by Codex's resource guard."""
