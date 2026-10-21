@@ -55,33 +55,29 @@ class TargetTest(unittest.TestCase):
     def test_unity_authoring_requires_explicit_target_validation(self):
         result = self.run_guard(TEST_LABELS="resource:unity-editor")
         self.assertEqual(result.returncode, 74, result.stderr)
-        self.assertIn("save isolation", result.stderr)
+        self.assertIn("same verified host readiness", result.stderr)
 
-    def test_narrow_claude_visual_capability_does_not_enable_other_unity_work(self):
-        visual_labels = "\n".join([
-            "agent:claude", "work:visual-unity", "resource:unity-editor",
-            "validation:unity-required", "authoring:scene-new-composition",
-        ])
-        ready = dict(
-            RPGK_CLAUDE_VISUAL_HOST_READY="1",
-            RPGK_CLAUDE_VISUAL_UNITY_ENABLED="1",
-            RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED="1",
-        )
-        result = self.run_guard(TEST_LABELS=visual_labels, **ready)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        for missing in ready:
-            env = dict(ready)
-            env[missing] = "0"
-            blocked = self.run_guard(TEST_LABELS=visual_labels, **env)
-            self.assertEqual(blocked.returncode, 74, (missing, blocked.stderr))
-        codex_labels = visual_labels.replace("agent:claude", "agent:codex")
-        result = self.run_guard(TEST_LABELS=codex_labels, **ready)
-        self.assertEqual(result.returncode, 74)
-        extra = visual_labels + "\nauthoring:scene-existing-composition"
-        result = self.run_guard(TEST_LABELS=extra, **ready)
-        self.assertEqual(result.returncode, 74)
-        result = self.run_guard(TEST_LABELS="resource:unity-editor", **ready)
-        self.assertEqual(result.returncode, 74)
+    def test_common_unity_readiness_applies_equally_to_both_agents(self):
+        for provider in ("claude", "codex"):
+            labels = "\n".join([
+                f"agent:{provider}", "work:visual-unity", "resource:unity-editor",
+                "validation:unity-required", "authoring:scene-new-composition",
+            ])
+            with self.subTest(provider=provider):
+                blocked = self.run_guard(TEST_LABELS=labels)
+                self.assertEqual(blocked.returncode, 74, blocked.stderr)
+                permitted = self.run_guard(
+                    TEST_LABELS=labels, RPGK_REKINDLE_UNITY_READY="1")
+                self.assertEqual(permitted.returncode, 0, permitted.stderr)
+
+    def test_claude_only_visual_flags_are_not_required_or_sufficient(self):
+        common = "resource:unity-editor\nvalidation:unity-required"
+        extras = dict(RPGK_CLAUDE_VISUAL_HOST_READY="1",
+                      RPGK_CLAUDE_VISUAL_UNITY_ENABLED="1",
+                      RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED="1")
+        self.assertEqual(self.run_guard(TEST_LABELS=common, **extras).returncode, 74)
+        self.assertEqual(self.run_guard(
+            TEST_LABELS=common, RPGK_REKINDLE_UNITY_READY="1").returncode, 0)
 
     def test_reject_incorrect_origin(self):
         git(self.ws, "remote", "set-url", "origin", "https://github.com/Shashakar/RPG-Kingdom.git")

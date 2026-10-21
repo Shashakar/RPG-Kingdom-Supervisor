@@ -921,19 +921,6 @@ def process(issue: dict[str, Any]) -> None:
         remove_lifecycle_except(number, {"symphony:human-attention"})
         return
 
-    if "work:visual-unity" in labels(issue):
-        # Staged visual evidence is a single, immutable host-attested generation.
-        # A reviewer finding needs a fresh human-approved visual plan rather
-        # than automatically replaying Claude against existing screenshots.
-        state["state"] = "human_attention"
-        state["reason"] = "visual_experiment_changes_required"
-        persist_state(number, state, review_text +
-                      "\n\nStaged visual evidence requires human inspection and a new explicit generation; no automated repair dispatched.")
-        add_labels(number, "symphony:human-attention")
-        set_repair_route(number, "unchanged")
-        remove_lifecycle_except(number, {"symphony:human-attention"})
-        return
-
     if repairs >= MAX_REPAIRS:
         state["state"] = "human_attention"
         state["reason"] = "review_loop_exhausted"

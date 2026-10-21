@@ -234,46 +234,34 @@ class VisualSafetyTest(unittest.TestCase):
         with self.assertRaises(broker.HandoffError):
             self.verify_broker()
 
-    def test_unconfigured_visual_issue_does_not_starve_code_claude_work(self):
+    def test_visual_issue_is_normal_claude_work_not_an_independent_gate(self):
         dispatcher = load("claude_visual_queue_regression", "claude-dispatcher.py")
         visual = {
-            "number": 17, "state": "OPEN", "body": "",
-            "labels": [{"name": name} for name in policy.LABELS | {"symphony:claude-ready"}],
-        }
-        code = {
-            "number": 18, "state": "OPEN", "body": "",
+            "number": 17, "state": "OPEN", "body": "Compare Blink and Swordman",
             "labels": [{"name": name} for name in
-                       ("agent:claude", "symphony:claude-ready", "risk:mechanical")],
+                       ("agent:claude", "symphony:claude-ready", "work:visual-unity",
+                        "risk:normal", "validation:unity-optional")],
         }
-        with mock.patch.dict(os.environ, {
-                "RPGK_CLAUDE_AUTONOMOUS": "1"
-            }), mock.patch.object(dispatcher, "REPO", "Shashakar/Rekindle-Claude"), \
+        with mock.patch.object(dispatcher, "REPO", "Shashakar/Rekindle-Claude"), \
             mock.patch.object(dispatcher, "BASE", "rekindle-vertical-slice"), \
-            mock.patch.object(dispatcher, "list_candidates", return_value=[17, 18]), \
-            mock.patch.object(dispatcher, "issue", side_effect=lambda n: visual if n == 17 else code), \
-            mock.patch.object(dispatcher, "preflight"), \
-            mock.patch.object(dispatcher.VISUAL_HOST, "host_ready", side_effect=dispatcher.VISUAL_HOST.VisualHostError("not ready")), \
+            mock.patch.object(dispatcher, "list_candidates", return_value=[17]), \
+            mock.patch.object(dispatcher, "issue", return_value=visual), \
             mock.patch.object(dispatcher, "execute", return_value="review queued") as work:
+            dispatcher.preflight(visual)
             result = dispatcher.once()
-        self.assertEqual(result["issue"], 18)
-        work.assert_called_once_with(code)
+        self.assertEqual(result["issue"], 17)
+        work.assert_called_once_with(visual)
 
-    def test_visual_scope_is_not_general_scene_authoring(self):
+    def test_visual_scenes_and_scripts_follow_common_handoff_scope(self):
         dispatcher = load("claude_visual_dispatcher_security_test", "claude-dispatcher.py")
-        safe = [
+        dispatcher.enforce_scope([
             "Docs/VisualExperiments/GH-17/request.json",
-            "Docs/VisualExperiments/GH-17/review.md",
-            "Docs/Evidence/VisualExperiments/GH-17/character-comparison-idle.png",
-            "Docs/Evidence/VisualExperiments/GH-17/summary.json",
-        ]
-        dispatcher.enforce_visual_scope(safe, 17, self.workspace)
-        for forbidden in ("Assets/Rekindle/Scenes/Hearthmere.unity",
-                          "Assets/AssetStoreLocal/Purchased.fbx",
-                          "Docs/Evidence/VisualExperiments/GH-18/shot.png",
-                          "Docs/VisualExperiments/GH-17/hack.py",
-                          "Docs/Evidence/VisualExperiments/GH-17/a/b.png"):
-            with self.subTest(forbidden=forbidden), self.assertRaises(dispatcher.DispatchError):
-                dispatcher.enforce_visual_scope([*safe, forbidden], 17, self.workspace)
+            "Assets/Rekindle/Scenes/IsolatedPreview.unity",
+            "Assets/Rekindle/Editor/PreviewSceneBuilder.cs",
+            "Assets/Rekindle/Editor/PreviewSceneBuilder.cs.meta",
+        ], self.workspace)
+        with self.assertRaises(dispatcher.DispatchError):
+            dispatcher.enforce_scope(["../outside.cs"], self.workspace)
 
 
 if __name__ == "__main__":

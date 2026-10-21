@@ -1,63 +1,103 @@
-# Phase 3 — opt-in automatic Claude issue execution
+# Claude as a first-class Supervisor execution provider
 
-Claude Code is **not** a Codex App Server. This implementation runs Claude in a separate host-owned service child and deliberately keeps Symphony's `symphony:ready` queue Codex-only. The bounded Claude CLI pilot provides the tool-permission restrictions, model routing, output parsing, timeouts and per-issue/mutation file locks. The host owns cloning, Git branches, commits, pushes, draft PRs and independent review. No automatic merges.
+Claude and Codex use **the same issue scope, authorization labels, Unity readiness,
+host resource ownership, Git publication, independent review, two-cycle repair
+policy, and human merge approval**. Provider routing is an implementation detail,
+not an additional permission or operator-approval boundary.
 
-## Dispatch protocol
+## How to assign an issue
 
-Claude issues must have **both** `agent:claude` and `symphony:claude-ready`; do **not** add `symphony:ready`. The dedicated queue is never observed by Symphony's Codex tracker. Provider-neutral `agent:auto` and `work:visual-unity` do not automatically become Claude jobs; explicit provider opt-in is required. With `RPGK_CLAUDE_AUTONOMOUS` unset, the entire new dispatcher is disabled.
+For a Codex task, use `agent:codex` and `symphony:ready`.
+For a Claude task, use `agent:claude` and `symphony:claude-ready`.
+The distinct ready labels prevent two consumers from claiming the same issue;
+they are **not different approval thresholds**. Normal risk/model/effort labels
+route the provider. The code-only/Unity/scene scope is expressed by the **same**
+`resource:unity-editor`, `validation:unity-required` or
+`validation:unity-optional`, and `authoring:*` labels.
 
-The dispatcher handles **one candidate per pass**, polling every 30 seconds when enabled. It accepts only `Shashakar/Rekindle-Claude` on `rekindle-vertical-slice`, and rejects simultaneous Codex ready leases, conflicting providers, human/review/halted gates, and report-only work. The default **code-only** Claude lane rejects all Unity Editor/Unity-required and `authoring:*` labels. The separately reviewed, opt-in [Rekindle visual-preview lane](CLAUDE_REKINDLE_VISUAL.md) permits only the exact `work:visual-unity` + `resource:unity-editor` + `validation:unity-required` + `authoring:scene-new-composition` grant, explicit issue authority and three independent host capability flags. It does not grant Claude Bash, Unity Editor RPC, production-scene edits or broad Unity access. The Rekindle preflight runs with its Unity override forcibly set to `0`. Claude runs with workspace-scoped `Read(/**),Edit(/**)` tool approvals (no bare cross-workspace Read/Grep/Glob approvals), `dontAsk` permission mode, disabled hooks, and denied sensitive home/Git paths. These are CLI policy constraints, **not an OS security boundary**. Claude cannot use Bash, web tools, git, nested agents, or MCP tools. Changes to production scene/prefab/asset/meta, ProjectSettings, packages, secrets/policy files or workflow configuration are blocked at the host side before any PR.
+There is **no separate visual authority JSON block**, Claude-only manifest
+requirement, screenshot consent environment switch, or Claude-only host opt-in.
+The issue body is the scope of work, subject to the target repository's
+`AGENTS.md` and normal human review. An agent can modify an authorized
+new preview scene; it need not stop at describing an arrangement in JSON.
 
-On first dispatch it creates/reuses `~/code/rekindle-symphony-workspaces/GH-N`, validates the exact GitHub origin and clean status, runs the existing host Git broker `prepare` on `claude/gh-N-implementation`, then executes `scripts/claude-worker-pilot.py` with selected Haiku/Sonnet/Opus and effort labels. On successful work it uses the same host Git handoff broker to commit/push and open a **draft** PR against `rekindle-vertical-slice`. The existing review orchestrator takes over for agent review; approval leads to `symphony:human-review`, *not merge*. Rework within the existing two-automatic-repair limit dispatches `symphony:claude-ready` instead of the Codex queue. Manual `scripts/rearm-issue.sh` also uses the Claude queue when `agent:claude` is present.
+### Standard execution
 
-Each attempt writes `~/.local/state/rekindle-supervisor/claude-dispatch/GH-N.json`, and the pilot writes `claude-pilot/GH-N/latest.json`. A restart never automatically replays an interrupted edit: it stops for human inspection. If a host handoff had already pushed an **advanced, matching** PR head, the dispatcher can re-queue review and remove a stale lease without rerunning Claude. Failed or timed-out attempts get `symphony:halted`, lose their ready lease, and require an explicit human `symphony:rearm`; any dirty working tree is **preserved**, never force reset. External CLI permissions are not an OS sandbox; run untrusted code in an isolated container/VM.
+- The Rekindle service launches the Claude dispatcher by default. The
+  `symphony:claude-ready` label is the explicit per-issue authorization. For
+  emergency maintenance, `RPGK_CLAUDE_AUTONOMOUS=0` disables the Claude
+  dispatcher only.
+- Claude uses its ordinary editing, shell/test, subagent, skill, configured MCP,
+  and research tools. Codex and Claude both have the same host-side Git broker
+  for branch prepare, commits, push, and draft PR handoff.
+- The provider's authenticated CLI must be installed for that host user; the
+  host does not inject its tracker PAT into either worker. No extra login/
+  enrollment step is required once the CLI is authenticated.
+- Code/test/doc tasks may start immediately if the issue is ready. Unity tasks
+  use the shared Rekindle host readiness setting
+  `RPGK_REKINDLE_UNITY_READY`. If that shared host is unavailable, **both**
+  providers are blocked from Unity-required/editor-owned work. This is a
+  real host capability, not a provider-specific approval. Use
+  `validation:unity-optional` for genuine work that can proceed without running
+  Unity, with missing validation reported honestly.
+- `resource:unity-editor` uses the same `locks/unity-editor.lock`
+  ownership protocol. `validation:unity-required` requires actual fresh
+  passing Unity evidence at host Git handoff for either provider.
+- Failed attempts retain a clean audit trail; review can request the same
+  bounded automatic repairs for Claude or Codex. **Neither auto-merges**.
 
-### Rollout on Dex-GMKTec-Server
+## Visual work and licensed assets
 
-1. Merge the PR after CI review, then `cd ~/src/RPG-Kingdom-Supervisor && git pull --ff-only`.
-2. `RPGK_REPO=Shashakar/Rekindle-Claude bash scripts/install-labels.sh`.
-3. Confirm host-level `claude --version`, `claude auth status`, `gh auth status`, and that the authenticated **dex system-service user** has access. Verify the CLI accepts `--model`/`--effort` on the installed version. Start with a very small, low-risk, code-only issue. Do not enable Unity scene jobs.
-4. Opt in persistently only after these checks. Create a separate systemd drop-in (leave the `90-rekindle-target.conf` unchanged):
+A Claude issue such as *compare Blink vs Swordman with Kevin Iglesias
+animations, then stage a Townsmith/Fantasy Adventure Environment preview* is
+ordinary visual/Unity work. Specify the actual deliverables in the issue,
+including the new isolated preview scene, screenshots, animation evidence,
+comparison, and recommendation. Use `work:visual-unity` for model routing,
+not as a different authorization class.
+
+Visuals can be staged locally without committing purchased source assets.
+The shared Git-index license boundary and normal target repo requirements
+still apply to both providers. Source asset installation, Unity readiness,
+production-scene modifications, actual test status and visual review must not be
+fabricated. New preview scenes remain separate from production Hearthmere;
+production-scene edits require explicit issue scope, just as for Codex.
+
+The older `claude-visual-policy.py` and `claude-visual-host.py` are retained
+only as experimental tools for existing test fixtures. **They are no longer
+invoked or required by autonomous Claude dispatch.** The specialized
+`RPGK_CLAUDE_VISUAL_*` switches and `rpgk-claude-visual-authority` issue
+block are not part of the supported normal workflow.
+
+## Host operations
+
+After merging and deploying the Supervisor change, confirm:
 
 ```bash
-sudo install -d -m 0755 /etc/systemd/system/rpg-kingdom-supervisor.service.d
-printf '[Service]\nEnvironment=RPGK_CLAUDE_AUTONOMOUS=1\n' | \
-  sudo tee /etc/systemd/system/rpg-kingdom-supervisor.service.d/95-claude-autonomous.conf
-sudo systemctl daemon-reload
-# Verify no worker is currently active before intentionally restarting:
-sudo systemctl restart rpg-kingdom-supervisor.service
-sudo systemctl show rpg-kingdom-supervisor.service -p Environment --no-pager
-sudo tail -n 80 /home/dex/.local/state/rekindle-supervisor/claude-dispatcher.log
+cd ~/src/RPG-Kingdom-Supervisor
+claude --version
+claude auth status
+gh auth status
+sudo systemctl status rpg-kingdom-supervisor.service --no-pager
+tail -n 60 ~/.local/state/rekindle-supervisor/claude-dispatcher.log
 ```
 
-5. Add labels `agent:claude`, `risk:mechanical`, `symphony:claude-ready` to **one intentionally chosen open issue** that changes only a safe code/test/doc path. Do not add `symphony:ready`. Watch the issue labels, dispatcher journal, pilot report, draft PR and independent review state. Confirm the review can request bounded rework and that no merge happens without human approval.
+No dedicated Claude autonomy drop-in is necessary. If a previously installed
+`95-claude-autonomous.conf` sets `RPGK_CLAUDE_AUTONOMOUS=1`, it may remain:
+that value is redundant, but does not impose a second gate. A value of
+`RPGK_CLAUDE_AUTONOMOUS=0` intentionally disables the dispatcher.
 
-### Disable / rollback
+To start work, create/assign one task using the normal issue labels above.
+The dispatcher polls every 30 seconds. Watch the resulting issue branch, draft
+PR, review status, and diagnostics. Continue code work in parallel with
+Supervisor maintenance; do not restart a host that has an active worker.
 
-Remove the opt-in drop-in and restart **only after** inspecting active work (the system service uses `KillMode=control-group` and can terminate a running Claude process). Existing in-flight journals/workspaces will remain for human inspection; rearming them is always an explicit choice.
-
-```bash
-sudo rm /etc/systemd/system/rpg-kingdom-supervisor.service.d/95-claude-autonomous.conf
-sudo systemctl daemon-reload
-sudo systemctl restart rpg-kingdom-supervisor.service
-```
-
-Do not rename `symphony:claude-ready` to `symphony:ready` as a rollback. That would allow the Codex tracker to claim Claude work. Keep both services targeting Rekindle unless deliberately reverting the entire migration.
-
-## Limitations
-
-- Opt-in dispatch uses an authenticated `gh` client on the system host. Failure to authenticate is a configuration error and should not be worked around by injecting tokens into Claude.
-- The Claude pilot's reported API spend and `--max-budget-usd` do not measure the user's subscription quota and do not guarantee a billing ceiling; the service has fixed turns and timeout caps.
-- Default code-only Claude work still has no Unity Editor access. The opt-in Rekindle visual lane creates *stage-only* preview scenes and screenshots via a fixed host-owned Unity executor; this is not production scene authoring or visual sign-off. No PlayMode save tests, unrestricted commands, purchased source copy-back, or automatic PR merge.
-- Changes are not compiled in the restricted Claude CLI; review and human gate must require evidence of validation, with real host-side smoke before production workload.
-- The existing operator autonomous work-plan scheduler uses Codex quota floors; it is **not** the Claude dispatch scheduler. Claude selection is explicit through the separate queue.
-- CI uses fake subprocess/provider responses and cannot verify actual installed Claude Code credentials or GitHub service permissions.
-
-## Local verification
+## Validation
 
 ```bash
 python3 tests/claude-dispatcher-test.py
 python3 tests/claude-worker-pilot-test.py
-python3 tests/claude-model-policy-test.py
+python3 tests/rekindle-migration-test.py
 bash tests/run.sh
 ```
+
+The CI unit tests cannot substitute for running a real Unity host test.

@@ -44,32 +44,33 @@ class ClaudeDispatcherTest(unittest.TestCase):
     def add(self, label):
         self.item["labels"].append({"name": label})
 
-    def test_explicit_provider_and_private_queue_required(self):
+    def test_provider_queue_has_no_separate_unity_or_scene_authorization(self):
+        self.mod.preflight(self.item)
+        self.add("resource:unity-editor")
+        self.add("validation:unity-required")
+        self.add("authoring:scene-new-composition")
+        self.add("work:visual-unity")
         self.mod.preflight(self.item)
         self.add("symphony:ready")
         with self.assertRaisesRegex(self.mod.DispatchError, "Codex queue"):
             self.mod.preflight(self.item)
-        self.item["labels"].pop()
-        self.add("resource:unity-editor")
-        with self.assertRaisesRegex(self.mod.DispatchError, "Unity"):
-            self.mod.preflight(self.item)
-        self.item["labels"].pop()
-        self.add("authoring:scene-new-composition")
-        with self.assertRaisesRegex(self.mod.DispatchError, "Unity"):
-            self.mod.preflight(self.item)
-        self.item["labels"].pop()
         self.item["labels"] = [{"name": "symphony:claude-ready"}]
         with self.assertRaisesRegex(self.mod.DispatchError, "agent:claude"):
             self.mod.preflight(self.item)
 
-    def test_protected_changes_fail_closed(self):
-        self.mod.enforce_scope(["Assets/Rekindle/Scripts/Inventory.cs"])
-        for name in ["Assets/Rekindle/Scenes/Hearthmere.unity", "Assets/X.prefab",
-                     "Assets/Foo.meta", "ProjectSettings/ProjectSettings.asset",
-                     "AGENTS.md", ".github/workflows/test.yml", "../outside.cs"]:
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(self.mod.DispatchError, "protected path"):
-                    self.mod.enforce_scope([name])
+    def test_shared_handoff_scope_allows_unity_source_and_assets(self):
+        self.mod.enforce_scope([
+            "Assets/Rekindle/Scripts/Inventory.cs",
+            "Assets/Rekindle/Tests/PlayMode/ControlSchemeTest.cs",
+            "Assets/Rekindle/Tests/EditMode/Fix.meta",
+            "Assets/Rekindle/Scenes/ExperimentalPreview.unity",
+            "Assets/Rekindle/Content/NewPrefab.prefab",
+            "Docs/ArchitectureNotes.md",
+        ])
+        for unsafe in ("../outside.cs", ".git/config", "/tmp/unwanted.cs"):
+            with self.subTest(path=unsafe), self.assertRaisesRegex(
+                    self.mod.DispatchError, "unsafe changed path"):
+                self.mod.enforce_scope([unsafe])
         with self.assertRaisesRegex(self.mod.DispatchError, "empty PR"):
             self.mod.enforce_scope([])
 
@@ -80,6 +81,37 @@ class ClaudeDispatcherTest(unittest.TestCase):
         target.symlink_to("/etc/hosts")
         with self.assertRaisesRegex(self.mod.DispatchError, "symlink"):
             self.mod.enforce_scope(["Assets/linked.cs"], ws)
+
+    def test_claude_uses_codex_unity_editor_lock_without_extra_grants(self):
+        ws = self.root / "GH-91"
+        ws.mkdir(parents=True)
+        self.add("resource:unity-editor")
+        with self.mod.common_unity_resource(self.item, ws):
+            lock = self.state / "locks/unity-editor.lock"
+            self.assertEqual((lock / "owner").read_text().strip(), "GH-91")
+            self.assertEqual((lock / "workspace").read_text().strip(), str(ws.resolve()))
+            with self.assertRaisesRegex(self.mod.DispatchError, "already held"):
+                with self.mod.common_unity_resource(self.item, ws):
+                    pass
+        self.assertFalse(lock.exists())
+
+    def test_host_unity_evidence_is_fresh_and_actually_passed(self):
+        ws = self.root / "GH-91"
+        report = ws / "Logs/SymphonyUnity/host-run-1/summary.json"
+        report.parent.mkdir(parents=True)
+        report.write_text(json.dumps({
+            "total": 7, "unityExitCode": 0, "result": "Passed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "host-run-1")
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, report.stat().st_mtime_ns + 1), "")
+        report.write_text(json.dumps({
+            "total": 0, "unityExitCode": 0, "result": "Passed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "")
+        report.write_text(json.dumps({
+            "total": 7, "unityExitCode": 1, "result": "Failed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "")
 
     def test_git_control_fingerprint_detects_tampering(self):
         path = self.root / "GH-91"
@@ -114,7 +146,7 @@ class ClaudeDispatcherTest(unittest.TestCase):
             if cmd[:3] == ["git", "rev-parse", "HEAD"]:
                 return "baseline-sha"
             if cmd[0] == "bash" and "rekindle-migration-preflight.sh" in cmd[1]:
-                self.assertEqual(kwargs["env"]["RPGK_REKINDLE_UNITY_READY"], "0")
+                self.assertNotIn("RPGK_REKINDLE_UNITY_READY", kwargs["env"])
                 return ""
             if cmd[0].endswith("python") or cmd[0] == os.sys.executable:
                 if "claude-worker-pilot.py" in cmd[1]:
