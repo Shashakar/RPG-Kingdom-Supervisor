@@ -61,6 +61,14 @@ for text in (
 ):
     assert text in python_text, text
 
+# The quota header and overview cards are adjacent HTML siblings, not source
+# escape sequences. A previous template edit emitted literal \\n to the browser.
+literal_escape = chr(92) + 'n'
+assert ('</strong></span>' + literal_escape + '      <span id="header-claude-quota"') not in html
+assert ('</div></article>' + literal_escape + '      <article class="hero-card"><div class="hero-label">Claude') not in html
+assert '</strong></span>\n      <span id="header-claude-quota"' in html
+assert '</div></article>\n      <article class="hero-card"><div class="hero-label">Claude' in html
+
 # Separate provider quota and implementation-agent provenance must be visible.
 for text in (
     "providerQuotas?.codex",
