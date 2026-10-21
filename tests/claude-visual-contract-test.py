@@ -149,7 +149,7 @@ class VisualSafetyTest(unittest.TestCase):
                 policy.require_host_opt_in()
         with mock.patch.dict(os.environ, {
             "RPGK_CLAUDE_VISUAL_UNITY_ENABLED": "1",
-            "RPGK_REKINDLE_UNITY_READY": "1",
+            "RPGK_CLAUDE_VISUAL_HOST_READY": "1",
             "RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED": "1",
             "RPGK_CLAUDE_VISUAL_ASSET_PROJECT_WINDOWS": "C:\\OwnedAssets",
             "RPGK_CLAUDE_VISUAL_LICENSED_ROOTS": "../unsafe",
