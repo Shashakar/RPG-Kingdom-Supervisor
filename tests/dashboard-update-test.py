@@ -111,9 +111,9 @@ class DashboardUpdateTest(unittest.TestCase):
 
     def test_dashboard_recovery_ignores_stale_success_and_js_parses(self) -> None:
         source = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
-        match = re.search(r'MANAGEMENT_SCRIPT = r"""([\\s\\S]*?)"""', source)
+        match = re.search(r'MANAGEMENT_SCRIPT = r"""(.*?)"""', source, flags=re.S)
         self.assertIsNotNone(match)
-        js_match = re.search(r"<script>([\\s\\S]*?)</script>", match.group(1))
+        js_match = re.search(r"<script>(.*?)</script>", match.group(1), flags=re.S)
         self.assertIsNotNone(js_match)
         script = js_match.group(1)
         self.assertIn("d.lastUpdate.updatedAt!==previousUpdateAt", script)
