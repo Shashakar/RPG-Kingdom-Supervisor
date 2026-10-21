@@ -187,6 +187,7 @@ def run_visual(workspace: Path, auth: dict, number: int, *, state_root: Path,
         "branch": branch_result.stdout.strip(),
         "manifestSha256": manifest_sha,
         "screenshots": hashes,
+        "summarySha256": hashlib.sha256((output / "summary.json").read_bytes()).hexdigest(),
         "stageOnly": True,
         "hostVerified": True,
     }
