@@ -10,7 +10,13 @@ import subprocess
 from typing import Any
 
 ROOT = Path(os.environ.get("RPGK_SUPERVISOR_ROOT", Path(__file__).resolve().parents[1]))
-STATE_ROOT = Path(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", Path.home() / ".local/state/rpg-kingdom-supervisor"))
+# A Supervisor deployment is host-wide, independent of the selected game.
+# Do NOT inherit RPGK_SUPERVISOR_STATE_ROOT: Rekindle uses a different
+# worker-state root from RPG Kingdom, but both share this one deployment.
+STATE_ROOT = Path(os.environ.get(
+    "RPGK_DASHBOARD_UPDATE_STATE_ROOT",
+    Path.home() / ".local/state/rpg-kingdom-supervisor",
+))
 STATUS_PATH = STATE_ROOT / "dashboard-update.json"
 UPDATE_SERVICE = os.environ.get("RPGK_DASHBOARD_UPDATE_SERVICE", "rpg-kingdom-dashboard-update.service")
 
@@ -72,7 +78,9 @@ def trigger() -> dict[str, Any]:
     if current["dirty"]:
         raise UpdateError("dashboard update refused because the Supervisor checkout has local changes")
     proc = subprocess.run(
-        ["sudo", "-n", "/usr/bin/systemctl", "start", UPDATE_SERVICE],
+        # --no-block returns when systemd has queued the oneshot job, rather
+        # than waiting for Git, two restarts and the Windows tunnel refresh.
+        ["sudo", "-n", "/usr/bin/systemctl", "--no-block", "start", UPDATE_SERVICE],
         capture_output=True,
         text=True,
         timeout=10,
@@ -80,4 +88,12 @@ def trigger() -> dict[str, Any]:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise UpdateError(detail or "failed to start dashboard update service; run scripts/install-dashboard-update.sh once")
-    return {"accepted": True, "service": UPDATE_SERVICE, "head": current["head"], "message": "Update started; the dashboard will reconnect after services restart."}
+    return {
+        "accepted": True,
+        "service": UPDATE_SERVICE,
+        "head": current["head"],
+        # Used by browser recovery to ignore a terminal status left by the
+        # *previous* deployment while the new systemd job is starting.
+        "previousUpdateAt": (current.get("lastUpdate") or {}).get("updatedAt"),
+        "message": "Update queued; the dashboard will reconnect after services restart.",
+    }
