@@ -505,8 +505,11 @@ def execute(item: dict) -> str:
     else:
         enforce_scope(changed_paths(path), path)
     save(number, "handoff", validationRunId=validation_run)
-    broker(path, "handoff", branch, f"GH-{number}: {item.get('title') or 'Claude implementation'}",
-           validation_run=validation_run)
+    title = f"GH-{number}: {item.get('title') or 'Claude implementation'}"
+    if visual:
+        broker(path, "handoff", branch, title, validation_run=validation_run)
+    else:
+        broker(path, "handoff", branch, title)
     if not reconcile(number, path, branch):
         raise DispatchError("host handoff completed but no matching pushed PR could be verified")
     return "review queued"
