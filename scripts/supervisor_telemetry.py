@@ -285,6 +285,7 @@ def worker_start(
         "issue": issue_number,
         "identifier": identifier,
         "role": role,
+        "provider": "codex",
         "model": model or None,
         "effort": effort or None,
         "route": route or None,
@@ -616,11 +617,19 @@ def recent_events(limit: int = 50) -> list[dict[str, Any]]:
 
 
 def collect_operations() -> dict[str, Any]:
+    # The Codex account has a live App Server rate-limit API; Claude Code's
+    # subscription quota has no corresponding supported noninteractive source.
+    # Keep provider quota and per-session Claude CLI cost entirely separate.
+    import claude_quota
+    codex = current_quota()
+    claude = claude_quota.current_quota()
     return sanitize({
         "protocolVersion": PROTOCOL_VERSION,
         "generatedAt": iso_now(),
         "services": {name: normalize_service(name) for name in ("symphony", "review", "unity", "git")},
-        "quota": current_quota(),
+        "quota": codex,  # legacy Codex-only field
+        "providerQuotas": {"codex": codex, "claude": claude},
+        "providerUsage": {"claude": claude_quota.recent_pilot_usage()},
         "activeWorkers": [*active_workers(), *active_visual_reviews()],
         "recentWorkers": recent_workers(),
         "recentEvents": recent_events(),
