@@ -216,6 +216,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         auth = json.loads(args.authority_json.read_text(encoding="utf-8"))
+        # Validate ordinary input/configuration before acquiring a durable Unity
+        # lease; only ambiguous live Unity failures should preserve the lock.
+        _safe_root(args.workspace_root, args.workspace)
+        host_ready()
+        POLICY.read_manifest(args.workspace.resolve(), auth, args.issue)
         with unity_lease(args.state_root.resolve(), args.workspace.resolve()):
             result = run_visual(args.workspace, auth, args.issue,
                                 state_root=args.state_root.resolve(),
