@@ -9,6 +9,7 @@ import subprocess
 from typing import Any, Callable
 
 import supervisor_telemetry
+import supervisor_provider
 
 PROTOCOL_VERSION = 1
 DEFAULT_REPO = "Shashakar/RPG-Kingdom"
@@ -80,6 +81,10 @@ def label_names(value: Any) -> list[str]:
 def recent_worker_map(workers: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     for worker in workers:
+        # A Codex reviewer evaluating a Claude implementation must not become
+        # the displayed *implementation* agent or completion outcome.
+        if worker.get("role") in {"review", "visual-review"}:
+            continue
         issue = worker.get("issue")
         if isinstance(issue, int) and issue not in result:
             result[issue] = worker
@@ -134,7 +139,14 @@ def collect(
 
         labels = {name.lower() for name in label_names(issue.get("labels"))}
         worker = workers_by_issue.get(number)
-        participated = any(name.startswith("symphony:") for name in labels) or worker is not None
+        identity = supervisor_provider.resolve(
+            labels=labels, issue=number, repo=repo, worker=worker,
+        )
+        participated = (
+            any(name.startswith("symphony:") for name in labels)
+            or worker is not None or identity["executed"]
+            or ("agent:claude" in labels and repo == "Shashakar/Rekindle-Claude")
+        )
         if not participated or labels.intersection(DISQUALIFYING_LABELS):
             continue
 
@@ -149,9 +161,12 @@ def collect(
             "completedAt": completed_at,
             "latestWorkerOutcome": worker.get("outcome") if worker else None,
             "workerRole": worker.get("role") if worker else None,
-            "model": worker.get("model") if worker else None,
-            "effort": worker.get("effort") if worker else None,
-            "route": worker.get("route") if worker else None,
+            "provider": identity["provider"],
+            "providerSource": identity["source"],
+            "providerExecuted": identity["executed"],
+            "model": identity["model"] or (worker.get("model") if worker else None),
+            "effort": identity["effort"] or (worker.get("effort") if worker else None),
+            "route": worker.get("route") if worker and identity["provider"] == "codex" else None,
         }))
 
     items.sort(key=lambda item: parse_time(item.get("completedAt")), reverse=True)
