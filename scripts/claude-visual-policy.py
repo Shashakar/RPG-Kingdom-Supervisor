@@ -76,8 +76,8 @@ def preflight_labels(labels: set[str], body: str, number: int) -> dict:
 def require_host_opt_in() -> None:
     if os.environ.get("RPGK_CLAUDE_VISUAL_UNITY_ENABLED") != "1":
         raise VisualContractError("visual Unity automation requires separate operator opt-in")
-    if os.environ.get("RPGK_REKINDLE_UNITY_READY") != "1":
-        raise VisualContractError("Rekindle Unity integration has not passed host validation")
+    if os.environ.get("RPGK_CLAUDE_VISUAL_HOST_READY") != "1":
+        raise VisualContractError("dedicated staged Rekindle visual runner has not passed host validation")
     if os.environ.get("RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED") != "1":
         raise VisualContractError("licensed screenshot review has no host-side approval")
 
