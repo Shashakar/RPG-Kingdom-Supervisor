@@ -252,7 +252,7 @@ class VisualSafetyTest(unittest.TestCase):
             mock.patch.object(dispatcher, "list_candidates", return_value=[17, 18]), \
             mock.patch.object(dispatcher, "issue", side_effect=lambda n: visual if n == 17 else code), \
             mock.patch.object(dispatcher, "preflight"), \
-            mock.patch.object(dispatcher.VISUAL_HOST, "host_ready", side_effect=host.VisualHostError("not ready")), \
+            mock.patch.object(dispatcher.VISUAL_HOST, "host_ready", side_effect=dispatcher.VISUAL_HOST.VisualHostError("not ready")), \
             mock.patch.object(dispatcher, "execute", return_value="review queued") as work:
             result = dispatcher.once()
         self.assertEqual(result["issue"], 18)
