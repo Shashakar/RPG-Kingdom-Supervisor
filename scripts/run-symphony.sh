@@ -406,8 +406,8 @@ start_autonomous_scheduler() {
 }
 
 start_claude_dispatcher() {
-  if [[ "${RPGK_CLAUDE_AUTONOMOUS:-0}" != "1" ]]; then
-    echo "Claude autonomous dispatcher: disabled (RPGK_CLAUDE_AUTONOMOUS=1 to opt in)"
+  if [[ "${RPGK_CLAUDE_AUTONOMOUS:-1}" == "0" ]]; then
+    echo "Claude dispatcher: disabled by operator kill switch"
     return 0
   fi
   if [[ "$RPGK_TARGET_PROFILE" != "rekindle" ]]; then
