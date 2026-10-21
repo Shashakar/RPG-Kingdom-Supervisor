@@ -82,6 +82,37 @@ class ClaudeDispatcherTest(unittest.TestCase):
         with self.assertRaisesRegex(self.mod.DispatchError, "symlink"):
             self.mod.enforce_scope(["Assets/linked.cs"], ws)
 
+    def test_claude_uses_codex_unity_editor_lock_without_extra_grants(self):
+        ws = self.root / "GH-91"
+        ws.mkdir(parents=True)
+        self.add("resource:unity-editor")
+        with self.mod.common_unity_resource(self.item, ws):
+            lock = self.state / "locks/unity-editor.lock"
+            self.assertEqual((lock / "owner").read_text().strip(), "GH-91")
+            self.assertEqual((lock / "workspace").read_text().strip(), str(ws.resolve()))
+            with self.assertRaisesRegex(self.mod.DispatchError, "already held"):
+                with self.mod.common_unity_resource(self.item, ws):
+                    pass
+        self.assertFalse(lock.exists())
+
+    def test_host_unity_evidence_is_fresh_and_actually_passed(self):
+        ws = self.root / "GH-91"
+        report = ws / "Logs/SymphonyUnity/host-run-1/summary.json"
+        report.parent.mkdir(parents=True)
+        report.write_text(json.dumps({
+            "total": 7, "unityExitCode": 0, "result": "Passed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "host-run-1")
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, report.stat().st_mtime_ns + 1), "")
+        report.write_text(json.dumps({
+            "total": 0, "unityExitCode": 0, "result": "Passed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "")
+        report.write_text(json.dumps({
+            "total": 7, "unityExitCode": 1, "result": "Failed",
+        }))
+        self.assertEqual(self.mod.latest_passed_unity_run(ws, 0), "")
+
     def test_git_control_fingerprint_detects_tampering(self):
         path = self.root / "GH-91"
         git_dir = path / ".git"
