@@ -1,4 +1,4 @@
-# Codex Quota Freshness
+# Provider Quota Freshness (Codex and Claude)
 
 Issue #61 makes authoritative Codex quota an operator signal that stays useful even when no worker is running.
 
@@ -70,3 +70,31 @@ The worker detail API additionally exposes current global quota under the explic
 The sampler removes tracker/GitHub/OpenAI token aliases from the child App Server environment and all persisted payloads still pass through Supervisor telemetry redaction.
 
 Quota refresh is not a dashboard action and does not mutate GitHub lifecycle. The dashboard remains localhost-only and read-only.
+
+## Separate Claude quota reporting
+
+The Overview now has **two independent provider cards**:
+
+- **Codex** retains the existing automated `account/rateLimits/read` source, its 5h/weekly windows, freshness, historical before/after snapshots, and the quota guard used by Symphony. No quota percentages are shared with Claude.
+- **Claude** uses `providerQuotas.claude` and is `unavailable` until the operator supplies a recent observation from the interactive Claude Code `/usage` view. The current Claude CLI stream-json result exposes per-run `total_cost_usd`, **not** a trustworthy machine-readable subscription allowance. Supervisor cannot obtain the Claude quota automatically through a documented non-interactive CLI/API in this implementation. It must not claim an automated refresh or infer quota from cost/tokens.
+
+To record an **actual observed** remaining 5-hour and weekly percentage while using the Rekindle host profile:
+
+```bash
+cd ~/src/RPG-Kingdom-Supervisor
+RPGK_SUPERVISOR_STATE_ROOT=/home/dex/.local/state/rekindle-supervisor \
+  python3 scripts/claude_quota.py record \
+  --five-hour-remaining 60 --weekly-remaining 80
+```
+
+The numbers above are illustrative placeholders: **only enter values you personally observed** in Claude Code `/usage`. Optional `--five-hour-reset` / `--weekly-reset` accept timezone-aware ISO 8601 timestamps.
+
+The command writes a 0600, host-only JSON file to `$RPGK_SUPERVISOR_STATE_ROOT/usage/claude/current.json`. Its origin is marked `operator:claude-code-/usage` and values become visibly **stale after 600 seconds** by default (`RPGK_CLAUDE_QUOTA_STALE_SECONDS`). They are observations, not automatically refreshed live quota. When unavailable or stale, the dashboard displays that explicitly rather than showing a guessed percentage.
+
+`providerUsage.claude` may separately display the latest authenticated host-local Claude CLI pilot's *reported per-run cost*. This is **not** the amount billed for a subscription or the remaining plan quota. Pilot reports are latest-per-issue, not a complete billing history.
+
+Existing `quota` and `currentGlobalQuota` fields remain backwards-compatible aliases for **Codex**; new clients should use `providerQuotas.codex` and `providerQuotas.claude` for presentation. No changes to quota-based Codex scheduling are authorized by these provider cards.
+
+## Agent attribution in work items
+
+Completed and open lifecycle cards resolve the actual implementation agent from execution evidence: Codex worker telemetry or Claude pilot/dispatch records with matching repository, GH-number, and branch. Reviewer telemetry remains separate. If only an `agent:claude` or `agent:codex` label exists, the UI displays **assigned**, not **executed**. A Claude implementation reviewed by a Codex model should still identify Claude as the implementer; the reviewer model must not override the implementation provider.
