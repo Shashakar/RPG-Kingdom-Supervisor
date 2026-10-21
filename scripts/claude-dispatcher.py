@@ -521,17 +521,19 @@ def once() -> dict:
     if REPO != "Shashakar/Rekindle-Claude" or BASE != "rekindle-vertical-slice":
         raise DispatchError("unsupported target")
     issues = list_candidates()
+    deferred = []
     for number in issues:
         item = issue(number)
         try:
             if "work:visual-unity" in names(item):
-                # Retain the queue rather than halting on a missing host-only
-                # readiness opt-in; no model turn or resource acquisition occurs.
+                # Keep visual requests queued without starving unrelated Claude
+                # code tasks while the Windows host capability is not enabled.
                 preflight(item)
                 try:
                     VISUAL_HOST.host_ready()
                 except (VISUAL_POLICY.VisualContractError, VISUAL_HOST.VisualHostError) as exc:
-                    return {"issue": number, "state": "blocked", "reason": str(exc)}
+                    deferred.append({"issue": number, "reason": str(exc)})
+                    continue
             return {"issue": number, "result": execute(item)}
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
@@ -545,6 +547,8 @@ def once() -> dict:
                 return {"issue": number, "state": "degraded", "reason": reason,
                         "haltError": str(halt_exc)}
             return {"issue": number, "state": "halted", "reason": reason}
+    if deferred:
+        return {"state": "blocked", "checked": len(issues), "waitingVisual": deferred}
     return {"state": "idle", "checked": 0}
 
 
