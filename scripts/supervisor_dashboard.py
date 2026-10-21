@@ -274,6 +274,7 @@ MANAGEMENT_SCRIPT = r"""
 </style>
 <script>
 (function(){
+  let lastDisplayedUpdateAt=null;
   function managementHtml(){
     return '<section class="management-card"><div class="management-row"><div class="meta"><strong>Supervisor deployment</strong><div id="management-version">Loading deployed revision…</div><div id="management-last" class="meta"></div></div><button id="management-check" type="button">Check status</button><button id="management-update" type="button">Pull &amp; Restart</button></div><div id="management-result" class="management-result meta"></div></section>';
   }
@@ -302,13 +303,14 @@ MANAGEMENT_SCRIPT = r"""
       const relation=d.dirty?'local changes':d.behind>0?d.behind+' commit(s) behind origin/main':d.ahead>0?d.ahead+' commit(s) ahead of origin/main':'matches known origin/main';
       version.textContent=(d.branch||'-')+' · '+(d.headShort||'-')+' · '+relation;
       const u=d.lastUpdate||{};
+      lastDisplayedUpdateAt=u.updatedAt||null;
       last.textContent=u.state?('Last update: '+u.state+(u.message?' · '+u.message:'')):'No dashboard-triggered update recorded yet.';
       const b=document.getElementById('management-update');
       b.disabled=d.dirty||d.branch!=='main';
       b.title=d.dirty?'Refusing update while local changes exist':d.branch!=='main'?'Updates require the main branch':'';
     }catch(e){version.textContent='Deployment status unavailable: '+e;}
   }
-  function recoverAfterUpdate(){
+  function recoverAfterUpdate(previousUpdateAt){
     let attempts=0,stableSuccesses=0,terminal=null;
     const poll=async()=>{
       attempts++;
@@ -317,7 +319,10 @@ MANAGEMENT_SCRIPT = r"""
         const contentType=h.headers.get('content-type')||'';
         if(h.ok&&contentType.includes('application/json')){
           const d=await h.json();
-          if(d.lastUpdate&&['succeeded','failed'].includes(d.lastUpdate.state)){
+          // The previous successful record may still be visible before
+          // the queued systemd job writes its first fresh status.
+          if(d.lastUpdate&&['succeeded','failed'].includes(d.lastUpdate.state)
+             &&d.lastUpdate.updatedAt&&d.lastUpdate.updatedAt!==previousUpdateAt){
             const signature=[d.lastUpdate.state,d.lastUpdate.updatedAt,d.lastUpdate.currentHead].join('|');
             if(terminal===signature)stableSuccesses++;else{terminal=signature;stableSuccesses=1;}
             if(stableSuccesses>=3){
@@ -347,10 +352,15 @@ MANAGEMENT_SCRIPT = r"""
     const b=document.getElementById('management-update'),out=document.getElementById('management-result');
     window.__rpgkRestarting=true;
     sessionStorage.removeItem('rpgk-update-result');
-    b.disabled=true;out.textContent='Restarting… temporary 502 responses are expected.';
+    b.disabled=true;out.textContent='Update queued… temporary 502 responses are expected.';
+    let previousUpdateAt=lastDisplayedUpdateAt;
     try{
       const r=await fetch('/api/operator/update',{method:'POST',headers:{'Content-Type':'application/json','X-RPGK-Action-Token':'__RPGK_ACTION_TOKEN__'},body:'{}'});
       const contentType=r.headers.get('content-type')||'';
+      if(r.ok&&contentType.includes('application/json')){
+        const reply=await r.json();
+        if(reply.previousUpdateAt)previousUpdateAt=reply.previousUpdateAt;
+      }
       if(!r.ok&&r.status!==502){
         window.__rpgkRestarting=false;
         let message='HTTP '+r.status;
@@ -362,7 +372,7 @@ MANAGEMENT_SCRIPT = r"""
     }catch(e){
       if(!window.__rpgkRestarting){out.textContent='Update failed to start: '+e;b.disabled=false;return;}
     }
-    recoverAfterUpdate();
+    recoverAfterUpdate(previousUpdateAt);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installManagement);else installManagement();
 })();
