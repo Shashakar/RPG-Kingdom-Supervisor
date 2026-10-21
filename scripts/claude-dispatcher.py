@@ -8,12 +8,14 @@ host Git broker and independent review orchestrator.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -323,6 +325,64 @@ def reconcile(number: int, path: Path, branch: str) -> bool:
     return True
 
 
+@contextmanager
+def common_unity_resource(item: dict, workspace: Path):
+    """Same exclusive host Unity editor lease used by Codex's resource guard."""
+    if "resource:unity-editor" not in names(item):
+        yield
+        return
+    number = int(item["number"])
+    lock = STATE / "locks" / "unity-editor.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lock.mkdir(mode=0o700)
+    except FileExistsError as exc:
+        raise DispatchError("Unity Editor already held by another worker") from exc
+    (lock / "owner").write_text(f"GH-{number}\n", encoding="utf-8")
+    (lock / "workspace").write_text(str(workspace.resolve()) + "\n", encoding="utf-8")
+    (lock / "acquired-at").write_text(now() + "\n", encoding="utf-8")
+    succeeded = False
+    try:
+        yield
+        succeeded = True
+    finally:
+        # Like the Codex host broker, retain ownership after an ambiguous
+        # crash/timeout until the Windows/WSL Unity child is inspected.
+        if succeeded:
+            if ((lock / "owner").read_text(encoding="utf-8").strip() != f"GH-{number}"
+                    or (lock / "workspace").read_text(encoding="utf-8").strip()
+                        != str(workspace.resolve())):
+                raise DispatchError("Unity lock ownership changed; retaining lock")
+            retired = lock.with_name(lock.name + f".released.{os.getpid()}")
+            lock.rename(retired)
+            shutil.rmtree(retired)
+
+
+def latest_passed_unity_run(workspace: Path, after_ns: int) -> str:
+    """Discover fresh host-run evidence; the common Git broker revalidates it."""
+    root = workspace / "Logs" / "SymphonyUnity"
+    if not root.is_dir() or root.is_symlink():
+        return ""
+    candidates = []
+    for summary in root.glob("*/summary.json"):
+        if (summary.is_symlink() or summary.parent.is_symlink()
+                or not re.fullmatch(r"[A-Za-z0-9._-]+", summary.parent.name)):
+            continue
+        try:
+            if summary.stat().st_mtime_ns < after_ns:
+                continue
+            value = json.loads(summary.read_text(encoding="utf-8-sig"))
+            if (not isinstance(value, dict) or
+                    int(value.get("total", -1)) <= 0 or
+                    int(value.get("unityExitCode", -1)) != 0 or
+                    not str(value.get("result", "")).startswith("Passed")):
+                continue
+            candidates.append((summary.stat().st_mtime_ns, summary.parent.name))
+        except (OSError, ValueError, TypeError):
+            continue
+    return max(candidates)[1] if candidates else ""
+
+
 def execute(item: dict) -> str:
     preflight(item)
     number = int(item["number"])
@@ -361,33 +421,42 @@ def execute(item: dict) -> str:
     # Labels are provided to the CLI as a JSON file outside the worktree.
     state_dir = STATE / "claude-dispatch"
     state_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=state_dir) as tmp:
-        prompt_file = Path(tmp) / "prompt.txt"
-        labels_file = Path(tmp) / "labels.json"
-        prompt_file.write_text(prompt(item, rework), encoding="utf-8")
-        labels_file.write_text(json.dumps({"labels": item["labels"]}), encoding="utf-8")
-        command = [sys.executable, str(HERE / "claude-worker-pilot.py"),
-                   "--workspace", str(path), "--workspace-root", str(ROOT),
-                   "--repo", REPO, "--state-root", str(STATE),
-                   "--prompt-file", str(prompt_file), "--labels-json-file", str(labels_file),
-                   "--mode", "edit", "--enable-edits", "--autonomous-confined", "--max-turns",
-                   os.environ.get("RPGK_CLAUDE_MAX_TURNS", "4"),
-                   "--max-budget-usd", os.environ.get("RPGK_CLAUDE_MAX_BUDGET_USD", "2"),
-                   "--timeout-seconds", os.environ.get("RPGK_CLAUDE_TIMEOUT_SECONDS", "900")]
-        result = json.loads(run(command, timeout=3650))
-        if result.get("status") != "completed" or result.get("workspaceIdentityPreserved") is not True:
-            raise DispatchError("Claude pilot did not complete with a preserved workspace")
-    if git_control_fingerprint(path) != git_controls_before or run(["git", "rev-parse", "HEAD"], cwd=path) != base_head_before:
-        raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
-    save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
-         reportedCostUsd=result.get("reportedCostUsd"))
-    enforce_scope(changed_paths(path), path)
-    save(number, "handoff")
-    title = f"GH-{number}: {item.get('title') or 'Claude implementation'}"
-    broker(path, "handoff", branch, title)
-    if not reconcile(number, path, branch):
-        raise DispatchError("host handoff completed but no matching pushed PR could be verified")
-    return "review queued"
+    work_started_ns = time.time_ns()
+    with common_unity_resource(item, path):
+        with tempfile.TemporaryDirectory(dir=state_dir) as tmp:
+            prompt_file = Path(tmp) / "prompt.txt"
+            labels_file = Path(tmp) / "labels.json"
+            prompt_file.write_text(prompt(item, rework), encoding="utf-8")
+            labels_file.write_text(json.dumps({"labels": item["labels"]}), encoding="utf-8")
+            command = [sys.executable, str(HERE / "claude-worker-pilot.py"),
+                       "--workspace", str(path), "--workspace-root", str(ROOT),
+                       "--repo", REPO, "--state-root", str(STATE),
+                       "--prompt-file", str(prompt_file), "--labels-json-file", str(labels_file),
+                       "--mode", "edit", "--enable-edits", "--autonomous-confined", "--max-turns",
+                       os.environ.get("RPGK_CLAUDE_MAX_TURNS", "4"),
+                       "--max-budget-usd", os.environ.get("RPGK_CLAUDE_MAX_BUDGET_USD", "2"),
+                       "--timeout-seconds", os.environ.get("RPGK_CLAUDE_TIMEOUT_SECONDS", "900")]
+            result = json.loads(run(command, timeout=3650))
+            if result.get("status") != "completed" or result.get("workspaceIdentityPreserved") is not True:
+                raise DispatchError("Claude pilot did not complete with a preserved workspace")
+        if git_control_fingerprint(path) != git_controls_before or run(["git", "rev-parse", "HEAD"], cwd=path) != base_head_before:
+            raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
+        save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
+             reportedCostUsd=result.get("reportedCostUsd"))
+        enforce_scope(changed_paths(path), path)
+        save(number, "handoff")
+        title = f"GH-{number}: {item.get('title') or 'Claude implementation'}"
+        required = "validation:unity-required" in names(item)
+        run_id = latest_passed_unity_run(path, work_started_ns) if required else ""
+        if required:
+            if not run_id:
+                raise DispatchError("Unity-required work lacks a fresh passing host test run")
+            broker(path, "handoff", branch, title, validation_run=run_id)
+        else:
+            broker(path, "handoff", branch, title)
+        if not reconcile(number, path, branch):
+            raise DispatchError("host handoff completed but no matching pushed PR could be verified")
+        return "review queued"
 
 
 def once() -> dict:
