@@ -17,11 +17,16 @@ import sys
 import tempfile
 from typing import Any
 
-import supervisor_telemetry
+
+
+def state_root() -> Path:
+    return Path(os.environ.get(
+        "RPGK_SUPERVISOR_STATE_ROOT", str(Path.home() / ".local/state/rpg-kingdom-supervisor")
+    )).expanduser().resolve()
 
 
 def snapshot_path() -> Path:
-    return supervisor_telemetry.state_root() / "usage" / "claude" / "current.json"
+    return state_root() / "usage" / "claude" / "current.json"
 
 
 def _time(value: object) -> datetime | None:
@@ -90,7 +95,7 @@ def current_quota() -> dict[str, Any]:
 
 def recent_pilot_usage() -> dict[str, Any]:
     """One latest CLI result per issue; not a cumulative billing total."""
-    root = supervisor_telemetry.state_root() / "claude-pilot"
+    root = state_root() / "claude-pilot"
     candidates: list[tuple[float, dict[str, Any]]] = []
     try:
         paths = sorted(root.glob("GH-*/latest.json"))[:250]
