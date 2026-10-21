@@ -99,7 +99,7 @@ QUOTA_FRESHNESS_SCRIPT = r"""
   const quotaPercent = value => value === null || value === undefined ? null : `${Math.round(Number(value) * 10) / 10}%`;
   const resetLabel = value => value ? new Date(value).toLocaleString() : null;
   function renderQuotaFreshness(){
-    const q = state.operations?.quota || {};
+    const q = state.operations?.providerQuotas?.codex || state.operations?.quota || {};
     const rate = q.rateLimits || {};
     const primary = rate.primary || {};
     const secondary = rate.secondary || {};
@@ -118,7 +118,7 @@ QUOTA_FRESHNESS_SCRIPT = r"""
     if (!header || !metric || !note) return;
 
     if (q.status === 'available' && !staleByAge) {
-      header.innerHTML = `Quota <strong>${esc(primaryPct || '—')} / ${esc(weeklyPct || '—')}</strong>`;
+      header.innerHTML = `Codex <strong>${esc(primaryPct || '—')} / ${esc(weeklyPct || '—')}</strong>`;
       metric.textContent = primaryPct || 'available';
       metric.className = `metric-value ${Number(primary.remainingPercent) < 15 ? 'bad' : Number(primary.remainingPercent) < 35 ? 'warn' : 'good'}`;
       note.textContent = `weekly ${weeklyPct || '—'} remaining · sampled ${ageLabel(age)}${reset ? ` · 5h reset ${reset}` : ''}`;
@@ -126,7 +126,7 @@ QUOTA_FRESHNESS_SCRIPT = r"""
     }
 
     if (q.status === 'stale' || (q.status === 'available' && staleByAge)) {
-      header.innerHTML = `Quota <strong>stale · last ${esc(ageLabel(age))}</strong>`;
+      header.innerHTML = `Codex <strong>stale · last ${esc(ageLabel(age))}</strong>`;
       metric.textContent = 'stale';
       metric.className = 'metric-value warn';
       const lastKnown = primaryPct || weeklyPct ? `last known ${primaryPct || '—'} / ${weeklyPct || '—'}` : 'last known percentages unavailable';
@@ -135,14 +135,14 @@ QUOTA_FRESHNESS_SCRIPT = r"""
     }
 
     if (!q.observedAt && !latest.observedAt) {
-      header.innerHTML = 'Quota <strong>not sampled yet</strong>';
+      header.innerHTML = 'Codex <strong>not sampled yet</strong>';
       metric.textContent = 'not sampled';
       metric.className = 'metric-value';
       note.textContent = q.reason || 'Waiting for the first host-owned App Server quota probe';
       return;
     }
 
-    header.innerHTML = 'Quota <strong>unavailable</strong>';
+    header.innerHTML = 'Codex <strong>unavailable</strong>';
     metric.textContent = 'unavailable';
     metric.className = 'metric-value warn';
     note.textContent = unavailableReason || 'Authoritative App Server quota probe is unavailable';
@@ -156,6 +156,47 @@ QUOTA_FRESHNESS_SCRIPT = r"""
 </script>
 """
 
+
+CLAUDE_QUOTA_SCRIPT = r"""
+<script>
+(function(){
+  const baseRenderOverview = renderOverview;
+  const nicePct = value => value === null || value === undefined ? '—' : `${Math.round(Number(value) * 10) / 10}%`;
+  function renderClaudeQuota(){
+    const q=state.operations?.providerQuotas?.claude||{};
+    const usage=state.operations?.providerUsage?.claude||{};
+    const header=document.getElementById('header-claude-quota');
+    const metric=document.getElementById('metric-claude-quota');
+    const note=document.getElementById('metric-claude-quota-note');
+    if(!header||!metric||!note)return;
+    const remaining=q.rateLimits?.primary?.remainingPercent;
+    const weekly=q.rateLimits?.secondary?.remainingPercent;
+    const observed=q.observedAt||q.lastSuccessfulObservedAt;
+    const parsed=observed?new Date(observed).getTime():NaN;
+    const age=Number.isFinite(parsed)?Math.max(0,(Date.now()-parsed)/1000):null;
+    const staleByAge=age!==null&&age>Number(q.staleAfterSeconds||600);
+    const available=q.status==='available'&&!staleByAge;
+    const stale=q.status==='stale'||(q.status==='available'&&staleByAge);
+    const lastRun=usage.status==='available'&&usage.latest?.reportedCostUsd!==null&&
+        usage.latest?.reportedCostUsd!==undefined?
+        ` · Last Claude CLI run ${usage.latest.issue}: ${Number(usage.latest.reportedCostUsd).toFixed(2)} reported cost (not quota)`:'';
+    if(available||stale){
+      header.innerHTML=`Claude <strong>${stale?'stale':esc(nicePct(remaining))}</strong>`;
+      metric.textContent=stale?'stale':nicePct(remaining);
+      metric.className=`metric-value ${stale?'warn':Number(remaining)<15?'bad':Number(remaining)<35?'warn':'good'}`;
+      note.textContent=`${stale?'Last known manual /usage: ':'Manual /usage: '}${nicePct(remaining)} (5h) / ${nicePct(weekly)} (weekly) · ${age===null?'age unknown':Math.round(age/60)+'m ago'}${lastRun}`;
+    }else{
+      header.innerHTML='Claude <strong>unavailable</strong>';
+      metric.textContent='—';
+      metric.className='metric-value';
+      note.textContent=(q.reason||'No supported automatic Claude quota source')+lastRun;
+    }
+  }
+  renderOverview=function(){baseRenderOverview();renderClaudeQuota()};
+  if(state.operations)renderClaudeQuota();
+})();
+</script>
+"""
 
 ACTION_SCRIPT = r"""
 <script>
@@ -462,7 +503,7 @@ COMPACT_LAYOUT_STYLE = r"""
 
 def rendered_page() -> str:
     marker = "</body>"
-    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT + ACTION_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN) + MANAGEMENT_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN)
+    extras = COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + CLAUDE_QUOTA_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT + ACTION_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN) + MANAGEMENT_SCRIPT.replace("__RPGK_ACTION_TOKEN__", ACTION_TOKEN)
     return PAGE.replace(marker, extras + marker, 1) if marker in PAGE else PAGE + extras
 
 
