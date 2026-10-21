@@ -78,7 +78,12 @@ def resolve(
 ) -> dict[str, Any]:
     """Return provider / model / effort and whether execution is evidenced."""
     names = label_set(labels)
-    if worker and worker.get("runId"):
+    if worker and (
+        worker.get("runId") or (
+            worker.get("model") and worker.get("role") in
+            {"implementation", "repair", "report-only"}
+        )
+    ):
         # The host's Codex worker ledger is Codex-specific; old records have no
         # provider key. Do not reassign an already-executed Codex worker by labels.
         provider = worker.get("provider") or "codex"
