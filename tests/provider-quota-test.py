@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import re
+import subprocess
 import os
 from pathlib import Path
 import sys
@@ -121,6 +123,19 @@ class ProviderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             claude_quota.record(80, 50, "yesterday", None)
         self.assertFalse(claude_quota.snapshot_path().exists())
+
+    def test_claude_quota_widget_embedded_javascript_parses(self):
+        source = (ROOT / "scripts/supervisor_dashboard.py").read_text(encoding="utf-8")
+        match = re.search(r'CLAUDE_QUOTA_SCRIPT = r"""(.*?)"""', source, flags=re.S)
+        self.assertIsNotNone(match)
+        self.assertIn("renderClaudeQuota", match.group(1))
+        with tempfile.TemporaryDirectory() as td:
+            file = Path(td) / "quota-widget.js"
+            script = match.group(1).split("<script>", 1)[1].split("</script>", 1)[0]
+            file.write_text(script, encoding="utf-8")
+            result = subprocess.run(["node", "--check", str(file)],
+                                    text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_last_claude_pilot_cost_never_becomes_quota(self):
         path = self.root / "claude-pilot/GH-6"
