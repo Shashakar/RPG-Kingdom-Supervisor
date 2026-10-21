@@ -89,6 +89,14 @@ Project-owned prefab derivative authoring may declare exact `derivativeOutputs` 
 The dashboard listener remains localhost-bound by default. When the browser reaches it through a reverse proxy that preserves the browser-facing `Host`, exact same-origin requests are accepted automatically. For a proxy where the browser Origin intentionally differs from Host, set `RPGK_DASHBOARD_ALLOWED_ORIGINS` to a comma-separated list of exact origins, including scheme and optional port (for example `https://server.shashakar.com`). Localhost/127.0.0.1 browser origins remain accepted automatically. Non-local operator-action origins must exactly match this allowlist and still present the per-process action token embedded in the served dashboard. Forwarded host/origin headers are not authorization inputs.
 
 
+## Implementation providers and quota
+
+The Overview has separate **Codex** and **Claude** quota panels. Codex quota comes from the existing automated App Server rate-limit probe. Claude Code's `/usage` is currently interactive; Supervisor cannot automatically read its subscription remaining allowance from a supported noninteractive API. Claude therefore displays *unavailable* unless a recent host-only manual `/usage` percentage was recorded. Operator-provided values are labelled **manual** and become stale after 10 minutes. The latest Claude CLI-reported run cost, if present, is shown separately and is **never** treated as remaining quota. Details and the optional operator command: [Provider quota and attribution](QUOTA_FRESHNESS.md).
+
+Finished tasks, active work, and manual-review queues display the **implementation provider** (Codex or Claude) and distinguish verified `executed` from `assigned` based on issue labels. A Codex independent reviewer for a Claude-authored PR must not replace the Claude implementer/model in the work-item display. When no reliable execution evidence exists, the UI does not claim an agent ran.
+
+The existing comparative token/quota historical view remains **Codex-only** until Claude reports comparable, attributable data. Claude per-run cost is not directly comparable to Codex account-global percentage-point quota deltas.
+
 ## Supervisor deployment control
 
 The Overview includes a narrow **Supervisor deployment** control for the dedicated host. It is intentionally not a terminal or arbitrary command runner.

@@ -11,6 +11,16 @@ RPG Kingdom Supervisor is the orchestration layer for autonomous Codex implement
 
 The supervisor deliberately does **not** live inside the Unity project. RPG Kingdom remains the source of truth for game architecture and repository instructions; this repository owns orchestration policy, narrow runtime adapters, and operator setup.
 
+## Provider reporting
+
+The Overview distinguishes **Codex** quota (automatically sampled from App Server)
+from **Claude** subscription quota (unavailable automatically in the current
+Claude Code CLI integration; optional manually observed `/usage` values with
+explicit freshness and source). Work items identify the **implementation**
+provider from execution records when available, separate from independent Codex
+reviews; an issue label alone is shown as *assigned*, not *executed*.
+See [provider quota and agent-attribution policy](docs/QUOTA_FRESHNESS.md).
+
 ## Current target
 
 The supervisor is built around the official [`openai/symphony`](https://github.com/openai/symphony) reference implementation and Codex App Server.

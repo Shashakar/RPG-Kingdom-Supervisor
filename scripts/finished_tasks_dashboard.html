@@ -35,6 +35,9 @@
       statusLabel: 'Report complete',
       completedAt: item.stateSince,
       latestWorkerOutcome: item.latestWorkerOutcome,
+      provider: item.provider,
+      providerSource: item.providerSource,
+      providerExecuted: item.providerExecuted,
       model: item.route?.model,
       effort: item.route?.effort,
       route: item.route?.route
@@ -43,10 +46,12 @@
 
   function workerMeta(item){
     const parts = [];
+    if (item.provider) parts.push(`${item.provider === 'claude' ? 'Claude' : 'Codex'} (${item.providerExecuted ? 'executed' : 'assigned'})`);
+    else parts.push('Agent unconfirmed');
     if (item.latestWorkerOutcome) parts.push(String(item.latestWorkerOutcome).replaceAll('_', ' '));
     if (item.model || item.effort) parts.push(`${item.model || '—'}${item.effort ? ` / ${item.effort}` : ''}`);
     else if (item.route) parts.push(String(item.route));
-    return parts.join(' · ') || 'trusted lifecycle completion';
+    return parts.join(' · ');
   }
 
   function renderFinished(data){

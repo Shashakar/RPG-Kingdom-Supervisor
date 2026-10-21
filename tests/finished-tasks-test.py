@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -113,6 +116,35 @@ assert item_202["route"] == "sol"
 assert 203 not in {item["issue"] for item in result["items"]}, "halted must never be called finished"
 assert 204 not in {item["issue"] for item in result["items"]}, "not_planned must not be called finished"
 assert 205 not in {item["issue"] for item in result["items"]}, "pull requests are not finished task rows"
+
+# Real GH-6 pattern: implementation by Claude Haiku, independent Codex review
+# has "changes required" but MUST NOT masquerade as the implementer.
+with tempfile.TemporaryDirectory() as td:
+    state = Path(td)
+    (state / "claude-dispatch").mkdir()
+    (state / "claude-dispatch/GH-6.json").write_text(json.dumps({
+        "issue": 6, "branch": "claude/gh-6-implementation", "stage": "review",
+        "model": "haiku", "effort": "low",
+    }), encoding="utf-8")
+    gh6 = {
+        "number": 6, "title": "Haiku smoke test: licensed dependency check",
+        "state_reason": "completed", "closed_at": "2026-10-21T01:00:00Z",
+        "labels": [{"name": "agent:claude"}, {"name": "claude-model:haiku"},
+                   {"name": "claude-effort:low"}, {"name": "risk:mechanical"}],
+    }
+    def gh6_runner(_args):
+        return {"ok": True, "stdout": json.dumps([gh6]), "stderr": "", "code": 0}
+    with mock.patch.dict(os.environ, {"RPGK_SUPERVISOR_STATE_ROOT": td}):
+        done = finished_tasks.collect(
+            repo="Shashakar/Rekindle-Claude", runner=gh6_runner,
+            recent_workers=[{"issue": 6, "role": "review", "outcome": "changes_required",
+                             "model": "gpt-6-sol", "effort": "medium", "runId": "GH-6-review"}],
+        )
+    assert len(done["items"]) == 1, done
+    row = done["items"][0]
+    assert row["provider"] == "claude" and row["providerExecuted"] is True, row
+    assert row["model"] == "haiku" and row["effort"] == "low", row
+    assert row["latestWorkerOutcome"] is None, "Codex reviewer outcome was attributed to Claude implementation"
 
 failure = finished_tasks.collect(
     runner=lambda _args: {"ok": False, "stdout": "", "stderr": "offline", "code": 1},

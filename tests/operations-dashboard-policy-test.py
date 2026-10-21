@@ -39,9 +39,9 @@ assert 'PAGE_PATH.read_text(encoding="utf-8")' in python_text
 # quota from token telemetry. Worker detail keeps global current quota explicitly separate from
 # historical quotaBefore/quotaAfter fields stored on the worker.
 for text in (
-    "Quota <strong>stale · last",
-    "Quota <strong>not sampled yet</strong>",
-    "Quota <strong>unavailable</strong>",
+    "Codex <strong>stale · last",
+    "Codex <strong>not sampled yet</strong>",
+    "Codex <strong>unavailable</strong>",
     "latest refresh failed:",
     "5h reset",
     "currentGlobalQuota",
@@ -61,13 +61,33 @@ for text in (
 ):
     assert text in python_text, text
 
+# Separate provider quota and implementation-agent provenance must be visible.
+for text in (
+    "providerQuotas?.codex",
+    "providerQuotas?.claude",
+    "providerUsage?.claude",
+    "Manual /usage:",
+    "Last known manual /usage:",
+    "No supported automatic Claude quota source",
+):
+    assert text in python_text, text
+for text in (
+    'id="header-claude-quota"',
+    'id="metric-claude-quota"',
+    "Claude · 5h quota remaining",
+    "Agent unconfirmed",
+    "Provider unconfirmed",
+    "providerExecuted",
+):
+    assert text in combined, text
+
 # Initial overview answers operator questions before deeper diagnostics.
 for text in (
     "System overview",
     "Overall health",
     "Active work",
     "Human action",
-    "5h quota remaining",
+    "Codex · 5h quota remaining",
     "Active work",
     "No active work. Supervisor is idle.",
     "Visual Review",
@@ -171,7 +191,7 @@ for text in (
     ".service-strip{grid-template-columns:repeat(2,minmax(0,1fr))",
 ):
     assert text in python_text, text
-assert "COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT" in python_text
+assert "COMPACT_LAYOUT_STYLE + QUOTA_FRESHNESS_SCRIPT + CLAUDE_QUOTA_SCRIPT + TURN_HISTORY_SCRIPT + FINISHED_TASKS_SCRIPT" in python_text
 
 # Core operator content remains present; compact mode only changes presentation.
 for identifier in (

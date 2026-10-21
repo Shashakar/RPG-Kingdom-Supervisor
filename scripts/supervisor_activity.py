@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable
 
 import review_state
 import supervisor_telemetry
+import supervisor_provider
 import unity_run_history
 
 PROTOCOL_VERSION = 1
@@ -159,6 +160,19 @@ def _selected_label(labels: set[str], prefix: str) -> list[str]:
 
 def route_from_labels(labels: Iterable[str]) -> dict[str, Any]:
     lowered = {item.lower() for item in labels}
+    provider = supervisor_provider.assigned_provider(lowered)
+    if provider == "claude":
+        identity = supervisor_provider.resolve(labels=lowered)
+        if identity["model"]:
+            return {
+                "status": "available", "source": "labels",
+                "provider": "claude", "model": identity["model"],
+                "effort": identity["effort"] or "medium",
+                "route": identity["model"],
+            }
+        return {"status": "unavailable", "source": "labels", "provider": "claude",
+                "reason": "Claude model label missing or ambiguous", "model": None,
+                "effort": identity["effort"], "route": None}
     model_labels = _selected_label(lowered, "model:")
     risk_labels = _selected_label(lowered, "risk:")
     effort_labels = _selected_label(lowered, "effort:")
@@ -200,6 +214,7 @@ def route_from_labels(labels: Iterable[str]) -> dict[str, Any]:
     return {
         "status": "available",
         "source": "labels",
+        "provider": "codex" if provider == "codex" else None,
         "model": MODEL_NAMES[route],
         "effort": effort,
         "route": route,
@@ -559,7 +574,27 @@ def collect_lifecycle(
         state_since = _state_since(events, current_label, review.get("updatedAt") or detail.get("updatedAt") or summary.get("updatedAt"))
         active = active_by_issue.get(number)
         recent = recent_by_issue.get(number)
-        route = _worker_route(active, route_from_labels(labels))
+        # Codex review telemetry is evidence of the *reviewer*, not proof of
+        # which provider implemented the issue. Retain it for review stages.
+        implementer = next((
+            w for w in (active, recent) if w and
+            w.get("role") not in {"review", "visual-review"}
+        ), None)
+        provider_info = supervisor_provider.resolve(
+            labels=labels, issue=number, repo=repo, worker=implementer,
+        )
+        route = route_from_labels(labels)
+        if provider_info["provider"] == "claude":
+            route = {
+                "status": "available" if provider_info["model"] else "unavailable",
+                "source": provider_info["source"],
+                "provider": "claude",
+                "model": provider_info["model"],
+                "effort": provider_info["effort"],
+                "route": provider_info["model"],
+            }
+        elif implementer:
+            route = _worker_route(implementer, route)
         pr_number = review.get("prNumber")
         pr_url = f"https://github.com/{repo}/pull/{pr_number}" if pr_number else None
         halt_reason = _halt_reason(comments, review) if queue == "halted" else review.get("reason")
@@ -577,6 +612,10 @@ def collect_lifecycle(
             "workerRole": active.get("role") if active else None,
             "workerRunId": active.get("runId") if active else None,
             "route": route,
+            "provider": provider_info["provider"],
+            "providerSource": provider_info["source"],
+            "providerExecuted": provider_info["executed"],
+            "reviewProvider": "codex" if active and active.get("role") in {"review", "visual-review"} else None,
             "reviewCycle": review.get("reviewCycle"),
             "repairAttempts": review.get("repairAttempts"),
             "maxRepairAttempts": review.get("maxRepairAttempts"),

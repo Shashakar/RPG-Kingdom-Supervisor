@@ -123,6 +123,7 @@ def execute(args: argparse.Namespace) -> dict:
                   selected["model"], selected["effort"], args.autonomous_confined)
     metadata = {
         "issue": workspace.name,
+        "provider": "claude",
         "repository": args.repo,
         "branch": branch,
         "mode": args.mode,
