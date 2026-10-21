@@ -71,7 +71,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         for missing in ready:
             env = dict(ready)
-            env.pop(missing)
+            env[missing] = "0"
             blocked = self.run_guard(TEST_LABELS=visual_labels, **env)
             self.assertEqual(blocked.returncode, 74, (missing, blocked.stderr))
         codex_labels = visual_labels.replace("agent:claude", "agent:codex")
