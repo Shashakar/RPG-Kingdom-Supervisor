@@ -96,11 +96,12 @@ The Overview includes a narrow **Supervisor deployment** control for the dedicat
 - `GET /api/management/update` reports the deployed branch/SHA, local dirty state, the locally known `origin/main` relation, and the last dashboard-triggered update result.
 - `POST /api/operator/update` uses the same per-process operator action token and same-origin validation as merge/rearm.
 - Updates are accepted only from a clean `main` checkout.
-- The dashboard can only start the fixed `rpg-kingdom-dashboard-update.service`; it cannot choose a command, service name, repository, ref, or filesystem path.
+- The dashboard can only queue the fixed `rpg-kingdom-dashboard-update.service` with `systemctl --no-block start`; it cannot choose a command, service name, repository, ref, or filesystem path. The request returns when systemd accepts the job, **not** when the deployment finishes.
 - The host update service fetches `origin/main`, fast-forwards only, restarts Supervisor and diagnostics, then triggers a pre-created elevated Windows Scheduled Task that restarts the `cloudflared` service.
-- The browser expects the diagnostics service to disappear briefly and polls until it returns.
+- Deployment history is **host-global** rather than game-profile-specific. Both the dashboard reader and the updater default to `~/.local/state/rpg-kingdom-supervisor/dashboard-update.json`, including when Rekindle worker data lives under `~/.local/state/rekindle-supervisor`. An optional `RPGK_DASHBOARD_UPDATE_STATE_ROOT` override must be configured identically for diagnostics and the update service; it is intentionally independent of `RPGK_SUPERVISOR_STATE_ROOT`.
+- The browser expects the diagnostics service to disappear briefly and polls until it returns. It ignores a previously completed deployment until the update status timestamp changes, then requires three consecutive stable terminal responses. If the public tunnel stays unavailable, inspect the saved host update record and journal; Git may already have advanced.
 
-This requires one-time host installation after pulling the feature:
+Install the host privilege bridge after pulling the feature. **Re-run the installer when upgrading from the original synchronous `systemctl start` implementation**: the updated, exact-match sudoers entry grants only the new `--no-block start` command and rewrites the existing unit; it does not restart a running Supervisor:
 
 ```bash
 cd ~/src/RPG-Kingdom-Supervisor
@@ -114,3 +115,12 @@ Then, from an **elevated Windows PowerShell**, install the deliberately narrow C
 ```
 
 The Windows task has no schedule; it exists only so the WSL host update service can request one elevated `Restart-Service cloudflared` operation. Routine dashboard updates do not grant arbitrary Windows administrator or Linux root command execution.
+
+To inspect the last host-side result without using the public dashboard:
+
+```bash
+cat ~/.local/state/rpg-kingdom-supervisor/dashboard-update.json
+sudo journalctl -u rpg-kingdom-dashboard-update.service -n 50 --no-pager
+```
+
+In Rekindle mode, **do not** move this record into `rekindle-supervisor`: the deployment history intentionally remains shared across target profiles. After the updated code and sudoers bridge are installed, use the dashboard for subsequent pulls; do not invoke another deployment while the oneshot update service is still active.
