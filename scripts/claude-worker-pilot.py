@@ -123,7 +123,7 @@ def parse_worker_outcome(message: str) -> dict:
         raise ValueError("unknown blocker category")
     report = data["reportPath"]
     if not isinstance(report, str) or len(report) > 220 or not re.fullmatch(
-        r"Docs/[A-Za-z0-9._/-]+\\.md", report
+        r"Docs/[A-Za-z0-9._/-]+\.md", report
     ) or ".." in report.split("/") or "//" in report:
         raise ValueError("blocked outcome reportPath must be a safe Docs/*.md path")
     return data
