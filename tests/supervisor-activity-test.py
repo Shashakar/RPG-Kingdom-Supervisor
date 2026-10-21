@@ -148,6 +148,13 @@ assert not lifecycle["queues"]["agent_review"], "rework must win over the transi
 assert not [item for item in lifecycle["queues"]["implementing"] if item["issue"] == 106], "rework must win over ready"
 
 rework = lifecycle["queues"]["rework"][0]
+claude_route = activity.route_from_labels([
+    "agent:claude", "risk:mechanical", "claude-model:haiku", "claude-effort:low",
+])
+assert claude_route["provider"] == "claude", claude_route
+assert claude_route["model"] == "haiku" and claude_route["effort"] == "low"
+assert claude_route["route"] != "luna", "Codex risk route cannot replace the Claude provider"
+
 assert rework["route"]["route"] == "terra"
 assert rework["route"]["model"] == "gpt-5.6-terra"
 assert rework["reviewCycle"] == 1
