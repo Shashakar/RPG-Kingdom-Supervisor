@@ -74,8 +74,8 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertIsNone(args["token"])
         self.assertIsNone(args["gh"])
         self.assertIsNone(args["claudecode"])
-        self.assertIn("Read,Glob,Grep", args["argv"])
-        self.assertNotIn("Read,Glob,Grep,Edit,Write", args["argv"])
+        self.assertIn("Read,Glob,Grep,Bash,WebFetch,WebSearch", args["argv"])
+        self.assertNotIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args["argv"])
         self.assertIn("dontAsk", args["argv"])
         self.assertTrue((self.base / "state/claude-pilot/GH-11/latest.json").exists())
 
@@ -84,12 +84,12 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertEqual(result.returncode, 70)
         self.assertFalse((self.base / "command.json").exists())
 
-    def test_edit_mode_keeps_shell_denied(self):
+    def test_edit_mode_can_run_shell_and_tools(self):
         result = self.run_pilot("--mode", "edit", "--enable-edits")
         self.assertEqual(result.returncode, 0, result.stderr)
         args = json.loads((self.base / "command.json").read_text())["argv"]
-        self.assertIn("Read,Glob,Grep,Edit,Write", args)
-        self.assertIn("Bash,Agent,WebFetch,WebSearch,NotebookEdit", args)
+        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args)
+        self.assertNotIn("--disallowedTools", args)
 
     def test_issue_labels_choose_opus_and_effort(self):
         labels = self.base / "labels.json"
@@ -119,17 +119,15 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertEqual(result.returncode, 70)
         self.assertIn("conflicting Claude", result.stderr)
 
-    def test_autonomous_confinement_scopes_tools_and_disables_hooks(self):
+    def test_autonomous_worker_has_same_tools_without_second_permission_lane(self):
         result = self.run_pilot("--mode", "edit", "--enable-edits",
                                 "--autonomous-confined")
         self.assertEqual(result.returncode, 0, result.stderr)
         args = json.loads((self.base / "command.json").read_text())["argv"]
-        self.assertIn("Read(/**),Edit(/**)", args)
-        self.assertNotIn("Read,Glob,Grep,Edit,Write", args)
-        self.assertIn("Read(~/.config/**)", args[args.index("--disallowedTools") + 1])
-        self.assertIn("Read(.git/**)", args[args.index("--disallowedTools") + 1])
-        self.assertEqual(args[args.index("--setting-sources") + 1], "user")
-        self.assertEqual(args[args.index("--settings") + 1], '{"disableAllHooks":true}')
+        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args)
+        self.assertNotIn("--disallowedTools", args)
+        self.assertNotIn("--strict-mcp-config", args)
+        self.assertNotIn("--setting-sources", args)
         self.assertTrue(json.loads(result.stdout)["autonomousConfined"])
 
     def test_wrong_origin_fails_closed(self):
