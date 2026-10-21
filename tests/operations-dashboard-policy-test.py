@@ -77,7 +77,7 @@ for text in (
     "Claude · 5h quota remaining",
     "Agent unconfirmed",
     "Provider unconfirmed",
-    "Claude (",
+    "providerExecuted",
 ):
     assert text in combined, text
 
