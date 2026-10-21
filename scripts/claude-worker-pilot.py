@@ -26,8 +26,8 @@ BLOCKED_ENV = {
 # terminal-based tests and local Unity/asset tooling. Codex is not constrained
 # to a read/edit-only session. The host Git broker and common issue policy own
 # publication and authorization, not separate Claude tool denials.
-READ_TOOLS = "Read,Glob,Grep,Bash,WebFetch,WebSearch"
-EDIT_TOOLS = "Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch"
+READ_TOOLS = "Read,Glob,Grep,Bash,WebFetch,WebSearch,Skill,mcp__*"
+EDIT_TOOLS = "Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch,Skill,mcp__*"
 
 
 def git(workspace: Path, *args: str) -> str:
