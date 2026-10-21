@@ -30,7 +30,7 @@ if [[ "${RPGK_REKINDLE_UNITY_READY:-0}" != "1" ]]; then
           "${RPGK_CLAUDE_VISUAL_HOST_READY:-0}" != 1 ||
           "${RPGK_CLAUDE_VISUAL_UNITY_ENABLED:-0}" != 1 ||
           "${RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED:-0}" != 1 ]]; then
-      echo "Rekindle preflight: Unity work blocked; stage-only Claude visual approval required" >&2
+      echo "Rekindle preflight: Unity work blocked pending save isolation/target validation; stage-only Claude visual approval required" >&2
       exit 74
     fi
   fi
