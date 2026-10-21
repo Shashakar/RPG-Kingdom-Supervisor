@@ -174,8 +174,35 @@ def run_visual(workspace: Path, auth: dict, number: int, *, state_root: Path,
             f"staged Unity preview exited {result.returncode}: {(result.stderr or result.stdout)[-900:]}"
         )
     hashes = verify_evidence(output, manifest)
+    manifest_sha = hashlib.sha256(request.read_bytes()).hexdigest()
+    branch_result = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=workspace, text=True, capture_output=True, check=True, timeout=8,
+    )
+    receipt = {
+        "protocolVersion": 1,
+        "issue": number,
+        "runId": run_id,
+        "workspace": str(workspace),
+        "branch": branch_result.stdout.strip(),
+        "manifestSha256": manifest_sha,
+        "screenshots": hashes,
+        "stageOnly": True,
+        "hostVerified": True,
+    }
+    receipt_dir = state_root / "claude-visual"
+    receipt_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    receipt_path = receipt_dir / f"GH-{number}.json"
+    if receipt_path.is_symlink():
+        raise VisualHostError("visual host receipt path cannot be a symlink")
+    tmp = receipt_dir / (f".GH-{number}-" + uuid.uuid4().hex)
+    with tmp.open("x", encoding="utf-8") as handle:
+        json.dump(receipt, handle, sort_keys=True, indent=2)
+        handle.write("\\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, receipt_path)
     return {"runId": run_id, "screenshots": hashes, "stageOnly": True,
-            "manifestSha256": hashlib.sha256(request.read_bytes()).hexdigest()}
+            "manifestSha256": manifest_sha}
 
 
 def main() -> int:
