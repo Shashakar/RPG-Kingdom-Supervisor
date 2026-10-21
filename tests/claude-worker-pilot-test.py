@@ -88,7 +88,7 @@ class ClaudePilotTest(unittest.TestCase):
         result = self.run_pilot("--mode", "edit", "--enable-edits")
         self.assertEqual(result.returncode, 0, result.stderr)
         args = json.loads((self.base / "command.json").read_text())["argv"]
-        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args)
+        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch,Skill,mcp__*", args)
         self.assertNotIn("--disallowedTools", args)
 
     def test_issue_labels_choose_opus_and_effort(self):
@@ -124,7 +124,7 @@ class ClaudePilotTest(unittest.TestCase):
                                 "--autonomous-confined")
         self.assertEqual(result.returncode, 0, result.stderr)
         args = json.loads((self.base / "command.json").read_text())["argv"]
-        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args)
+        self.assertIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch,Skill,mcp__*", args)
         self.assertNotIn("--disallowedTools", args)
         self.assertNotIn("--strict-mcp-config", args)
         self.assertNotIn("--setting-sources", args)
