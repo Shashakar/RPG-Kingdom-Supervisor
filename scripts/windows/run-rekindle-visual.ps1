@@ -243,7 +243,18 @@ $arguments = @(
     "-rpgkVisualManifest", $stageManifest,
     "-rpgkVisualOutput", $stageOutput
 )
-$process = Start-Process -FilePath $UnityPath -ArgumentList $arguments -PassThru -Wait -NoNewWindow
+# Explicit quoting is required for Windows paths containing spaces. Each
+# argument is an individual host-provided field; the model supplies no commands.
+$quoted = @($arguments | ForEach-Object {
+    if ($_ -match '[\s"]') {
+        '"' + $_.Replace('"', '\\"') + '"'
+    } else { $_ }
+})
+$process = Start-Process -FilePath $UnityPath -ArgumentList ($quoted -join ' ') -PassThru -NoNewWindow
+if (-not $process.WaitForExit(1800000)) {
+    try { Stop-Process -Id $process.Id -Force -ErrorAction Stop } catch { }
+    Fail "Unity preview exceeded the 30-minute maximum; inspect the process before rearming" 91
+}
 $summary = Join-Path $stageOutput "summary.json"
 if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $summary -PathType Leaf)) {
     if (Test-Path -LiteralPath $log) {
