@@ -141,7 +141,7 @@ The currently evaluated upstream revision is recorded in [`SYMPHONY_UPSTREAM.md`
 - [`scripts/supervisor_dashboard.py`](scripts/supervisor_dashboard.py) — localhost-only dashboard server, observability APIs, and narrowly typed operator controls.
 - [`scripts/dashboard_update.py`](scripts/dashboard_update.py) — read-only deployed-revision status plus the narrow trigger for the fixed host update service.
 - [`scripts/dashboard-update-host.sh`](scripts/dashboard-update-host.sh) — host-owned clean-main fast-forward/restart workflow used by the dashboard.
-- [`scripts/install-dashboard-update.sh`](scripts/install-dashboard-update.sh) — one-time WSL systemd/sudoers setup for dashboard-triggered updates.
+- [`scripts/install-dashboard-update.sh`](scripts/install-dashboard-update.sh) — WSL systemd/sudoers setup for dashboard-triggered updates; re-run after upgrading to non-blocking activation. Deployment history is host-global (not under the target game state root).
 - [`scripts/supervisor_dashboard.html`](scripts/supervisor_dashboard.html) — dependency-free operator console presentation, navigation, drill-down, and progressive-disclosure UI.
 - [`scripts/before-run-guard.sh`](scripts/before-run-guard.sh) — blocks accidental second worker lifetimes and consumes one-shot reviewed rearm requests before Codex starts.
 - [`scripts/git-handoff.sh`](scripts/git-handoff.sh) — worker-facing client for typed branch preparation, PR handoff, and explicit report-only completion.
