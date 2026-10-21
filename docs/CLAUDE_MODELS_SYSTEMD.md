@@ -2,7 +2,7 @@
 
 ## What this actually enables
 
-Claude Code model routing is **independent** of the existing Codex Luna/Sol routing. The current Claude adapter remains an **operator-started pilot**, not a Symphony App Server replacement or unattended Claude queue. Model labels influence an operator-approved pilot when the GitHub issue labels are supplied; they do **not** make `symphony:ready` dispatch Claude. Keep Claude-assigned issues out of the Codex dispatch lease.
+Claude Code model routing is **independent** of the existing Codex Luna/Sol routing. The Claude adapter runs through the **normal Rekindle service** and consumes the separate `symphony:claude-ready` queue to avoid racing Symphony's Codex tracker. Model labels select the Claude CLI model and effort. Code/Unity authorization, Git handoff and review rules are the same for Claude and Codex; see [dispatch parity](CLAUDE_AUTONOMOUS_DISPATCH.md). Keep Claude-assigned issues out of the Codex dispatch lease.
 
 ### Claude routing policy
 
