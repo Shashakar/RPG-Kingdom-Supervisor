@@ -2,7 +2,9 @@
 set -euo pipefail
 
 SUPERVISOR_ROOT="${RPGK_SUPERVISOR_ROOT:-/home/dex/src/RPG-Kingdom-Supervisor}"
-STATE_ROOT="${RPGK_SUPERVISOR_STATE_ROOT:-/home/dex/.local/state/rpg-kingdom-supervisor}"
+# Deployment belongs to this Supervisor installation, not to a game's
+# workspace/runtime profile. Match dashboard_update.py's status directory.
+STATE_ROOT="${RPGK_DASHBOARD_UPDATE_STATE_ROOT:-$HOME/.local/state/rpg-kingdom-supervisor}"
 STATUS_FILE="$STATE_ROOT/dashboard-update.json"
 LOCK_FILE="$STATE_ROOT/dashboard-update.lock"
 CLOUDFLARE_TASK="${RPGK_CLOUDFLARE_REFRESH_TASK:-RPG Kingdom Supervisor - Refresh Cloudflare}"
@@ -16,8 +18,10 @@ if ! flock -n 9; then
   exit 0
 fi
 
+LAST_STATUS=""
 write_status() {
   local state="$1" message="$2" previous="${3:-}" current="${4:-}"
+  LAST_STATUS="$state"
   python3 - "$STATUS_FILE" "$state" "$message" "$previous" "$current" <<'PY'
 import json, pathlib, sys
 from datetime import datetime, timezone
@@ -38,7 +42,8 @@ PY
 previous=""
 current=""
 target=""
-trap 'rc=$?; if (( rc != 0 )); then write_status "failed" "Update failed with exit code $rc" "$previous" "$current"; fi' EXIT
+# Keep the detailed failure when a checked step wrote one already.
+trap 'rc=$?; if (( rc != 0 )) && [[ "$LAST_STATUS" != "failed" ]]; then write_status "failed" "Update failed with exit code $rc" "$previous" "$current"; fi' EXIT
 
 previous="$(git_cmd rev-parse HEAD)"
 write_status "running" "Fetching origin/main" "$previous" "$previous"
