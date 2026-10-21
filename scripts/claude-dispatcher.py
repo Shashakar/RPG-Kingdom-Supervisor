@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 from datetime import datetime, timezone
 import json
 import os
@@ -20,6 +21,17 @@ import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
+
+def _load_visual_module(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, HERE / filename)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("missing reviewed Claude visual component")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+VISUAL_POLICY = _load_visual_module("claude_visual_policy", "claude-visual-policy.py")
+VISUAL_HOST = _load_visual_module("claude_visual_host", "claude-visual-host.py")
 REPO = os.environ.get("RPGK_REPO", "")
 BASE = os.environ.get("RPGK_BASE_BRANCH", "")
 ROOT = Path(os.path.expanduser(os.environ.get("RPGK_SYMPHONY_WORKSPACE_ROOT", "~/code/rekindle-symphony-workspaces"))).resolve()
@@ -27,8 +39,7 @@ STATE = Path(os.path.expanduser(os.environ.get("RPGK_SUPERVISOR_STATE_ROOT", "~/
 READY = "symphony:claude-ready"
 BRANCH = "claude/gh-{number}-implementation"
 HUMAN = {"symphony:human-review", "symphony:human-attention", "symphony:halted"}
-BLOCKED = {"symphony:ready", "symphony:agent-review", "resource:unity-editor",
-           "validation:unity-required", "completion:report-only"}
+BLOCKED = {"symphony:ready", "symphony:agent-review", "completion:report-only"}
 DISALLOWED_PATHS = (".github/", "ProjectSettings/", "UserSettings/", "Packages/", "Logs/")
 JOURNAL_VERSION = 1
 
@@ -86,8 +97,18 @@ def preflight(item: dict) -> None:
         raise DispatchError("Claude queue requires open issue, agent:claude, and symphony:claude-ready")
     if labels & HUMAN:
         raise DispatchError("human or halted gate is active")
-    if labels & BLOCKED or any(label.startswith("authoring:") for label in labels):
-        raise DispatchError("Codex queue, review, Unity/scene, or report-only work must not dispatch to Claude")
+    if labels & BLOCKED:
+        raise DispatchError("Codex queue, review or report-only work must not dispatch to Claude")
+    visual = "work:visual-unity" in labels
+    if visual:
+        try:
+            VISUAL_POLICY.preflight_labels(labels, str(item.get("body") or ""), int(item["number"]))
+        except VISUAL_POLICY.VisualContractError as exc:
+            raise DispatchError(f"visual Unity authorization rejected: {exc}") from exc
+    elif labels & {"resource:unity-editor", "validation:unity-required"} or any(
+        label.startswith("authoring:") for label in labels
+    ):
+        raise DispatchError("Unity/scene labels require an explicitly authorized visual experiment")
     if "agent:codex" in labels or "agent:auto" in labels:
         raise DispatchError("conflicting provider labels")
     if REPO != "Shashakar/Rekindle-Claude" or BASE != "rekindle-vertical-slice":
@@ -266,6 +287,25 @@ def changed_paths(path: Path) -> list[str]:
     return sorted(set(tracked + untracked))
 
 
+def enforce_visual_scope(paths: list[str], number: int, workspace: Path) -> None:
+    """No Unity scene, prefab, licensed source, executable or arbitrary code may be published."""
+    root = f"Docs/VisualExperiments/GH-{number}/"
+    evidence = f"Docs/Evidence/VisualExperiments/GH-{number}/"
+    for name in paths:
+        valid = (name in {root + "request.json", root + "review.md", evidence + "summary.json"}
+                 or (name.startswith(evidence) and name.endswith(".png")
+                     and "/" not in name[len(evidence):]))
+        if not valid:
+            raise DispatchError(f"visual experiment changed unapproved path: {name}")
+        candidate = workspace / name
+        while candidate != workspace:
+            if candidate.is_symlink():
+                raise DispatchError(f"symlink in visual evidence path: {name}")
+            candidate = candidate.parent
+    if root + "request.json" not in paths:
+        raise DispatchError("visual experiment did not produce a manifest")
+
+
 def enforce_scope(paths: list[str], workspace: Path | None = None) -> None:
     if not paths:
         raise DispatchError("Claude finished without source changes; no empty PR will be created")
@@ -284,10 +324,12 @@ def enforce_scope(paths: list[str], workspace: Path | None = None) -> None:
                 candidate = candidate.parent
 
 
-def broker(path: Path, operation: str, branch: str, title: str = "") -> str:
+def broker(path: Path, operation: str, branch: str, title: str = "", validation_run: str = "") -> str:
     args = ["bash", str(HERE / "git-handoff.sh"), operation, "--branch", branch,
             "--project", str(path)]
     if operation == "handoff":
+        if validation_run:
+            args.extend(["--validation-run", validation_run])
         args.extend(["--commit-message", f"Implement {path.name} with Claude",
                      "--pr-title", title[:180] or f"{path.name}: Claude implementation",
                      "--pr-body", "Claude Code bounded implementation. Automated reviewer and human approval required. Validation not run in restricted Claude worker."])
@@ -338,18 +380,27 @@ def execute(item: dict) -> str:
                 and reconcile(number, path, branch)):
             return "recovered existing PR; review queued"
         raise DispatchError("prior interrupted handoff requires human inspection; no automatic replay")
-    if existing.get("stage") in {"started", "prepared", "executed"}:
+    if existing.get("stage") in {"started", "prepared", "executed", "visual_started", "visual_evidence"}:
         raise DispatchError("prior interrupted attempt requires human inspection; no automatic replay")
     if existing and existing.get("stage") == "halted" and "symphony:rearm" not in names(item):
         raise DispatchError("prior halted attempt requires explicit symphony:rearm")
     if rework and "symphony:rearm" not in names(item):
         raise DispatchError("review rework requires one-shot rearm label")
 
-    save(number, "started", branch=branch, rework=rework, startedAt=now())
+    visual = "work:visual-unity" in names(item)
+    auth = None
+    if visual:
+        auth = VISUAL_POLICY.preflight_labels(names(item), str(item.get("body") or ""), number)
+        # A separate host opt-in plus licensed-assets source is required BEFORE
+        # any model turn. Missing capabilities are not permission to bypass Unity.
+        VISUAL_HOST.host_ready()
+    save(number, "started", branch=branch, rework=rework, startedAt=now(), visual=visual)
     path = clone_or_verify(number, rework=rework)
-    # Enforce target-specific Unity block even if the host has an override.
+    # The original code-only lane always forces Unity off. Visual authorization
+    # has its OWN host capability and does not grant any generic Editor RPC.
     env = os.environ.copy()
-    env["RPGK_REKINDLE_UNITY_READY"] = "0"
+    if not visual:
+        env["RPGK_REKINDLE_UNITY_READY"] = "0"
     run(["bash", str(HERE / "rekindle-migration-preflight.sh")], cwd=path, env=env)
     broker(path, "prepare", branch)
     save(number, "prepared", preparedHead=run(["git", "rev-parse", "HEAD"], cwd=path))
@@ -361,7 +412,20 @@ def execute(item: dict) -> str:
     with tempfile.TemporaryDirectory(dir=state_dir) as tmp:
         prompt_file = Path(tmp) / "prompt.txt"
         labels_file = Path(tmp) / "labels.json"
-        prompt_file.write_text(prompt(item, rework), encoding="utf-8")
+        instructions = prompt(item, rework)
+        if visual:
+            instructions += (
+                "\\nVISUAL PLAN MODE: Do NOT run Unity or author C#/scene/asset files. "
+                f"Write only Docs/VisualExperiments/GH-{number}/request.json using the "
+                "reviewed manifest contract. Preview images will be generated by the "
+                "host-owned Unity executor in a Windows staging project, never by you. "
+                "Use two characters with the SAME Kevin Iglesias animation clip for "
+                "each comparison shot and an isolated building/nature/character composition "
+                "for the environment shot. Do not use production Hearthmere as a target. "
+                "Only asset paths already imported locally by the owner will work. "
+                "Do not claim evidence exists until the host renders it.\\n"
+            )
+        prompt_file.write_text(instructions, encoding="utf-8")
         labels_file.write_text(json.dumps({"labels": item["labels"]}), encoding="utf-8")
         command = [sys.executable, str(HERE / "claude-worker-pilot.py"),
                    "--workspace", str(path), "--workspace-root", str(ROOT),
@@ -378,9 +442,71 @@ def execute(item: dict) -> str:
         raise DispatchError("Claude altered Git controls, refs, or checkout head; refusing credentialed handoff")
     save(number, "executed", model=result.get("requestedModel"), effort=result.get("requestedEffort"),
          reportedCostUsd=result.get("reportedCostUsd"))
-    enforce_scope(changed_paths(path), path)
-    save(number, "handoff")
-    broker(path, "handoff", branch, f"GH-{number}: {item.get('title') or 'Claude implementation'}")
+    validation_run = ""
+    if visual:
+        enforce_visual_scope(changed_paths(path), number, path)
+        manifest = VISUAL_POLICY.read_manifest(path, auth, number)
+        if not any(experiment["kind"] == "character-comparison" for experiment in manifest["experiments"]) and (
+            "character-comparison" in auth["phases"]
+        ):
+            raise DispatchError("Claude did not produce the authorized comparison")
+        # Host-only subprocess, with a shared Unity resource lease, not a Claude
+        # Bash permission. Unity executor may emit only attested PNGs + summary.
+        auth_file = STATE / "claude-dispatch" / f"GH-{number}-visual-authority.json"
+        auth_file.write_text(json.dumps(auth, sort_keys=True) + "\\n", encoding="utf-8")
+        os.chmod(auth_file, 0o600)
+        visual_cmd = [sys.executable, str(HERE / "claude-visual-host.py"),
+                      "--workspace", str(path), "--workspace-root", str(ROOT),
+                      "--state-root", str(STATE), "--issue", str(number),
+                      "--authority-json", str(auth_file)]
+        save(number, "visual_started")
+        visual_result = json.loads(run(visual_cmd, timeout=2600))
+        if visual_result.get("status") != "completed" or not visual_result.get("runId"):
+            raise DispatchError("host Unity preview did not produce verified visual evidence")
+        validation_run = visual_result["runId"]
+        save(number, "visual_evidence", visualRunId=validation_run,
+             screenshotHashes=visual_result.get("screenshots"))
+        review_path = path / "Docs" / "VisualExperiments" / f"GH-{number}" / "review.md"
+        original_manifest = VISUAL_POLICY.manifest_path(path, number).read_bytes()
+        # A second bounded Claude phase reads rendered PNGs and writes its design
+        # assessment. It still cannot invoke Unity, Git, Bash, or other tools.
+        with tempfile.TemporaryDirectory(dir=STATE / "claude-dispatch") as tmp:
+            prompt_file = Path(tmp) / "review.txt"
+            labels_file = Path(tmp) / "labels.json"
+            prompt_file.write_text(
+                f"Review the staged visual evidence for GH-{number}. "
+                f"Read the PNGs under Docs/Evidence/VisualExperiments/GH-{number}/ "
+                "and summary.json, compare character animation, grounded proportions, "
+                "weapon grip, lighting, palette, scale and environment cohesion. "
+                f"Write ONLY Docs/VisualExperiments/GH-{number}/review.md with "
+                "observations, limitations and a recommendation; do not fabricate "
+                "successful rendering or approval. Do not change the request or captures.",
+                encoding="utf-8")
+            labels_file.write_text(json.dumps({"labels": item["labels"]}), encoding="utf-8")
+            review_cmd = [sys.executable, str(HERE / "claude-worker-pilot.py"),
+                          "--workspace", str(path), "--workspace-root", str(ROOT),
+                          "--repo", REPO, "--state-root", str(STATE),
+                          "--prompt-file", str(prompt_file), "--labels-json-file", str(labels_file),
+                          "--mode", "edit", "--enable-edits", "--autonomous-confined",
+                          "--max-turns", "4", "--max-budget-usd", "2",
+                          "--timeout-seconds", "900"]
+            review_result = json.loads(run(review_cmd, timeout=1100))
+            if review_result.get("status") != "completed" or review_result.get("workspaceIdentityPreserved") is not True:
+                raise DispatchError("Claude visual evidence review failed; preserve outputs")
+        if not review_path.is_file() or not review_path.read_text(encoding="utf-8").strip():
+            raise DispatchError("Claude visual design review was not written")
+        if VISUAL_POLICY.manifest_path(path, number).read_bytes() != original_manifest:
+            raise DispatchError("Claude changed approved visual manifest after host rendering")
+        # Verify actual screenshot hashes after the agent reviewed them.
+        hashes = VISUAL_HOST.verify_evidence(VISUAL_POLICY.evidence_root(path, number), manifest)
+        if hashes != visual_result["screenshots"]:
+            raise DispatchError("Claude altered host-attested Unity screenshot evidence")
+        enforce_visual_scope(changed_paths(path), number, path)
+    else:
+        enforce_scope(changed_paths(path), path)
+    save(number, "handoff", validationRunId=validation_run)
+    broker(path, "handoff", branch, f"GH-{number}: {item.get('title') or 'Claude implementation'}",
+           validation_run=validation_run)
     if not reconcile(number, path, branch):
         raise DispatchError("host handoff completed but no matching pushed PR could be verified")
     return "review queued"
@@ -395,6 +521,14 @@ def once() -> dict:
     for number in issues:
         item = issue(number)
         try:
+            if "work:visual-unity" in names(item):
+                # Retain the queue rather than halting on a missing host-only
+                # readiness opt-in; no model turn or resource acquisition occurs.
+                preflight(item)
+                try:
+                    VISUAL_HOST.host_ready()
+                except (VISUAL_POLICY.VisualContractError, VISUAL_HOST.VisualHostError) as exc:
+                    return {"issue": number, "state": "blocked", "reason": str(exc)}
             return {"issue": number, "result": execute(item)}
         except Exception as exc:
             reason = f"{type(exc).__name__}: {exc}"
