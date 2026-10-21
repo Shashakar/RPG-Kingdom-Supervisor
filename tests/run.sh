@@ -37,6 +37,7 @@ bash "$ROOT/tests/diagnostics-policy-test.sh"
 python3 "$ROOT/tests/codex-usage-snapshot-test.py"
 python3 "$ROOT/tests/supervisor-telemetry-test.py"
 python3 "$ROOT/tests/supervisor-activity-test.py"
+python3 "$ROOT/tests/provider-quota-test.py"
 python3 "$ROOT/tests/finished-tasks-test.py"
 python3 "$ROOT/tests/supervisor-maintenance-test.py"
 python3 "$ROOT/tests/supervisor-detail-test.py"
@@ -108,6 +109,8 @@ python3 -m py_compile \
   "$ROOT/scripts/claude-visual-host.py" \
   "$ROOT/scripts/claude-worker-pilot.py" \
   "$ROOT/scripts/claude_model_policy.py" \
+  "$ROOT/scripts/supervisor_provider.py" \
+  "$ROOT/scripts/claude_quota.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
   "$ROOT/scripts/dashboard_update.py" \
   "$ROOT/scripts/finished_tasks.py" \
