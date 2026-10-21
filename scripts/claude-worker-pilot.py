@@ -86,6 +86,49 @@ def command(binary: str, prompt: str, mode: str, turns: int, budget: float, mode
     return flags
 
 
+OUTCOME_MARKER = re.compile(r"<!-- rpgk-worker-outcome\s*(\{.*?\})\s*-->", re.DOTALL)
+BLOCKER_CATEGORIES = {
+    "missing-approved-assets", "license-review", "rights-review",
+    "host-unavailable", "external-dependency", "other",
+}
+
+
+def parse_worker_outcome(message: str) -> dict:
+    """Parse a deliberately narrow completion signal; never infer it from prose.
+
+    This is only a request for HUMAN ATTENTION. It cannot confer permission,
+    satisfy Unity validation, publish assets, or approve a merge.
+    """
+    matches = OUTCOME_MARKER.findall(message)
+    if not matches:
+        return {"outcome": "unspecified"}
+    if len(matches) != 1 or len(matches[0]) > 2048:
+        raise ValueError("Claude returned duplicate or oversized outcome markers")
+    try:
+        data = json.loads(matches[0])
+    except json.JSONDecodeError as exc:
+        raise ValueError("Claude returned malformed outcome JSON") from exc
+    if not isinstance(data, dict) or type(data.get("protocolVersion")) is not int or data["protocolVersion"] != 1:
+        raise ValueError("Claude outcome protocol is invalid")
+    outcome = data.get("outcome")
+    if outcome == "implemented":
+        if set(data) != {"protocolVersion", "outcome"}:
+            raise ValueError("implemented outcome has unexpected fields")
+        return data
+    if outcome != "blocked":
+        raise ValueError("unrecognized Claude outcome")
+    if set(data) != {"protocolVersion", "outcome", "category", "reportPath"}:
+        raise ValueError("blocked outcome requires category and reportPath")
+    if data["category"] not in BLOCKER_CATEGORIES:
+        raise ValueError("unknown blocker category")
+    report = data["reportPath"]
+    if not isinstance(report, str) or len(report) > 220 or not re.fullmatch(
+        r"Docs/[A-Za-z0-9._/-]+\\.md", report
+    ) or ".." in report.split("/") or "//" in report:
+        raise ValueError("blocked outcome reportPath must be a safe Docs/*.md path")
+    return data
+
+
 def terminal_result(stdout: str) -> dict:
     last = None
     for line in stdout.splitlines():
@@ -178,9 +221,16 @@ def execute(args: argparse.Namespace) -> dict:
         except (ValueError, subprocess.SubprocessError):
             workspace_ok, changed_paths = False, []
         audit_modified = args.mode == "audit" and bool(changed_paths)
+        try:
+            worker_outcome = parse_worker_outcome(str(final.get("result") or ""))
+            outcome_error = ""
+        except ValueError as exc:
+            worker_outcome = {"outcome": "invalid"}
+            outcome_error = str(exc)
         succeeded = (
             not expired and process.returncode == 0 and bool(final)
             and final.get("is_error") is False and final.get("subtype") == "success"
+            and worker_outcome.get("outcome") != "invalid"
             and workspace_ok and not audit_modified
         )
         metadata.update({
@@ -194,6 +244,11 @@ def execute(args: argparse.Namespace) -> dict:
             # Report only provider-supplied cost; never infer subscription allowances.
             "reportedCostUsd": final.get("total_cost_usd"),
             "result": str(final.get("result") or "")[:1200],
+            "resultSubtype": str(final.get("subtype") or "")[:100],
+            "resultIsError": final.get("is_error"),
+            "resultErrors": str(final.get("errors") or "")[:800],
+            "workerOutcome": worker_outcome,
+            "outcomeParseError": outcome_error,
             "stderrExcerpt": stderr[-1500:],
         })
         report = dest / "latest.json"
