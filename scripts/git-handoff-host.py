@@ -287,6 +287,87 @@ def previous_attempt_boundary_ns(workspace: Path) -> int | None:
     return marker_path.stat().st_mtime_ns
 
 
+def validate_claude_visual_evidence(
+    workspace: Path, state_root: Path, issue_number: int, branch: str,
+    run_ids: list[str], *, newer_than_ns: int | None = None,
+) -> list[dict[str, Any]]:
+    """Verify host-generated, staged-only Unity screenshots, never a model claim.
+
+    This lane is distinct from passing Unity Test Runner evidence. It can satisfy
+    validation:unity-required only for an explicitly labelled Claude visual trial.
+    """
+    if len(run_ids) != 1 or not re.fullmatch(
+        rf"GH-{issue_number}-visual-[a-f0-9]{{12}}", run_ids[0]
+    ):
+        raise HandoffError("visual handoff requires one exact host run ID",
+                           code=72, status="ValidationEvidenceInvalid")
+    receipt_path = state_root / "claude-visual" / f"GH-{issue_number}.json"
+    if not receipt_path.is_file() or receipt_path.is_symlink():
+        raise HandoffError("host visual receipt missing", code=72, status="ValidationEvidenceMissing")
+    if newer_than_ns is not None and receipt_path.stat().st_mtime_ns <= newer_than_ns:
+        raise HandoffError("visual receipt predates continuation", code=72, status="ValidationEvidenceStale")
+    try:
+        record = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise HandoffError("host visual receipt unreadable", code=72, status="ValidationEvidenceInvalid") from exc
+    if (not isinstance(record, dict)
+        or record.get("protocolVersion") != 1
+        or record.get("issue") != issue_number
+        or record.get("runId") != run_ids[0]
+        or record.get("workspace") != str(workspace)
+        or record.get("branch") != branch
+        or record.get("hostVerified") is not True
+        or record.get("stageOnly") is not True):
+        raise HandoffError("visual receipt identity/authorization mismatch", code=72,
+                           status="ValidationEvidenceInvalid")
+    manifest_path = workspace / "Docs" / "VisualExperiments" / f"GH-{issue_number}" / "request.json"
+    evidence_dir = workspace / "Docs" / "Evidence" / "VisualExperiments" / f"GH-{issue_number}"
+    if manifest_path.is_symlink() or evidence_dir.is_symlink():
+        raise HandoffError("visual evidence symlink rejected", code=72, status="ValidationEvidenceInvalid")
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        plan = json.loads(manifest_bytes)
+        expected = [
+            f"{entry['kind']}-{shot['id']}.png"
+            for entry in plan["experiments"] for shot in entry["shots"]
+        ]
+    except (OSError, TypeError, ValueError, KeyError) as exc:
+        raise HandoffError("invalid visual request manifest at handoff", code=72,
+                           status="ValidationEvidenceInvalid") from exc
+    if (plan.get("protocolVersion") != 1 or plan.get("issue") != issue_number
+        or hashlib.sha256(manifest_bytes).hexdigest() != record.get("manifestSha256")
+        or not expected or len(expected) != len(set(expected))):
+        raise HandoffError("visual manifest hash/identity mismatch", code=72,
+                           status="ValidationEvidenceInvalid")
+    screenshots = record.get("screenshots")
+    if not isinstance(screenshots, dict) or set(screenshots) != set(expected):
+        raise HandoffError("visual screenshot receipt mismatch", code=72,
+                           status="ValidationEvidenceInvalid")
+    try:
+        actual = {item.name for item in evidence_dir.iterdir()}
+        if actual != set(expected) | {"summary.json"}:
+            raise ValueError("visual evidence includes unexpected files")
+        summary = evidence_dir / "summary.json"
+        if summary.is_symlink() or hashlib.sha256(summary.read_bytes()).hexdigest() != record.get("summarySha256"):
+            raise ValueError("visual summary differs from host output")
+        parsed = json.loads(summary.read_text(encoding="utf-8"))
+        if parsed.get("success") is not True or parsed.get("issue") != issue_number or parsed.get("captures") != expected:
+            raise ValueError("visual stage did not attest the expected captures")
+        for name in expected:
+            artifact = evidence_dir / name
+            if artifact.is_symlink() or not artifact.is_file():
+                raise ValueError("visual screenshot missing/symlink")
+            raw = artifact.read_bytes()
+            if (len(raw) < 500 or not raw.startswith(bytes((137,80,78,71,13,10,26,10)))
+                or hashlib.sha256(raw).hexdigest() != screenshots[name]):
+                raise ValueError("visual screenshot differs from host output")
+    except (OSError, ValueError, TypeError) as exc:
+        raise HandoffError(f"visual host evidence failed verification: {exc}",
+                           code=72, status="ValidationEvidenceInvalid") from exc
+    return [{"runId": run_ids[0], "kind": "staged-unity-visual",
+             "captures": expected, "stageOnly": True}]
+
+
 def validate_unity_evidence(
     workspace: Path,
     run_ids: list[str],
@@ -562,12 +643,25 @@ def main() -> int:
         if not isinstance(run_ids_raw, list) or not all(isinstance(item, str) for item in run_ids_raw):
             raise HandoffError("validationRunIds must be an array of strings", code=64, status="InvalidRequest")
         attempt_boundary_ns = previous_attempt_boundary_ns(workspace)
-        evidence = validate_unity_evidence(
-            workspace,
-            list(dict.fromkeys(run_ids_raw)),
-            "validation:unity-required" in labels,
-            newer_than_ns=attempt_boundary_ns,
-        )
+        is_visual = "agent:claude" in labels and "work:visual-unity" in labels
+        if is_visual:
+            mandatory_visual = {
+                "resource:unity-editor", "validation:unity-required",
+                "authoring:scene-new-composition",
+            }
+            if not mandatory_visual.issubset(labels):
+                raise HandoffError("incomplete Claude visual grant at handoff",
+                                   code=72, status="ValidationEvidenceInvalid")
+            evidence = validate_claude_visual_evidence(
+                workspace, state_root, issue_number, branch,
+                list(dict.fromkeys(run_ids_raw)), newer_than_ns=attempt_boundary_ns,
+            )
+        else:
+            evidence = validate_unity_evidence(
+                workspace, list(dict.fromkeys(run_ids_raw)),
+                "validation:unity-required" in labels,
+                newer_than_ns=attempt_boundary_ns,
+            )
 
         run_git(workspace, "fetch", "--prune", "origin", timeout=180)
         remote_sha_before = remote_branch_sha(workspace, branch)
