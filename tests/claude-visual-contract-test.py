@@ -234,6 +234,30 @@ class VisualSafetyTest(unittest.TestCase):
         with self.assertRaises(broker.HandoffError):
             self.verify_broker()
 
+    def test_unconfigured_visual_issue_does_not_starve_code_claude_work(self):
+        dispatcher = load("claude_visual_queue_regression", "claude-dispatcher.py")
+        visual = {
+            "number": 17, "state": "OPEN", "body": "",
+            "labels": [{"name": name} for name in policy.LABELS | {"symphony:claude-ready"}],
+        }
+        code = {
+            "number": 18, "state": "OPEN", "body": "",
+            "labels": [{"name": name} for name in
+                       ("agent:claude", "symphony:claude-ready", "risk:mechanical")],
+        }
+        with mock.patch.dict(os.environ, {
+                "RPGK_CLAUDE_AUTONOMOUS": "1"
+            }), mock.patch.object(dispatcher, "REPO", "Shashakar/Rekindle-Claude"), \
+            mock.patch.object(dispatcher, "BASE", "rekindle-vertical-slice"), \
+            mock.patch.object(dispatcher, "list_candidates", return_value=[17, 18]), \
+            mock.patch.object(dispatcher, "issue", side_effect=lambda n: visual if n == 17 else code), \
+            mock.patch.object(dispatcher, "preflight"), \
+            mock.patch.object(dispatcher.VISUAL_HOST, "host_ready", side_effect=host.VisualHostError("not ready")), \
+            mock.patch.object(dispatcher, "execute", return_value="review queued") as work:
+            result = dispatcher.once()
+        self.assertEqual(result["issue"], 18)
+        work.assert_called_once_with(code)
+
     def test_visual_scope_is_not_general_scene_authoring(self):
         dispatcher = load("claude_visual_dispatcher_security_test", "claude-dispatcher.py")
         safe = [
