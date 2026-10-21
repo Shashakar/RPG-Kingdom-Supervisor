@@ -72,9 +72,13 @@ def current_quota() -> dict[str, Any]:
             or raw.get("protocolVersion") != 1):
         return {"provider": "claude", "status": "unavailable",
                 "reason": "Claude quota record has an unsupported origin/format"}
+    rates = raw.get("rateLimits")
+    if not isinstance(rates, dict):
+        return {"provider": "claude", "status": "unavailable",
+                "reason": "Claude quota record has invalid rate-limit windows"}
     observed = _time(raw.get("observedAt"))
-    primary = _window((raw.get("rateLimits") or {}).get("primary"))
-    secondary = _window((raw.get("rateLimits") or {}).get("secondary"))
+    primary = _window(rates.get("primary"))
+    secondary = _window(rates.get("secondary"))
     if not observed or not primary or not secondary:
         return {"provider": "claude", "status": "unavailable",
                 "reason": "Claude quota record has invalid observed time or window percentages"}
@@ -82,7 +86,10 @@ def current_quota() -> dict[str, Any]:
     if age < -120:
         return {"provider": "claude", "status": "unavailable",
                 "reason": "Claude quota record is dated in the future"}
-    threshold = int(os.environ.get("RPGK_CLAUDE_QUOTA_STALE_SECONDS", "600"))
+    try:
+        threshold = int(os.environ.get("RPGK_CLAUDE_QUOTA_STALE_SECONDS", "600"))
+    except ValueError:
+        threshold = 600
     threshold = max(60, min(threshold, 86400))
     return {
         "provider": "claude", "status": "stale" if age > threshold else "available",
