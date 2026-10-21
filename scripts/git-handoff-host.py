@@ -644,25 +644,13 @@ def main() -> int:
         if not isinstance(run_ids_raw, list) or not all(isinstance(item, str) for item in run_ids_raw):
             raise HandoffError("validationRunIds must be an array of strings", code=64, status="InvalidRequest")
         attempt_boundary_ns = previous_attempt_boundary_ns(workspace)
-        is_visual = "agent:claude" in labels and "work:visual-unity" in labels
-        if is_visual:
-            mandatory_visual = {
-                "resource:unity-editor", "validation:unity-required",
-                "authoring:scene-new-composition",
-            }
-            if not mandatory_visual.issubset(labels):
-                raise HandoffError("incomplete Claude visual grant at handoff",
-                                   code=72, status="ValidationEvidenceInvalid")
-            evidence = validate_claude_visual_evidence(
-                workspace, state_root, issue_number, branch,
-                list(dict.fromkeys(run_ids_raw)), newer_than_ns=attempt_boundary_ns,
-            )
-        else:
-            evidence = validate_unity_evidence(
-                workspace, list(dict.fromkeys(run_ids_raw)),
-                "validation:unity-required" in labels,
-                newer_than_ns=attempt_boundary_ns,
-            )
+        # Provider-neutral validation contract: Claude and Codex use the same
+        # host-supplied Unity run receipts when validation is required.
+        evidence = validate_unity_evidence(
+            workspace, list(dict.fromkeys(run_ids_raw)),
+            "validation:unity-required" in labels,
+            newer_than_ns=attempt_boundary_ns,
+        )
 
         run_git(workspace, "fetch", "--prune", "origin", timeout=180)
         remote_sha_before = remote_branch_sha(workspace, branch)
