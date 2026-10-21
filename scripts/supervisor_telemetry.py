@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -620,7 +621,13 @@ def collect_operations() -> dict[str, Any]:
     # The Codex account has a live App Server rate-limit API; Claude Code's
     # subscription quota has no corresponding supported noninteractive source.
     # Keep provider quota and per-session Claude CLI cost entirely separate.
-    import claude_quota
+    quota_spec = importlib.util.spec_from_file_location(
+        "supervisor_claude_quota", Path(__file__).with_name("claude_quota.py")
+    )
+    if quota_spec is None or quota_spec.loader is None:
+        raise RuntimeError("Claude quota reader is unavailable")
+    claude_quota = importlib.util.module_from_spec(quota_spec)
+    quota_spec.loader.exec_module(claude_quota)
     codex = current_quota()
     claude = claude_quota.current_quota()
     return sanitize({
