@@ -74,8 +74,8 @@ class ClaudePilotTest(unittest.TestCase):
         self.assertIsNone(args["token"])
         self.assertIsNone(args["gh"])
         self.assertIsNone(args["claudecode"])
-        self.assertIn("Read,Glob,Grep,Bash,WebFetch,WebSearch", args["argv"])
-        self.assertNotIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch", args["argv"])
+        self.assertIn("Read,Glob,Grep,Bash,WebFetch,WebSearch,Skill,mcp__*", args["argv"])
+        self.assertNotIn("Read,Glob,Grep,Edit,Write,Bash,Agent,WebFetch,WebSearch,Skill,mcp__*", args["argv"])
         self.assertIn("dontAsk", args["argv"])
         self.assertTrue((self.base / "state/claude-pilot/GH-11/latest.json").exists())
 
