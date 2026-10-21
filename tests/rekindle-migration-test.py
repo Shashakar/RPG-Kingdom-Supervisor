@@ -57,6 +57,32 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(result.returncode, 74, result.stderr)
         self.assertIn("save isolation", result.stderr)
 
+    def test_narrow_claude_visual_capability_does_not_enable_other_unity_work(self):
+        visual_labels = "\n".join([
+            "agent:claude", "work:visual-unity", "resource:unity-editor",
+            "validation:unity-required", "authoring:scene-new-composition",
+        ])
+        ready = dict(
+            RPGK_CLAUDE_VISUAL_HOST_READY="1",
+            RPGK_CLAUDE_VISUAL_UNITY_ENABLED="1",
+            RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED="1",
+        )
+        result = self.run_guard(TEST_LABELS=visual_labels, **ready)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for missing in ready:
+            env = dict(ready)
+            env[missing] = "0"
+            blocked = self.run_guard(TEST_LABELS=visual_labels, **env)
+            self.assertEqual(blocked.returncode, 74, (missing, blocked.stderr))
+        codex_labels = visual_labels.replace("agent:claude", "agent:codex")
+        result = self.run_guard(TEST_LABELS=codex_labels, **ready)
+        self.assertEqual(result.returncode, 74)
+        extra = visual_labels + "\nauthoring:scene-existing-composition"
+        result = self.run_guard(TEST_LABELS=extra, **ready)
+        self.assertEqual(result.returncode, 74)
+        result = self.run_guard(TEST_LABELS="resource:unity-editor", **ready)
+        self.assertEqual(result.returncode, 74)
+
     def test_reject_incorrect_origin(self):
         git(self.ws, "remote", "set-url", "origin", "https://github.com/Shashakar/RPG-Kingdom.git")
         self.assertEqual(self.run_guard().returncode, 73)

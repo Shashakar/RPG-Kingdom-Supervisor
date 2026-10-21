@@ -14,7 +14,24 @@ if [[ "${RPGK_REKINDLE_UNITY_READY:-0}" != "1" ]]; then
   issue="$(basename "$PWD")"
   labels="$(gh issue view "${issue#GH-}" --repo "$RPGK_REPO" --json labels --jq '.labels[].name')"
   if grep -Eqi '^(resource:unity-editor|validation:unity-required|authoring:.*)$' <<<"$labels"; then
-    echo "Rekindle preflight: Unity work blocked pending save isolation and target validation" >&2
-    exit 74
+    # Grant only the exact separately reviewed visual lane, never generic Unity.
+    visual_labels=(
+      agent:claude work:visual-unity resource:unity-editor
+      validation:unity-required authoring:scene-new-composition
+    )
+    visual_ok=1
+    for label in "${visual_labels[@]}"; do
+      grep -Fxiq "$label" <<<"$labels" || visual_ok=0
+    done
+    if grep -Eqi '^(agent:codex|agent:auto|symphony:ready|validation:unity-optional|authoring:scene-(mechanical|structural|existing-composition))$' <<<"$labels"; then
+      visual_ok=0
+    fi
+    if [[ "$visual_ok" != 1 ||
+          "${RPGK_CLAUDE_VISUAL_HOST_READY:-0}" != 1 ||
+          "${RPGK_CLAUDE_VISUAL_UNITY_ENABLED:-0}" != 1 ||
+          "${RPGK_CLAUDE_LICENSED_VISUAL_REVIEW_APPROVED:-0}" != 1 ]]; then
+      echo "Rekindle preflight: Unity work blocked pending save isolation/target validation; stage-only Claude visual approval required" >&2
+      exit 74
+    fi
   fi
 fi

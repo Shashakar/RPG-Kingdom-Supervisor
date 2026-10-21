@@ -9,6 +9,7 @@ python3 "$ROOT/tests/unity-stage-host-preflight-test.py"
 python3 "$ROOT/tests/unity-stage-simple-handoff-test.py"
 
 python3 "$ROOT/tests/claude-dispatcher-test.py"
+python3 "$ROOT/tests/claude-visual-contract-test.py"
 python3 "$ROOT/tests/claude-model-policy-test.py"
 python3 "$ROOT/tests/service-profile-test.py"
 python3 "$ROOT/tests/claude-worker-pilot-test.py"
@@ -103,6 +104,8 @@ python3 -m py_compile \
   "$ROOT/scripts/autonomous-plan.py" \
   "$ROOT/scripts/autonomous-scheduler.py" \
   "$ROOT/scripts/claude-dispatcher.py" \
+  "$ROOT/scripts/claude-visual-policy.py" \
+  "$ROOT/scripts/claude-visual-host.py" \
   "$ROOT/scripts/claude-worker-pilot.py" \
   "$ROOT/scripts/claude_model_policy.py" \
   "$ROOT/scripts/codex-capability-policy.py" \
