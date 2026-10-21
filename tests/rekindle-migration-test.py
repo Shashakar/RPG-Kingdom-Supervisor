@@ -58,7 +58,7 @@ class TargetTest(unittest.TestCase):
         self.assertIn("save isolation", result.stderr)
 
     def test_narrow_claude_visual_capability_does_not_enable_other_unity_work(self):
-        visual_labels = "\\n".join([
+        visual_labels = "\n".join([
             "agent:claude", "work:visual-unity", "resource:unity-editor",
             "validation:unity-required", "authoring:scene-new-composition",
         ])
@@ -77,7 +77,7 @@ class TargetTest(unittest.TestCase):
         codex_labels = visual_labels.replace("agent:claude", "agent:codex")
         result = self.run_guard(TEST_LABELS=codex_labels, **ready)
         self.assertEqual(result.returncode, 74)
-        extra = visual_labels + "\\nauthoring:scene-existing-composition"
+        extra = visual_labels + "\nauthoring:scene-existing-composition"
         result = self.run_guard(TEST_LABELS=extra, **ready)
         self.assertEqual(result.returncode, 74)
         result = self.run_guard(TEST_LABELS="resource:unity-editor", **ready)
